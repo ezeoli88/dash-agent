@@ -1,0 +1,243 @@
+{
+  "meta": {
+    "project": "Agent Board",
+    "date": "2026-02-03",
+    "prepared_by": "Software Development Manager"
+  },
+  "product_overview": "Agent Board is a web dashboard for creating, executing, monitoring, and reviewing tasks performed by autonomous AI agents. It provides real-time streaming logs (SSE), bidirectional feedback, visual diff review, and task lifecycle controls to enable developers and teams to safely approve AI-generated code changes.",
+  "core_goals": [
+    "Provide an intuitive UI for creating and managing agent tasks with full CRUD capabilities.",
+    "Stream real-time task execution logs with robust SSE reconnection and status indicators.",
+    "Enable safe review and approval of AI-generated code via a diff viewer and PR lifecycle actions.",
+    "Support bidirectional feedback between user and agent with history tracking and visibility in logs.",
+    "Deliver a responsive, accessible, and performant experience across desktop and mobile.",
+    "Maintain typed, testable client-side data fetching and state management for predictable behavior."
+  ],
+  "key_features": [
+    "Task Management: list, search (300ms debounce), multi-status filtering, skeleton and empty states.",
+    "Create Task Dialog: modal form with React Hook Form + Zod validation (title, description, repo URL, branch, tags, build command), toast notifications, redirect to task detail on success.",
+    "Real-time Logging (SSE): server-sent events for log, status, timeout_warning, awaiting_review, complete, and error events; connection status UI; auto-reconnect (3s); auto-scroll toggle; copy/clear logs.",
+    "Task Actions: contextual actions (Execute, Cancel, Extend, Approve, Retry, View PR) with confirmation dialogs and loading states.",
+    "Diff Viewer: file list with change icons, syntax-highlighted diffs, split/unified toggle, diff statistics and dark-mode-aware styling.",
+    "Feedback System: send feedback (Ctrl+Enter shortcut), character counter (2000 max), feedback history, feedback appears in logs.",
+    "Typed API Client & Hooks: typed endpoints, TanStack Query v5 hooks for caching and mutations, optimized query keys, toast/error handling.",
+    "State Management: Zustand stores for UI state, filters, and modal controls; persistent sidebar and theme preference.",
+    "UI & Shared Components: shadcn/ui (Radix) components, layout/header/sidebar/mobile nav, theme toggle, command palette, loading/error components, and accessibility affordances.",
+    "Routing & Pages: Next.js App Router pages and layouts for tasks list and task detail with per-route error boundaries and loading states."
+  ],
+  "user_flow_summary": [
+    "Create and Execute Task: New Task -> Fill form -> Create -> Toast + redirect to /tasks/[taskId] -> Execute -> status transitions backlog -> planning -> in_progress -> logs stream.",
+    "Review and Approve Changes: Task reaches awaiting_review -> open Changes tab -> review file list and diffs -> Approve (confirm) -> status approved -> done -> PR URL available.",
+    "Send Feedback During Execution: While in_progress -> open feedback form -> type message or Ctrl+Enter to send -> visible in log and feedback history -> agent receives and reacts.",
+    "Live Log Monitoring: Open Logs tab -> SSE connection established -> logs render color-coded by level -> auto-scroll follows new logs (toggle off available) -> connection status visible; reconnection attempted automatically.",
+    "Task Lifecycle Management: From task detail, use contextual TaskActions to Execute, Cancel, Extend, Retry or View PR depending on status with spinners and confirmation flows.",
+    "Quick Navigation: Use Command Palette (Cmd/Ctrl+K) to search tasks, create new tasks, and toggle theme; mobile navigation via sheet/drawer pattern."
+  ],
+  "validation_criteria": [
+    "Feature: Task List - displays title, status badge, repo, and timestamp; filters and 300ms debounced search work; skeleton (5 items) and empty state CTAs present.",
+    "Feature: Task Detail - metadata, description, tabs (Overview/Logs/Changes) load and persist selection; errors render in destructive alert; PR URL clickable when done.",
+    "Feature: Create Task - Zod schema enforces required fields (title >=1 char, description >=10 chars, repo URL GitHub format), branch defaults to main, tag input works, toast on success, redirect to new task.",
+    "Feature: Real-time Logs - SSE delivers 'log' and status events; new logs appear within 100ms; connection indicator shows states (connected/disconnected/error); auto-reconnect occurs after 3s; copy and clear functions operate on visible logs.",
+    "Feature: Task Actions - action availability matrix matches task status; actions send correct API calls and show loading states; cancel/approve show confirmation dialogs; retry re-executes failed tasks.",
+    "Feature: Diff Viewer - file list renders change type icons (+/~/-); diff shows syntax highlighting and supports split/unified modes; DiffStats shows additions/deletions and visual bar; respects dark mode.",
+    "Feature: Feedback System - send feedback via form and Ctrl+Enter; character counter enforces 2000 max; feedback appears in history and in logs with 'user' styling; toasts confirm success or show errors.",
+    "API & Hooks - typed API client returns expected shapes; TanStack Query hooks provide caching, optimistic updates where applicable, and consistent query keys; mutations handle errors with toasts.",
+    "State & Persistence - sidebar collapse and theme selection persist across sessions; modal and UI state managed via Zustand stores; navigation progress displays during route changes.",
+    "Accessibility - keyboard navigation for all interactive controls (including command palette), focus visible states, screen-reader labels for key UI elements, and adherence to WCAG 2.1 AA guidelines.",
+    "Performance & Reliability - initial page load under 3s on supported browsers, navigation transitions < 500ms, log streaming latency < 100ms, SSE reconnection reliable across network flakiness, smooth 60fps animations.",
+    "Browser Support - validated on latest 2 versions of Chrome, Firefox, Safari, and Edge.",
+    "Error Handling - global and per-route error boundaries exist; API and SSE errors surface via toasts and in-UI alerts with retry options.",
+    "Testing - unit tests for hooks and components, integration tests for create/execute/review flows, and e2e tests for key user flows (create task, execute, send feedback, approve PR).",
+    "Out of Scope Confirmation - authentication, push notifications, analytics, execution history, multi-agent collaboration are explicitly out-of-scope for initial release."
+  ],
+  "code_summary": {
+    "tech_stack": [
+      "TypeScript",
+      "React 19.2",
+      "Next.js 16.1 (App Router)",
+      "TanStack Query v5",
+      "Zustand",
+      "Tailwind CSS 4",
+      "shadcn/ui",
+      "React Hook Form",
+      "Zod",
+      "next-themes",
+      "Sonner (Toast notifications)",
+      "Radix UI",
+      "Lucide React (Icons)",
+      "react-diff-viewer-continued"
+    ],
+    "features": [
+      {
+        "name": "Task Management",
+        "description": "Core task management system with CRUD operations, filtering, and search capabilities",
+        "files": [
+          "src/features/tasks/components/task-list.tsx",
+          "src/features/tasks/components/task-list-item.tsx",
+          "src/features/tasks/components/task-detail.tsx",
+          "src/features/tasks/components/task-header.tsx",
+          "src/features/tasks/components/task-metadata.tsx",
+          "src/features/tasks/components/task-description.tsx",
+          "src/features/tasks/components/task-filters.tsx"
+        ]
+      },
+      {
+        "name": "Create Task Dialog",
+        "description": "Modal dialog for creating new tasks with form validation using React Hook Form and Zod",
+        "files": [
+          "src/features/tasks/components/task-form-dialog.tsx",
+          "src/features/tasks/components/task-form.tsx",
+          "src/features/tasks/schemas/task.schema.ts"
+        ]
+      },
+      {
+        "name": "Real-time Logging (SSE)",
+        "description": "Server-Sent Events integration for real-time task execution logs, status updates, and agent communication",
+        "files": [
+          "src/features/tasks/hooks/use-task-sse.ts",
+          "src/features/tasks/components/task-logs.tsx",
+          "src/features/tasks/components/log-entry.tsx",
+          "src/features/tasks/components/connection-status.tsx"
+        ]
+      },
+      {
+        "name": "Task Actions",
+        "description": "User actions for managing task lifecycle: start, cancel, retry, extend, approve",
+        "files": [
+          "src/features/tasks/components/task-actions.tsx",
+          "src/features/tasks/hooks/use-task-actions.ts"
+        ]
+      },
+      {
+        "name": "Diff Viewer",
+        "description": "Visual diff viewer for displaying file changes with syntax highlighting and statistics",
+        "files": [
+          "src/features/tasks/components/diff-viewer.tsx",
+          "src/features/tasks/components/task-diff.tsx",
+          "src/features/tasks/components/file-changes.tsx",
+          "src/features/tasks/components/diff-stats.tsx",
+          "src/features/tasks/hooks/use-task-changes.ts"
+        ]
+      },
+      {
+        "name": "Feedback System",
+        "description": "Bidirectional feedback mechanism for agent-user communication with history tracking",
+        "files": [
+          "src/features/tasks/components/feedback-form.tsx",
+          "src/features/tasks/components/feedback-section.tsx",
+          "src/features/tasks/components/feedback-history.tsx"
+        ]
+      },
+      {
+        "name": "API Client",
+        "description": "Typed API client for communication with backend, includes error handling and typed endpoints",
+        "files": [
+          "src/lib/api-client.ts"
+        ]
+      },
+      {
+        "name": "Custom Hooks (TanStack Query)",
+        "description": "React Query hooks for data fetching and caching with optimized query keys",
+        "files": [
+          "src/features/tasks/hooks/use-tasks.ts",
+          "src/features/tasks/hooks/use-task.ts",
+          "src/features/tasks/hooks/use-create-task.ts",
+          "src/features/tasks/hooks/query-keys.ts",
+          "src/hooks/use-toast.ts"
+        ]
+      },
+      {
+        "name": "State Management (Zustand)",
+        "description": "Client-side state management for UI state, filters, and modal controls",
+        "files": [
+          "src/stores/layout-store.ts",
+          "src/features/tasks/stores/task-ui-store.ts"
+        ]
+      },
+      {
+        "name": "UI Components (shadcn/ui)",
+        "description": "Reusable UI components built on Radix UI with Tailwind CSS styling",
+        "files": [
+          "src/components/ui/button.tsx",
+          "src/components/ui/input.tsx",
+          "src/components/ui/dialog.tsx",
+          "src/components/ui/textarea.tsx",
+          "src/components/ui/tabs.tsx",
+          "src/components/ui/scroll-area.tsx",
+          "src/components/ui/skeleton.tsx",
+          "src/components/ui/dropdown-menu.tsx",
+          "src/components/ui/separator.tsx",
+          "src/components/ui/alert-dialog.tsx",
+          "src/components/ui/tooltip.tsx",
+          "src/components/ui/avatar.tsx",
+          "src/components/ui/collapsible.tsx",
+          "src/components/ui/card.tsx",
+          "src/components/ui/sheet.tsx",
+          "src/components/ui/badge.tsx",
+          "src/components/ui/label.tsx",
+          "src/components/ui/sonner.tsx"
+        ]
+      },
+      {
+        "name": "Shared Components",
+        "description": "Application-wide shared components for status display, error handling, and utilities",
+        "files": [
+          "src/components/shared/status-badge.tsx",
+          "src/components/shared/empty-state.tsx",
+          "src/components/shared/error-boundary.tsx",
+          "src/components/shared/command-palette.tsx",
+          "src/components/shared/tag-input.tsx",
+          "src/components/shared/navigation-progress.tsx",
+          "src/components/shared/loading-spinner.tsx",
+          "src/components/shared/loading-page.tsx",
+          "src/components/shared/providers.tsx"
+        ]
+      },
+      {
+        "name": "Layout Components",
+        "description": "Main application layout with responsive navigation, sidebar, header, and theme switching",
+        "files": [
+          "src/components/layout/main-layout.tsx",
+          "src/components/layout/header.tsx",
+          "src/components/layout/sidebar.tsx",
+          "src/components/layout/mobile-nav.tsx",
+          "src/components/layout/theme-toggle.tsx"
+        ]
+      },
+      {
+        "name": "Routes & Pages",
+        "description": "Next.js App Router pages and layouts for task list, task detail views",
+        "files": [
+          "src/app/page.tsx",
+          "src/app/layout.tsx",
+          "src/app/tasks/page.tsx",
+          "src/app/tasks/layout.tsx",
+          "src/app/tasks/[taskId]/page.tsx",
+          "src/app/tasks/[taskId]/layout.tsx",
+          "src/app/error.tsx",
+          "src/app/not-found.tsx",
+          "src/app/loading.tsx"
+        ]
+      },
+      {
+        "name": "Utilities & Helpers",
+        "description": "Helper functions for formatting, utilities, and common operations",
+        "files": [
+          "src/lib/utils.ts",
+          "src/lib/formatters.ts",
+          "src/types/common.ts"
+        ]
+      },
+      {
+        "name": "Loading & Error States",
+        "description": "Skeleton components and error boundaries for better UX during loading states",
+        "files": [
+          "src/features/tasks/components/task-list-skeleton.tsx",
+          "src/features/tasks/components/task-detail-skeleton.tsx",
+          "src/app/tasks/[taskId]/error.tsx",
+          "src/app/tasks/error.tsx"
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "name": "dash-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI Agent Task Dashboard - Monitor and manage autonomous AI agent tasks with real-time logs, diff viewer, and PR creation",
+  "keywords": [
+    "ai",
+    "agent",
+    "dashboard",
+    "task-management",
+    "llm",
+    "openai",
+    "automation",
+    "github",
+    "pull-request",
+    "code-review"
+  ],
+  "homepage": "https://github.com/your-username/dash-agent#readme",
+  "bugs": {
+    "url": "https://github.com/your-username/dash-agent/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-username/dash-agent.git"
+  },
+  "license": "MIT",
+  "author": "Your Name <your@email.com>",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build:shared": "npm run build -w @dash-agent/shared",
+    "build:server": "npm run build -w @dash-agent/server",
+    "build:dashboard": "npm run build -w @dash-agent/dashboard",
+    "dev:dashboard": "npm run dev -w @dash-agent/dashboard",
+    "dev:server": "npm run dev -w @dash-agent/server",
+    "dev": "npm run build:shared && concurrently \"npm run dev:server\" \"npm run dev:dashboard\"",
+    "build": "npm run build:shared && npm run build:server && npm run build:dashboard",
+    "lint": "npm run lint --workspaces --if-present",
+    "clean": "npm run clean -w @dash-agent/shared"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

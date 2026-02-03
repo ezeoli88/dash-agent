@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__TestSprite__testsprite_bootstrap",
+      "mcp__TestSprite__testsprite_generate_standardized_prd",
+      "mcp__TestSprite__testsprite_generate_code_summary",
+      "mcp__TestSprite__testsprite_generate_frontend_test_plan"
+    ]
+  }
+}

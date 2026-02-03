@@ -1,0 +1,852 @@
+[
+  {
+    "id": "TC001",
+    "title": "Task List: basic render with skeleton and empty states",
+    "description": "Verify the tasks list page renders skeleton state during loading and shows empty state CTA when no tasks exist; ensure list items display title, status badge, repo, and timestamp when data available.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /tasks route with network throttled to simulate loading"
+      },
+      {
+        "type": "assertion",
+        "description": "Skeleton list with 5 placeholder items is visible"
+      },
+      {
+        "type": "action",
+        "description": "Let network complete; return API response with zero tasks"
+      },
+      {
+        "type": "assertion",
+        "description": "Empty state UI is shown with CTA to create a new task"
+      },
+      {
+        "type": "action",
+        "description": "Return API response with multiple tasks (vary statuses)"
+      },
+      {
+        "type": "assertion",
+        "description": "Each task list item shows title, status badge, repository, and relative timestamp"
+      }
+    ]
+  },
+  {
+    "id": "TC002",
+    "title": "Task List: search input debounces 300ms and returns results",
+    "description": "Verify typing in search input triggers API calls after 300ms debounce; rapid typing should not flood requests and final query should return expected filtered results.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open tasks page and focus search field"
+      },
+      {
+        "type": "action",
+        "description": "Type 'fix' quickly then add 'bug' within 100ms intervals (simulate rapid typing)"
+      },
+      {
+        "type": "assertion",
+        "description": "No API call fired until 300ms after last keystroke"
+      },
+      {
+        "type": "action",
+        "description": "Wait 350ms and inspect outgoing API request"
+      },
+      {
+        "type": "assertion",
+        "description": "Single API request executed with query 'fixbug' (or final accumulated value) and results rendered"
+      }
+    ]
+  },
+  {
+    "id": "TC003",
+    "title": "Task List: multi-status filtering and combined state",
+    "description": "Verify filtering by multiple statuses returns tasks matching any selected statuses and UI updates correctly.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open filters and select statuses 'planning' and 'in_progress'"
+      },
+      {
+        "type": "action",
+        "description": "Apply filter"
+      },
+      {
+        "type": "assertion",
+        "description": "API request includes both statuses and returned list contains tasks in either 'planning' or 'in_progress'"
+      },
+      {
+        "type": "assertion",
+        "description": "Status badges in the list reflect the actual task statuses"
+      }
+    ]
+  },
+  {
+    "id": "TC004",
+    "title": "Create Task Dialog: form validation (Zod) and success flow",
+    "description": "Validate required fields, Zod schema enforcement, toast on success, and redirect to new task detail on successful create.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open Create Task dialog from tasks page"
+      },
+      {
+        "type": "action",
+        "description": "Submit the form with empty fields"
+      },
+      {
+        "type": "assertion",
+        "description": "Form validation errors shown for required fields (title, description, repo URL)"
+      },
+      {
+        "type": "action",
+        "description": "Enter title 'A', description shorter than 10 chars, invalid repo URL 'not-a-git'"
+      },
+      {
+        "type": "assertion",
+        "description": "Zod-specific error shown for description length and repo URL format (expects GitHub url)"
+      },
+      {
+        "type": "action",
+        "description": "Fill valid title, description >=10 chars, repo URL in GitHub format, leave branch blank, add multiple tags and build command, submit"
+      },
+      {
+        "type": "assertion",
+        "description": "Success toast appears and app redirects to /tasks/[taskId] of newly created task; branch defaults to 'main' in task metadata"
+      }
+    ]
+  },
+  {
+    "id": "TC005",
+    "title": "Create Task Dialog: server error handling on create",
+    "description": "When API returns 500 or validation error from server, the UI should show an error toast and not redirect.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open form, fill valid inputs and submit; mock server to return 500"
+      },
+      {
+        "type": "assertion",
+        "description": "Error toast displayed with retry option and dialog remains open"
+      },
+      {
+        "type": "action",
+        "description": "Mock server returns validation error object for repo URL"
+      },
+      {
+        "type": "assertion",
+        "description": "Form maps server-side validation to field-level error for repo URL"
+      }
+    ]
+  },
+  {
+    "id": "TC006",
+    "title": "Task Detail: tabs persist selection across navigation",
+    "description": "Ensure Overview/Logs/Changes tab selection persists when navigating within task detail and on route refresh; per-route loading and error boundaries operate properly.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open a task detail page and click on 'Changes' tab"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to another route and then return to this task detail"
+      },
+      {
+        "type": "assertion",
+        "description": "Tab selection remains on 'Changes'"
+      },
+      {
+        "type": "action",
+        "description": "Refresh the page"
+      },
+      {
+        "type": "assertion",
+        "description": "Selected tab persists and loading skeletons show while data loads"
+      }
+    ]
+  },
+  {
+    "id": "TC007",
+    "title": "Real-time Logs (SSE): receive 'log' and 'status' events and render color-coded entries",
+    "description": "SSE should stream log and status events; logs render within 100ms, color-coded by level, and connection indicator reflects connected state.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "On a task in 'in_progress', open Logs tab which establishes SSE connection"
+      },
+      {
+        "type": "action",
+        "description": "Mock server to emit a 'log' event with level 'error' and message"
+      },
+      {
+        "type": "assertion",
+        "description": "Log entry appears in the log stream within 100ms and styled as error color"
+      },
+      {
+        "type": "action",
+        "description": "Mock server emits a 'status' event transitioning to 'awaiting_review'"
+      },
+      {
+        "type": "assertion",
+        "description": "Status badge in header updates to 'awaiting_review' and a status event entry is visible in logs"
+      },
+      {
+        "type": "assertion",
+        "description": "Connection status indicator shows 'connected' state"
+      }
+    ]
+  },
+  {
+    "id": "TC008",
+    "title": "Real-time Logs (SSE): auto-reconnect after 3s on disconnect",
+    "description": "When SSE connection is closed unexpectedly, client attempts reconnect after ~3s and indicates reconnecting status; resumes receiving events after reconnect.",
+    "category": "reliability",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Establish SSE connection in Logs tab"
+      },
+      {
+        "type": "action",
+        "description": "Simulate abrupt server-side SSE close (connection dropped)"
+      },
+      {
+        "type": "assertion",
+        "description": "Connection indicator shows disconnected/error and a toast is shown"
+      },
+      {
+        "type": "action",
+        "description": "Advance time ~3s to allow auto-reconnect attempt"
+      },
+      {
+        "type": "assertion",
+        "description": "Client re-establishes SSE, connection indicator returns to connected, and a reconnection log entry is present"
+      }
+    ]
+  },
+  {
+    "id": "TC009",
+    "title": "Logs: auto-scroll toggle and copy/clear functions",
+    "description": "Verify auto-scroll follows new logs when enabled; when disabled, auto-scroll stops. Copy copies visible logs to clipboard and Clear removes visible logs UI.",
+    "category": "ui",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open Logs tab, enable auto-scroll, and have SSE send several log events"
+      },
+      {
+        "type": "assertion",
+        "description": "Scrollbar moves to bottom as logs arrive"
+      },
+      {
+        "type": "action",
+        "description": "Disable auto-scroll, send new logs"
+      },
+      {
+        "type": "assertion",
+        "description": "Scroll position remains and does not jump to bottom"
+      },
+      {
+        "type": "action",
+        "description": "Click 'Copy logs' control"
+      },
+      {
+        "type": "assertion",
+        "description": "Clipboard contains visible logs text formatted; toast confirms copy"
+      },
+      {
+        "type": "action",
+        "description": "Click 'Clear logs' control and confirm when prompted"
+      },
+      {
+        "type": "assertion",
+        "description": "Visible logs area is empty"
+      }
+    ]
+  },
+  {
+    "id": "TC010",
+    "title": "Task Actions: Execute -> status transitions and loading states",
+    "description": "Start execution from task detail and validate API call, loading spinners, and status transitions from backlog -> planning -> in_progress with logs streaming.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open a task in 'backlog' status and click 'Execute' action"
+      },
+      {
+        "type": "assertion",
+        "description": "Confirmation dialog appears; confirm execution"
+      },
+      {
+        "type": "action",
+        "description": "Mock API to accept execute request and emit status events backlog->planning->in_progress"
+      },
+      {
+        "type": "assertion",
+        "description": "Execute button shows loading/spinner during request; header status updates to planning then in_progress; logs tab starts receiving SSE logs"
+      }
+    ]
+  },
+  {
+    "id": "TC011",
+    "title": "Task Actions: Cancel with confirmation stops execution and shows final status",
+    "description": "Cancel action should present confirmation, call API, halt further logs, and set task status to 'cancelled' with appropriate toasts and UI updates.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open a task currently 'in_progress' and click 'Cancel'"
+      },
+      {
+        "type": "assertion",
+        "description": "Confirmation dialog is shown explaining cancel consequences"
+      },
+      {
+        "type": "action",
+        "description": "Confirm cancel; mock API to succeed and SSE to stop emitting additional logs"
+      },
+      {
+        "type": "assertion",
+        "description": "Task status updates to 'cancelled', toast confirms cancellation, and no new logs are appended after cancel"
+      }
+    ]
+  },
+  {
+    "id": "TC012",
+    "title": "Task Actions: Approve flow when awaiting_review",
+    "description": "Approve action must be available in awaiting_review, show confirmation, call API, update status to approved/done, and expose PR URL in metadata.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open a task in 'awaiting_review' and open Changes tab"
+      },
+      {
+        "type": "assertion",
+        "description": "Diffs and file list are visible and Approve button is enabled"
+      },
+      {
+        "type": "action",
+        "description": "Click Approve, confirm dialog, mock approve API to return PR URL and status 'approved' then 'done'"
+      },
+      {
+        "type": "assertion",
+        "description": "Status badge updates to 'approved' then 'done', toast confirms approval, and PR URL is visible and clickable in task metadata"
+      }
+    ]
+  },
+  {
+    "id": "TC013",
+    "title": "Task Actions: Retry re-executes failed task and shows loading",
+    "description": "Retry should be enabled for failed tasks, call retry endpoint, set loading state, and transition back to planning/in_progress with logs resuming.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open a task with status 'failed' and click 'Retry'"
+      },
+      {
+        "type": "assertion",
+        "description": "Confirmation dialog appears; on confirm, Retry button shows loading"
+      },
+      {
+        "type": "action",
+        "description": "Mock retry API to accept and SSE to resume streaming logs and status transitions"
+      },
+      {
+        "type": "assertion",
+        "description": "Task progresses to 'in_progress' and logs begin streaming again"
+      }
+    ]
+  },
+  {
+    "id": "TC014",
+    "title": "Diff Viewer: file list icons and split/unified toggle",
+    "description": "Verify file list renders change type icons for added/modified/deleted, toggling between split and unified modes updates diff rendering and preserves selection.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open Changes tab for a task with multiple file changes"
+      },
+      {
+        "type": "assertion",
+        "description": "File list shows icons for added (+), modified (~), and deleted (-) files"
+      },
+      {
+        "type": "action",
+        "description": "Toggle diff mode to 'split' and then to 'unified'"
+      },
+      {
+        "type": "assertion",
+        "description": "Diff rendering updates accordingly and syntax highlighting persists; currently selected file remains open after toggle"
+      }
+    ]
+  },
+  {
+    "id": "TC015",
+    "title": "Diff Viewer: DiffStats counts and visual bar respects dark mode",
+    "description": "Diff statistics should match additions/deletions numbers; visual bar renders proportionally and adapts to dark-mode styles when theme toggled.",
+    "category": "ui",
+    "priority": "Low",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open Changes tab and inspect DiffStats for a sample commit diff"
+      },
+      {
+        "type": "assertion",
+        "description": "Additions and deletions numbers match diff contents and visual bar proportion reflects ratio"
+      },
+      {
+        "type": "action",
+        "description": "Toggle theme to dark mode"
+      },
+      {
+        "type": "assertion",
+        "description": "Diff viewer and DiffStats switch to dark-mode appropriate colors and remain legible"
+      }
+    ]
+  },
+  {
+    "id": "TC016",
+    "title": "Feedback System: send feedback via button and Ctrl+Enter, history and log inclusion",
+    "description": "Feedback form accepts messages up to 2000 chars, Ctrl+Enter submits form, feedback appears in feedback history and as a 'user' styled log entry; toasts reflect success/failure.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open Logs or Feedback tab on an in_progress task and focus feedback textarea"
+      },
+      {
+        "type": "action",
+        "description": "Type a feedback message and press Ctrl+Enter"
+      },
+      {
+        "type": "assertion",
+        "description": "Message is sent, toast confirms success, feedback entry appears in feedback history and a corresponding 'user' log entry is appended"
+      },
+      {
+        "type": "action",
+        "description": "Type a message at 2001 characters and attempt to send"
+      },
+      {
+        "type": "assertion",
+        "description": "Character counter prevents send and shows 2000 max validation"
+      },
+      {
+        "type": "action",
+        "description": "Click send button with valid message while mocking API to return an error"
+      },
+      {
+        "type": "assertion",
+        "description": "Error toast displayed and message remains in input for retry"
+      }
+    ]
+  },
+  {
+    "id": "TC017",
+    "title": "Typed API Client & Hooks: query keys, caching, and optimistic update for approve",
+    "description": "Ensure TanStack Query hooks use stable query keys, caching works across components, and approving a task uses optimistic update that reverts on error.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open task detail and another component that reads the same task (e.g., task list sidebar)"
+      },
+      {
+        "type": "action",
+        "description": "Trigger Approve action and set mutation to perform optimistic update to 'approved' immediately"
+      },
+      {
+        "type": "assertion",
+        "description": "Both task detail and list view immediately show 'approved' status due to optimistic update"
+      },
+      {
+        "type": "action",
+        "description": "Mock approve API to return error"
+      },
+      {
+        "type": "assertion",
+        "description": "UI reverts to previous status and error toast displayed"
+      }
+    ]
+  },
+  {
+    "id": "TC018",
+    "title": "Zustand State & Persistence: sidebar collapse and theme persist across sessions",
+    "description": "UI preferences like collapsed sidebar and theme selection persist via Zustand store and localStorage; verify persistence across page reloads and new tabs.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Collapse the sidebar and set theme to dark"
+      },
+      {
+        "type": "action",
+        "description": "Reload the page"
+      },
+      {
+        "type": "assertion",
+        "description": "Sidebar remains collapsed and theme remains dark after reload"
+      },
+      {
+        "type": "action",
+        "description": "Open application in a new tab"
+      },
+      {
+        "type": "assertion",
+        "description": "Preferences persist across sessions and tabs"
+      }
+    ]
+  },
+  {
+    "id": "TC019",
+    "title": "Routing & Pages: per-route loading and error boundaries",
+    "description": "Test that per-route loading skeletons show during data loads and per-route error boundaries display destructive alerts and retry options when route data fetch fails.",
+    "category": "error handling",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to /tasks/[taskId] and simulate slow network to display loading state"
+      },
+      {
+        "type": "assertion",
+        "description": "Route shows loading skeleton specific to task detail"
+      },
+      {
+        "type": "action",
+        "description": "Mock API to return 500 for detail fetch"
+      },
+      {
+        "type": "assertion",
+        "description": "Per-route error boundary renders destructive alert with retry button"
+      },
+      {
+        "type": "action",
+        "description": "Click retry after backend restored"
+      },
+      {
+        "type": "assertion",
+        "description": "Data loads and normal page UI is restored"
+      }
+    ]
+  },
+  {
+    "id": "TC020",
+    "title": "Accessibility: keyboard navigation, focus states, and screen reader labels",
+    "description": "Ensure keyboard-only navigation works for primary flows (task list, open task, actions, command palette), focus is visible, and key UI elements have accessible labels and roles.",
+    "category": "accessibility",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Tab through the main layout to reach the Command Palette shortcut focusable control"
+      },
+      {
+        "type": "action",
+        "description": "Press Cmd/Ctrl+K to open command palette and type to search"
+      },
+      {
+        "type": "assertion",
+        "description": "Command palette receives focus, is operable via keyboard, and results are selectable by arrow keys + Enter"
+      },
+      {
+        "type": "action",
+        "description": "Use only keyboard to navigate to a task, open its Actions menu, and trigger 'Execute' confirmation dialog"
+      },
+      {
+        "type": "assertion",
+        "description": "All interactive controls show visible focus indicators and dialogs trap focus; status badge and logs region expose ARIA labels / roles for screen readers"
+      }
+    ]
+  },
+  {
+    "id": "TC021",
+    "title": "Performance: initial page load and navigation timings",
+    "description": "Sample performance assertions: initial page load under 3s on supported browser profile, navigation transitions under 500ms, and log streaming latency under 100ms when SSE emits.",
+    "category": "performance",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Measure full page load time for /tasks on a realistic test device and network profile"
+      },
+      {
+        "type": "assertion",
+        "description": "Initial page load completes under 3 seconds"
+      },
+      {
+        "type": "action",
+        "description": "Navigate from tasks list to a task detail and measure time to render primary content"
+      },
+      {
+        "type": "assertion",
+        "description": "Primary content renders under 500ms"
+      },
+      {
+        "type": "action",
+        "description": "Trigger a log event via SSE and measure time until rendering"
+      },
+      {
+        "type": "assertion",
+        "description": "Log appears within 100ms of SSE event emission"
+      }
+    ]
+  },
+  {
+    "id": "TC022",
+    "title": "Error Handling: SSE 'error' and 'timeout_warning' events surface via toasts and UI",
+    "description": "When SSE sends 'error' or 'timeout_warning' events, the client surfaces appropriate toasts/alerts and provides actionable retry/extend options.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open Logs tab and mock SSE to emit 'timeout_warning' event with suggested remaining time"
+      },
+      {
+        "type": "assertion",
+        "description": "Timeout warning appears in logs and a toast or inline alert suggests 'Extend' action"
+      },
+      {
+        "type": "action",
+        "description": "Click 'Extend' from alert, mock extend API success"
+      },
+      {
+        "type": "assertion",
+        "description": "Extend API call is made and toast confirms extension"
+      },
+      {
+        "type": "action",
+        "description": "Mock SSE to emit 'error' event"
+      },
+      {
+        "type": "assertion",
+        "description": "Destructive toast or in-UI alert shown and connection status changes to error with retry option"
+      }
+    ]
+  },
+  {
+    "id": "TC023",
+    "title": "Security: API client handles and surfaces authorization errors gracefully",
+    "description": "When API returns 401/403, the client should surface a clear toast/alert and provide guidance (e.g., permission required) without exposing sensitive details.",
+    "category": "security",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Perform an action that triggers an API call (e.g., Execute) while mock server responds 403"
+      },
+      {
+        "type": "assertion",
+        "description": "UI shows a clear, non-sensitive error toast/alert (permission denied) and action loading state is cleared"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to open changes page where backend returns 401"
+      },
+      {
+        "type": "assertion",
+        "description": "Per-route error boundary displays a non-sensitive message and provides contact or retry guidance"
+      }
+    ]
+  },
+  {
+    "id": "TC024",
+    "title": "Diff Viewer: large diffs performance and virtualization",
+    "description": "When diffs include many files and large file contents, the diff viewer should remain responsive (scrolling and toggles) and employ virtualization if implemented.",
+    "category": "performance",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open Changes tab for a task containing 200+ file changes and very large file diffs"
+      },
+      {
+        "type": "assertion",
+        "description": "UI remains responsive while scrolling and toggling split/unified modes; no main-thread jank exceeding 200ms per frame"
+      },
+      {
+        "type": "action",
+        "description": "Select a deeply nested file and toggle syntax highlighting"
+      },
+      {
+        "type": "assertion",
+        "description": "Diff content renders correctly; memory usage remains within acceptable bounds for the environment"
+      }
+    ]
+  },
+  {
+    "id": "TC025",
+    "title": "Feedback System: feedback history pagination and visibility",
+    "description": "Verify feedback history displays recent messages, supports pagination or lazy loading, and older feedback remains viewable; feedback items link back into logs.",
+    "category": "functional",
+    "priority": "Low",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Populate feedback history with 50+ entries for a task"
+      },
+      {
+        "type": "action",
+        "description": "Open feedback history and scroll to load more"
+      },
+      {
+        "type": "assertion",
+        "description": "Older feedback items load via pagination or infinite scroll and each item links to timestamped location within logs"
+      }
+    ]
+  },
+  {
+    "id": "TC026",
+    "title": "Task Actions availability matrix across statuses",
+    "description": "Verify that contextual task actions (Execute, Cancel, Extend, Approve, Retry, View PR) are enabled/disabled per task status as per specification.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "For tasks in statuses: backlog, planning, in_progress, awaiting_review, approved, failed, done - open task detail for each status"
+      },
+      {
+        "type": "assertion",
+        "description": "Execute is enabled for backlog/planning where applicable; Cancel enabled when in_progress/planning; Extend enabled on timeout_warning/pending extension states; Approve only enabled when awaiting_review; Retry enabled on failed; View PR enabled when done/approved and PR URL present"
+      }
+    ]
+  },
+  {
+    "id": "TC027",
+    "title": "Command Palette: quick navigation and actions",
+    "description": "Ensure Command Palette (Cmd/Ctrl+K) can search tasks, create new task, and toggle theme; results are accessible and execute actions directly.",
+    "category": "ui",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Press Cmd/Ctrl+K to open command palette"
+      },
+      {
+        "type": "action",
+        "description": "Type a partial task title and select a result with keyboard"
+      },
+      {
+        "type": "assertion",
+        "description": "Selecting a task result navigates to its detail"
+      },
+      {
+        "type": "action",
+        "description": "In command palette, select 'Create Task' action"
+      },
+      {
+        "type": "assertion",
+        "description": "Create Task dialog opens"
+      },
+      {
+        "type": "action",
+        "description": "Use command to toggle theme"
+      },
+      {
+        "type": "assertion",
+        "description": "Theme toggles and preference persists"
+      }
+    ]
+  },
+  {
+    "id": "TC028",
+    "title": "Typed Hooks: query invalidation after mutations",
+    "description": "After performing mutations (create, approve, retry, cancel), ensure relevant TanStack Query caches are invalidated or updated so UI shows consistent state across components.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open tasks list and task detail for a task"
+      },
+      {
+        "type": "action",
+        "description": "Perform a mutation (e.g., Approve) from task detail"
+      },
+      {
+        "type": "assertion",
+        "description": "Tasks list cache is invalidated or updated and shows new status without manual refresh"
+      },
+      {
+        "type": "action",
+        "description": "Perform a create task mutation"
+      },
+      {
+        "type": "assertion",
+        "description": "Tasks list receives new item (via optimistic update or refetch) and new task detail page is reachable"
+      }
+    ]
+  },
+  {
+    "id": "TC029",
+    "title": "Edge Case: extremely long title/description rendering and truncation",
+    "description": "UI should handle very long titles/descriptions gracefully with truncation, tooltips, or expand controls without layout breakage.",
+    "category": "ui",
+    "priority": "Low",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Create or mock a task with a 5000-character title and a 20000-character description"
+      },
+      {
+        "type": "assertion",
+        "description": "Task list shows truncated title with tooltip or ellipsis; task detail shows description with readable layout and optional 'show more' control without breaking page layout"
+      }
+    ]
+  },
+  {
+    "id": "TC030",
+    "title": "Global Error Handling: toasts and in-UI alerts for API failures",
+    "description": "Ensure global API failures surface via Sonner toasts and in-UI alerts where appropriate, with actions for retrying or reporting.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Simulate intermittent API failures for a list fetch (e.g., return 502 then success on retry)"
+      },
+      {
+        "type": "assertion",
+        "description": "Global error toast appears describing the failure; a retry control is offered in UI"
+      },
+      {
+        "type": "action",
+        "description": "Click retry in in-UI alert or toast and return success"
+      },
+      {
+        "type": "assertion",
+        "description": "UI recovers and data displays normally"
+      }
+    ]
+  }
+]
