@@ -17,15 +17,22 @@ const STATUS_CONFIG: Record<
       | 'orange'
   }
 > = {
+  // New two-agent workflow statuses
+  draft: { label: 'Draft', variant: 'secondary' },
+  refining: { label: 'Generating Spec', variant: 'default' },
+  pending_approval: { label: 'Review Spec', variant: 'orange' },
+  approved: { label: 'Approved', variant: 'success' },
+  coding: { label: 'Coding', variant: 'warning' },
+  review: { label: 'PR Review', variant: 'purple' },
+  changes_requested: { label: 'Changes Requested', variant: 'orange' },
+  done: { label: 'Done', variant: 'success' },
+  failed: { label: 'Failed', variant: 'destructive' },
+  // Legacy statuses (for backward compatibility)
   backlog: { label: 'Backlog', variant: 'secondary' },
   planning: { label: 'Planning', variant: 'default' },
   in_progress: { label: 'In Progress', variant: 'warning' },
   awaiting_review: { label: 'Awaiting Review', variant: 'purple' },
-  approved: { label: 'Approved', variant: 'success' },
   pr_created: { label: 'PR Created', variant: 'indigo' },
-  changes_requested: { label: 'Changes Requested', variant: 'orange' },
-  done: { label: 'Done', variant: 'success' },
-  failed: { label: 'Failed', variant: 'destructive' },
 }
 
 interface StatusBadgeProps {

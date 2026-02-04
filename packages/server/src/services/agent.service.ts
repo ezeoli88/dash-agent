@@ -6,6 +6,7 @@ import { getGitHubClient } from '../github/client.js';
 import { AgentRunner, createAgentRunner, type AgentRunResult } from '../agent/runner.js';
 import { getSSEEmitter } from '../utils/sse-emitter.js';
 import { killProcessesForTask } from '../utils/process-killer.js';
+import { getPRCommentsService } from './pr-comments.service.js';
 
 const logger = createLogger('agent-service');
 
@@ -567,10 +568,20 @@ ${filesDescription || 'No file changes detected.'}
 
       // Update task with PR URL - use pr_created instead of done
       // The worktree is kept alive for potential changes requested
-      taskService.update(taskId, {
+      const updatedTask = taskService.update(taskId, {
         status: 'pr_created',
         pr_url: prResult.url,
       });
+
+      // Start tracking PR for comments
+      if (updatedTask) {
+        try {
+          const prCommentsService = getPRCommentsService();
+          prCommentsService.onTaskStatusChange(updatedTask, 'pr_created');
+        } catch (error) {
+          logger.warn('Failed to start PR comment tracking', { taskId, error: getErrorMessage(error) });
+        }
+      }
 
       this.log(taskId, 'info', `PR created: ${prResult.url}`);
       this.log(taskId, 'info', 'Worktree preserved for potential change requests');
@@ -641,6 +652,19 @@ ${filesDescription || 'No file changes detected.'}
           taskId,
           expectedStatus: status,
           actualStatus: updatedTask.status,
+        });
+      }
+
+      // Notify PR comments service about status change
+      try {
+        const prCommentsService = getPRCommentsService();
+        prCommentsService.onTaskStatusChange(updatedTask, status);
+      } catch (error) {
+        // Don't fail the status change if PR comments service fails
+        logger.warn('Failed to notify PR comments service', {
+          taskId,
+          status,
+          error: getErrorMessage(error),
         });
       }
     } else {
@@ -755,6 +779,14 @@ ${filesDescription || 'No file changes detected.'}
 
     this.log(taskId, 'info', 'PR merged, cleaning up worktree');
 
+    // Stop tracking PR for comments
+    try {
+      const prCommentsService = getPRCommentsService();
+      prCommentsService.untrackPR(taskId);
+    } catch (error) {
+      logger.warn('Failed to stop PR comment tracking', { taskId, error: getErrorMessage(error) });
+    }
+
     // Update status to done
     taskService.update(taskId, { status: 'done' });
     this.sseEmitter.emitStatus(taskId, 'done');
@@ -783,6 +815,14 @@ ${filesDescription || 'No file changes detected.'}
     }
 
     this.log(taskId, 'info', 'PR closed, cleaning up worktree');
+
+    // Stop tracking PR for comments
+    try {
+      const prCommentsService = getPRCommentsService();
+      prCommentsService.untrackPR(taskId);
+    } catch (error) {
+      logger.warn('Failed to stop PR comment tracking', { taskId, error: getErrorMessage(error) });
+    }
 
     // Update status to failed (PR was closed without merging)
     taskService.update(taskId, {
@@ -818,11 +858,21 @@ ${filesDescription || 'No file changes detected.'}
     this.log(taskId, 'info', `Changes requested: ${feedback}`);
 
     // Update status to changes_requested
-    taskService.update(taskId, {
+    const updatedTask = taskService.update(taskId, {
       status: 'changes_requested',
       error: null, // Clear any previous errors
     });
     this.sseEmitter.emitStatus(taskId, 'changes_requested');
+
+    // Continue tracking PR for comments (status still allows tracking)
+    if (updatedTask) {
+      try {
+        const prCommentsService = getPRCommentsService();
+        prCommentsService.onTaskStatusChange(updatedTask, 'changes_requested');
+      } catch (error) {
+        logger.warn('Failed to update PR comment tracking', { taskId, error: getErrorMessage(error) });
+      }
+    }
 
     // Store the feedback for when the agent resumes
     // We'll use the feedback queue mechanism

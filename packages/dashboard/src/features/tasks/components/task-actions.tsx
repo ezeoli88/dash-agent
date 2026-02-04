@@ -13,6 +13,7 @@ import {
   MessageSquareWarning,
   Ban,
   Trash2,
+  Sparkles,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -39,6 +40,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { useTaskActions } from '../hooks/use-task-actions'
+import { useGenerateSpec } from '../hooks/use-generate-spec'
 import { FeedbackForm } from './feedback-form'
 import type { Task, TaskStatus } from '../types'
 
@@ -57,6 +59,7 @@ type ActionType =
   | 'request_changes'
   | 'mark_merged'
   | 'mark_closed'
+  | 'generate_spec'
 
 type ActionConfig = {
   type: ActionType
@@ -73,6 +76,77 @@ function getActionsForStatus(task: Task): ActionConfig[] {
   const status = task.status
 
   const actionsByStatus: Record<TaskStatus, ActionConfig[]> = {
+    // === New two-agent workflow statuses ===
+    draft: [
+      {
+        type: 'generate_spec',
+        label: 'Generate Spec',
+        icon: <Sparkles className="h-4 w-4" />,
+        variant: 'default',
+      },
+    ],
+    refining: [
+      {
+        type: 'cancel',
+        label: 'Cancel',
+        icon: <XCircle className="h-4 w-4" />,
+        variant: 'destructive',
+        isDestructive: true,
+      },
+    ],
+    pending_approval: [], // Actions are handled by SpecEditor component
+    approved: [], // Processing state, no actions
+    coding: [
+      {
+        type: 'extend',
+        label: 'Extend Timeout',
+        icon: <Plus className="h-4 w-4" />,
+        variant: 'outline',
+      },
+      {
+        type: 'cancel',
+        label: 'Cancel',
+        icon: <XCircle className="h-4 w-4" />,
+        variant: 'destructive',
+        isDestructive: true,
+      },
+    ],
+    review: [
+      ...(task.pr_url
+        ? [
+            {
+              type: 'view_pr' as const,
+              label: 'View PR',
+              icon: <ExternalLink className="h-4 w-4" />,
+              variant: 'outline' as const,
+              isExternal: true,
+              href: task.pr_url,
+            },
+          ]
+        : []),
+      {
+        type: 'request_changes',
+        label: 'Request Changes',
+        icon: <MessageSquareWarning className="h-4 w-4" />,
+        variant: 'secondary',
+        requiresInput: true,
+      },
+      {
+        type: 'mark_merged',
+        label: 'Mark as Merged',
+        icon: <GitMerge className="h-4 w-4" />,
+        variant: 'default',
+      },
+      {
+        type: 'mark_closed',
+        label: 'Mark as Closed',
+        icon: <Ban className="h-4 w-4" />,
+        variant: 'destructive',
+        isDestructive: true,
+      },
+    ],
+
+    // === Legacy statuses (backward compatibility) ===
     backlog: [
       {
         type: 'execute',
@@ -120,7 +194,6 @@ function getActionsForStatus(task: Task): ActionConfig[] {
         isDestructive: true,
       },
     ],
-    approved: [],
     pr_created: [
       ...(task.pr_url
         ? [
@@ -155,6 +228,8 @@ function getActionsForStatus(task: Task): ActionConfig[] {
         isDestructive: true,
       },
     ],
+
+    // === Shared statuses ===
     changes_requested: [
       {
         type: 'execute',
@@ -199,7 +274,7 @@ function getActionsForStatus(task: Task): ActionConfig[] {
     ],
   }
 
-  return actionsByStatus[status]
+  return actionsByStatus[status] || []
 }
 
 function RequestChangesDialog({
@@ -273,6 +348,7 @@ export function TaskActions({ task }: TaskActionsProps) {
   const actions = getActionsForStatus(task)
   const { execute, approve, cancel, extend, requestChanges, markPRMerged, markPRClosed, retry, cleanupWorktree } =
     useTaskActions(task.id)
+  const generateSpecMutation = useGenerateSpec()
 
   // Helper to check if any action is pending
   const isAnyActionPending =
@@ -284,7 +360,8 @@ export function TaskActions({ task }: TaskActionsProps) {
     markPRMerged.isPending ||
     markPRClosed.isPending ||
     retry.isPending ||
-    cleanupWorktree.isPending
+    cleanupWorktree.isPending ||
+    generateSpecMutation.isPending
 
   // Handler for start_fresh: cleanup worktree then execute
   const handleStartFresh = () => {
@@ -315,12 +392,17 @@ export function TaskActions({ task }: TaskActionsProps) {
         return { handler: () => markPRMerged.mutate(), isPending: markPRMerged.isPending }
       case 'mark_closed':
         return { handler: () => markPRClosed.mutate(), isPending: markPRClosed.isPending }
+      case 'generate_spec':
+        return {
+          handler: () => generateSpecMutation.mutate({ taskId: task.id }),
+          isPending: generateSpecMutation.isPending,
+        }
       default:
         return { handler: () => {}, isPending: false }
     }
   }
 
-  // Show processing message for approved status
+  // Show processing message for approved status (Dev Agent starting)
   if (task.status === 'approved') {
     return (
       <Card>
@@ -330,8 +412,79 @@ export function TaskActions({ task }: TaskActionsProps) {
         <CardContent>
           <div className="flex items-center gap-2 text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            <span className="text-sm">Processing PR...</span>
+            <span className="text-sm">Dev Agent is starting...</span>
           </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // Show message for pending_approval (actions in SpecEditor)
+  if (task.status === 'pending_approval') {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Actions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Review the generated specification in the Overview tab. You can edit it and then approve to start development.
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // Show message for refining state
+  if (task.status === 'refining') {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Actions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-2 text-muted-foreground mb-3">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span className="text-sm">PM Agent is generating the spec...</span>
+          </div>
+          {actions.map((action) => {
+            const { handler, isPending } = getActionHandler(action.type)
+            if (action.isDestructive) {
+              return (
+                <AlertDialog key={action.label}>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant={action.variant}
+                      className="w-full justify-start"
+                      disabled={isAnyActionPending}
+                    >
+                      {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : action.icon}
+                      {isPending ? 'Cancelling...' : action.label}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Cancel Task</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Are you sure you want to cancel this task? The spec generation will be stopped.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Keep Task</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={handler}
+                        disabled={isPending}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      >
+                        Cancel Task
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )
+            }
+            return null
+          })}
         </CardContent>
       </Card>
     )

@@ -5,6 +5,11 @@ import { runMigrations } from './db/migrations.js';
 import { initDatabase, closeDatabase } from './db/database.js';
 import { logger } from './utils/logger.js';
 import tasksRouter from './routes/tasks.js';
+import setupRouter from './routes/setup.js';
+import reposRouter from './routes/repos.js';
+import dataRouter from './routes/data.js';
+import secretsRouter from './routes/secrets.js';
+import { getPRCommentsService } from './services/pr-comments.service.js';
 
 /**
  * Timeout for graceful shutdown before forcing exit (in milliseconds).
@@ -53,8 +58,12 @@ function createApp(): express.Application {
     });
   });
 
-  // Mount task routes
+  // Mount routes
   app.use('/tasks', tasksRouter);
+  app.use('/setup', setupRouter);
+  app.use('/repos', reposRouter);
+  app.use('/data', dataRouter);
+  app.use('/secrets', secretsRouter);
 
   // 404 handler
   app.use((_req: Request, res: Response) => {
@@ -109,11 +118,20 @@ async function main(): Promise<void> {
     logger.info(`Server listening on port ${config.port}`);
     logger.info(`Health check: http://localhost:${config.port}/health`);
     logger.info(`Tasks API: http://localhost:${config.port}/tasks`);
+    logger.info(`Repos API: http://localhost:${config.port}/repos`);
   });
+
+  // Start PR comments polling service
+  const prCommentsService = getPRCommentsService();
+  prCommentsService.start();
 
   // Graceful shutdown handlers
   const shutdown = (signal: string) => {
     logger.info(`Received ${signal}, shutting down gracefully`);
+
+    // Stop PR comments polling
+    prCommentsService.stop();
+
     server.close(() => {
       logger.info('HTTP server closed');
       closeDatabase();

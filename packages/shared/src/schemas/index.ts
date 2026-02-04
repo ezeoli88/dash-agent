@@ -5,10 +5,22 @@ export {
   TaskSchema,
   CreateTaskSchema,
   UpdateTaskSchema,
+  // New two-agent workflow schemas
+  GenerateSpecRequestSchema,
+  GenerateSpecResponseSchema,
+  UpdateSpecRequestSchema,
+  ApproveSpecRequestSchema,
+  ApproveSpecResponseSchema,
   type TaskStatus,
   type Task,
   type CreateTaskInput,
   type UpdateTaskInput,
+  // New two-agent workflow types
+  type GenerateSpecRequest,
+  type GenerateSpecResponse,
+  type UpdateSpecRequest,
+  type ApproveSpecRequest,
+  type ApproveSpecResponse,
 } from './task.schema.js';
 
 // Feedback schemas and types
@@ -33,3 +45,102 @@ export {
   type TaskChangesResponse,
   type ApiError,
 } from './api.schema.js';
+
+// PR Comment schemas and types
+export {
+  PRCommentAuthorSchema,
+  PRCommentSchema,
+  PRCommentsResponseSchema,
+  type PRCommentAuthor,
+  type PRComment,
+  type PRCommentsResponse,
+} from './pr-comment.schema.js';
+
+// Setup schemas and types
+export {
+  AIProviderSchema,
+  AI_PROVIDERS,
+  ValidateAIKeyRequestSchema,
+  ValidateAIKeyResponseSchema,
+  GitHubAuthUrlResponseSchema,
+  GitHubCallbackRequestSchema,
+  GitHubCallbackResponseSchema,
+  SetupStatusSchema,
+  DisconnectResponseSchema,
+  SetupConfigSchema,
+  DEFAULT_SETUP_CONFIG,
+  // OpenRouter schemas
+  OpenRouterPricingSchema,
+  OpenRouterModelSchema,
+  ValidateOpenRouterKeyRequestSchema,
+  ValidateOpenRouterKeyResponseSchema,
+  type AIProvider,
+  type ValidateAIKeyRequest,
+  type ValidateAIKeyResponse,
+  type GitHubAuthUrlResponse,
+  type GitHubCallbackRequest,
+  type GitHubCallbackResponse,
+  type SetupStatus,
+  type DisconnectResponse,
+  type SetupConfig,
+  // OpenRouter types
+  type OpenRouterPricing,
+  type OpenRouterModel,
+  type ValidateOpenRouterKeyRequest,
+  type ValidateOpenRouterKeyResponse,
+} from './setup.schema.js';
+
+// Secrets schemas and types
+export {
+  GitHubConnectionMethodSchema,
+  SaveAISecretRequestSchema,
+  SaveAISecretResponseSchema,
+  AISecretStatusSchema,
+  SaveGitHubSecretRequestSchema,
+  SaveGitHubSecretResponseSchema,
+  GitHubSecretStatusSchema,
+  ValidateGitHubPATRequestSchema,
+  ValidateGitHubPATResponseSchema,
+  AllSecretsStatusSchema,
+  DeleteSecretResponseSchema,
+  type GitHubConnectionMethod,
+  type SaveAISecretRequest,
+  type SaveAISecretResponse,
+  type AISecretStatus,
+  type SaveGitHubSecretRequest,
+  type SaveGitHubSecretResponse,
+  type GitHubSecretStatus,
+  type ValidateGitHubPATRequest,
+  type ValidateGitHubPATResponse,
+  type AllSecretsStatus,
+  type DeleteSecretResponse,
+} from './secrets.schema.js';
+
+// Repository schemas and types
+export {
+  DetectedStackSchema,
+  DEFAULT_DETECTED_STACK,
+  LearnedPatternSchema,
+  RepositorySchema,
+  CreateRepositorySchema,
+  UpdateRepositorySchema,
+  GitHubRepositorySchema,
+  GitHubReposResponseSchema,
+  StackDetectionResponseSchema,
+  ClearPatternsResponseSchema,
+  AddPatternRequestSchema,
+  AddPatternResponseSchema,
+  DeletePatternResponseSchema,
+  type DetectedStack,
+  type LearnedPattern,
+  type Repository,
+  type CreateRepositoryInput,
+  type UpdateRepositoryInput,
+  type GitHubRepository,
+  type GitHubReposResponse,
+  type StackDetectionResponse,
+  type ClearPatternsResponse,
+  type AddPatternRequest,
+  type AddPatternResponse,
+  type DeletePatternResponse,
+} from './repository.schema.js';

@@ -14,7 +14,26 @@ export type SSEEventType =
   | 'timeout_warning'
   | 'awaiting_review'
   | 'complete'
-  | 'error';
+  | 'error'
+  | 'pr_comment';
+
+/**
+ * PR comment data for SSE events.
+ */
+export interface PRCommentData {
+  id: number;
+  body: string;
+  author: {
+    login: string;
+    avatarUrl?: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+  url: string;
+  isReviewComment: boolean;
+  path?: string;
+  line?: number;
+}
 
 /**
  * SSE event data structures for each event type.
@@ -43,6 +62,10 @@ export interface SSEEventData {
   error: {
     message: string;
     code?: string;
+  };
+  pr_comment: {
+    comment: PRCommentData;
+    taskId: string;
   };
 }
 
@@ -315,6 +338,16 @@ export class SSEEmitter extends EventEmitter {
       errorData.code = code;
     }
     this.emit(taskId, 'error', errorData);
+  }
+
+  /**
+   * Emits a PR comment event for a task.
+   *
+   * @param taskId - The task ID
+   * @param comment - The PR comment data
+   */
+  emitPRComment(taskId: string, comment: PRCommentData): void {
+    this.emit(taskId, 'pr_comment', { comment, taskId });
   }
 
   /**

@@ -78,6 +78,67 @@ export function runMigrations(): void {
         CREATE INDEX IF NOT EXISTS idx_task_logs_timestamp ON task_logs(timestamp);
       `,
     },
+    {
+      version: 3,
+      description: 'Create repositories table',
+      sql: `
+        CREATE TABLE IF NOT EXISTS repositories (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          url TEXT NOT NULL UNIQUE,
+          default_branch TEXT DEFAULT 'main',
+          detected_stack TEXT,
+          conventions TEXT,
+          learned_patterns TEXT DEFAULT '[]',
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_repositories_name ON repositories(name);
+        CREATE INDEX IF NOT EXISTS idx_repositories_url ON repositories(url);
+      `,
+    },
+    {
+      version: 4,
+      description: 'Add two-agent workflow columns to tasks table',
+      sql: `
+        -- Add new columns for the two-agent workflow
+        ALTER TABLE tasks ADD COLUMN repository_id TEXT;
+        ALTER TABLE tasks ADD COLUMN user_input TEXT;
+        ALTER TABLE tasks ADD COLUMN generated_spec TEXT;
+        ALTER TABLE tasks ADD COLUMN generated_spec_at TEXT;
+        ALTER TABLE tasks ADD COLUMN final_spec TEXT;
+        ALTER TABLE tasks ADD COLUMN spec_approved_at TEXT;
+        ALTER TABLE tasks ADD COLUMN was_spec_edited INTEGER DEFAULT 0;
+        ALTER TABLE tasks ADD COLUMN branch_name TEXT;
+        ALTER TABLE tasks ADD COLUMN pr_number INTEGER;
+
+        -- Create index for repository_id lookups
+        CREATE INDEX IF NOT EXISTS idx_tasks_repository_id ON tasks(repository_id);
+      `,
+    },
+    {
+      version: 5,
+      description: 'Create user_secrets table for encrypted API keys and tokens',
+      sql: `
+        -- Table for storing encrypted secrets (API keys, tokens)
+        CREATE TABLE IF NOT EXISTS user_secrets (
+          id TEXT PRIMARY KEY,
+          key_type TEXT NOT NULL,
+          provider TEXT,
+          encrypted_value TEXT NOT NULL,
+          metadata TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- Ensure unique combination of key_type and provider
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_user_secrets_key_provider ON user_secrets(key_type, provider);
+
+        -- Index for quick lookups by key_type
+        CREATE INDEX IF NOT EXISTS idx_user_secrets_key_type ON user_secrets(key_type);
+      `,
+    },
   ];
 
   // Apply pending migrations

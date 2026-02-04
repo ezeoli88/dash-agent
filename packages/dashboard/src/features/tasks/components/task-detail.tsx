@@ -1,8 +1,9 @@
 'use client'
 
-import { FileText, ScrollText, GitPullRequest, MessageSquarePlus } from 'lucide-react'
+import { FileText, ScrollText, GitPullRequest, MessageSquarePlus, MessageSquare, Loader2, Sparkles } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Badge } from '@/components/ui/badge'
 import type { Task } from '../types'
 import { TaskHeader } from './task-header'
 import { TaskMetadata } from './task-metadata'
@@ -11,29 +12,50 @@ import { TaskActions } from './task-actions'
 import { TaskLogs } from './task-logs'
 import { TaskDiff } from './task-diff'
 import { FeedbackSection } from './feedback-section'
+import { PRComments } from './pr-comments'
+import { SpecEditor } from './spec-editor'
+import { PatternSuggestion } from './pattern-suggestion'
+import { useTaskUIStore } from '../stores/task-ui-store'
 
 interface TaskDetailProps {
   task: Task
 }
 
 export function TaskDetail({ task }: TaskDetailProps) {
+  // Two-agent workflow: Check if we're in spec phase
+  const isInSpecPhase = task.status === 'pending_approval'
+  const isRefiningSpec = task.status === 'refining'
+  const isDraft = task.status === 'draft'
+
   // Determine if logs should be shown (active tasks)
-  const isActiveTask = task.status === 'planning' || task.status === 'in_progress'
+  // Updated for two-agent workflow: includes coding phase and legacy statuses
+  const isActiveTask =
+    task.status === 'planning' ||
+    task.status === 'in_progress' ||
+    task.status === 'coding' ||
+    task.status === 'refining'
 
   // Determine if changes tab should be enabled
-  // Changes are available for tasks that have progressed past the initial execution phase
-  // This includes: awaiting_review, approved, pr_created, changes_requested, done, and failed
-  // (failed tasks may have partial changes that the user wants to see)
+  // Changes are available for tasks that have progressed past the coding phase
+  // Updated for two-agent workflow
   const showChangesTab =
     task.status === 'awaiting_review' ||
     task.status === 'approved' ||
     task.status === 'pr_created' ||
     task.status === 'changes_requested' ||
+    task.status === 'review' ||
     task.status === 'done' ||
     task.status === 'failed'
 
+  // Show PR comments tab when task has a PR
+  const showCommentsTab = !!task.pr_url && ['pr_created', 'review', 'changes_requested', 'done'].includes(task.status)
+
+  // Get unread comments count
+  const unreadCount = useTaskUIStore((state) => state.getUnreadCount(task.id))
+
   // Determine default tab based on task status
-  const defaultTab = isActiveTask ? 'logs' : 'overview'
+  // For spec phase, show overview. For coding phase, show logs.
+  const defaultTab = isActiveTask && !isRefiningSpec ? 'logs' : 'overview'
 
   return (
     <div className="space-y-6">
@@ -61,14 +83,54 @@ export function TaskDetail({ task }: TaskDetailProps) {
                 <GitPullRequest className="size-4" />
                 Changes
               </TabsTrigger>
+              <TabsTrigger value="comments" className="gap-1.5" disabled={!showCommentsTab}>
+                <MessageSquare className="size-4" />
+                Comments
+                {unreadCount > 0 && (
+                  <Badge variant="default" className="ml-1 h-5 min-w-5 bg-blue-500 px-1.5 text-xs">
+                    {unreadCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="overview" className="space-y-6 mt-0">
-              <TaskDescription task={task} />
+              {/* Show refining state with spinner */}
+              {isRefiningSpec && (
+                <Card>
+                  <CardContent className="flex flex-col items-center justify-center py-12">
+                    <div className="flex items-center gap-3 mb-4">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      <Sparkles className="h-6 w-6 text-primary animate-pulse" />
+                    </div>
+                    <h3 className="text-lg font-semibold mb-2">PM Agent is working...</h3>
+                    <p className="text-muted-foreground text-center max-w-md">
+                      Analyzing the repository and generating a detailed specification for your request.
+                      This usually takes 30-60 seconds.
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Show SpecEditor when spec is ready for review */}
+              {isInSpecPhase && (
+                <SpecEditor task={task} />
+              )}
+
+              {/* Show regular description for other states */}
+              {!isRefiningSpec && !isInSpecPhase && (
+                <TaskDescription task={task} />
+              )}
+
+              {/* Show pattern suggestion when changes were requested */}
+              {task.status === 'changes_requested' && task.repository_id && (
+                <PatternSuggestion task={task} />
+              )}
+
               <TaskMetadata task={task} />
 
-              {/* Show Feedback Section in Overview for active tasks */}
-              {isActiveTask && (
+              {/* Show Feedback Section in Overview for active coding tasks */}
+              {isActiveTask && !isRefiningSpec && (
                 <FeedbackSection task={task} />
               )}
             </TabsContent>
@@ -115,6 +177,28 @@ export function TaskDetail({ task }: TaskDetailProps) {
                       <GitPullRequest className="h-12 w-12 mx-auto mb-4 opacity-50" />
                       <p className="text-sm">No changes available yet.</p>
                       <p className="text-xs mt-1">Execute the task to generate changes.</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="comments" className="mt-0">
+              {showCommentsTab ? (
+                <PRComments task={task} />
+              ) : (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-lg">
+                      <MessageSquare className="h-5 w-5" />
+                      PR Comments
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-center py-8 text-muted-foreground">
+                      <MessageSquare className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <p className="text-sm">No PR created yet.</p>
+                      <p className="text-xs mt-1">Comments will appear here once a PR is created.</p>
                     </div>
                   </CardContent>
                 </Card>

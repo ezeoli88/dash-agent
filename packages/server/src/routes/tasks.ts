@@ -3,10 +3,15 @@ import { ZodError, z } from 'zod';
 import { taskService, type Task } from '../services/task.service.js';
 import { getAgentService } from '../services/agent.service.js';
 import { getGitService } from '../services/git.service.js';
+import { getPRCommentsService } from '../services/pr-comments.service.js';
 import { getSSEEmitter } from '../utils/sse-emitter.js';
-import { CreateTaskSchema, UpdateTaskSchema } from '../schemas/task.schema.js';
+import { CreateTaskSchema, UpdateTaskSchema, GenerateSpecRequestSchema, UpdateSpecRequestSchema, ApproveSpecRequestSchema } from '../schemas/task.schema.js';
 import { createLogger } from '../utils/logger.js';
 import { getErrorMessage } from '../utils/errors.js';
+import { getGitHubClient } from '../github/client.js';
+import { generateSpec, regenerateSpec } from '../services/pm-agent.service.js';
+import { executeSpec, cancelExecution } from '../services/dev-agent.service.js';
+import { getAICredentials } from '../services/secrets.service.js';
 
 const logger = createLogger('routes:tasks');
 const router = Router();
@@ -34,6 +39,32 @@ function formatZodError(error: ZodError) {
  */
 function isValidUUID(id: string): boolean {
   return UUID_REGEX.test(id);
+}
+
+/**
+ * Gets AI provider configuration from secrets service or request headers (fallback).
+ */
+function getAIConfig(_req: Request): { provider: 'claude' | 'openai' | 'openrouter'; apiKey: string; model?: string } | null {
+  // First, try to get from secrets service (preferred)
+  const credentials = getAICredentials();
+  if (credentials) {
+    logger.debug('Using AI credentials from secrets service', { provider: credentials.provider });
+    return credentials;
+  }
+
+  // Fallback to headers (for backwards compatibility)
+  const provider = _req.headers['x-ai-provider'] as string | undefined;
+  const apiKey = _req.headers['x-ai-api-key'] as string | undefined;
+
+  if (!provider || !apiKey) {
+    return null;
+  }
+
+  if (provider !== 'claude' && provider !== 'openai' && provider !== 'openrouter') {
+    return null;
+  }
+
+  return { provider, apiKey };
 }
 
 // =============================================================================
@@ -89,6 +120,9 @@ function loadTask(req: Request, res: Response, next: NextFunction): void {
 
 /**
  * POST /tasks - Create a new task
+ *
+ * Supports both legacy workflow and new two-agent workflow.
+ * For two-agent workflow, provide repository_id and user_input.
  */
 router.post('/', (req: Request, res: Response, next: NextFunction): void => {
   try {
@@ -109,11 +143,15 @@ router.post('/', (req: Request, res: Response, next: NextFunction): void => {
 
 /**
  * GET /tasks - List all tasks
+ *
+ * Optional query params:
+ * - repository_id: Filter by repository
  */
-router.get('/', (_req: Request, res: Response, next: NextFunction): void => {
+router.get('/', (req: Request, res: Response, next: NextFunction): void => {
   try {
-    logger.debug('GET /tasks');
-    const tasks = taskService.getAll();
+    const repositoryId = req.query.repository_id as string | undefined;
+    logger.debug('GET /tasks', { repositoryId });
+    const tasks = taskService.getAll(repositoryId);
     res.json(tasks);
   } catch (error) {
     next(error);
@@ -209,14 +247,229 @@ router.delete('/:id', requireTaskId, async (req: Request, res: Response, next: N
 });
 
 // =============================================================================
-// Agent Execution Endpoints
+// Two-Agent Workflow Endpoints
+// =============================================================================
+
+/**
+ * POST /tasks/:id/generate-spec - PM Agent generates spec from user input
+ *
+ * Requires AI provider configuration in headers:
+ * - X-AI-Provider: 'claude' or 'openai'
+ * - X-AI-API-Key: The API key for the provider
+ *
+ * Valid for tasks with status: 'draft'
+ */
+router.post('/:id/generate-spec', requireTaskId, loadTask, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { task } = req as RequestWithTask;
+    const { id } = req.params;
+    logger.info('POST /tasks/:id/generate-spec', { id, status: task.status });
+
+    // Validate task status
+    if (task.status !== 'draft') {
+      res.status(400).json({
+        error: 'Invalid task status',
+        message: `Cannot generate spec for task with status: ${task.status}. Expected: draft`,
+      });
+      return;
+    }
+
+    // Get AI config from headers
+    const aiConfig = getAIConfig(req);
+    if (!aiConfig) {
+      res.status(400).json({
+        error: 'Missing AI configuration',
+        message: 'Please provide X-AI-Provider and X-AI-API-Key headers',
+      });
+      return;
+    }
+
+    // Parse optional request body
+    const bodyResult = GenerateSpecRequestSchema.safeParse(req.body || {});
+    const additionalContext = bodyResult.success ? bodyResult.data.additional_context : undefined;
+
+    // Generate spec asynchronously and return immediately
+    // The PM Agent will emit SSE events as it works
+    generateSpec(
+      additionalContext
+        ? { task_id: id!, additional_context: additionalContext }
+        : { task_id: id! },
+      aiConfig
+    )
+      .then((result) => {
+        logger.info('PM Agent completed', { taskId: id, tokens: result.tokens_used });
+      })
+      .catch((error) => {
+        logger.error('PM Agent failed', { taskId: id, error: getErrorMessage(error) });
+      });
+
+    res.status(202).json({
+      status: 'generating',
+      message: 'PM Agent is generating the specification. Check task status for updates.',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /tasks/:id/regenerate-spec - Regenerate the spec with different approach
+ *
+ * Valid for tasks with status: 'pending_approval'
+ */
+router.post('/:id/regenerate-spec', requireTaskId, loadTask, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { task } = req as RequestWithTask;
+    const { id } = req.params;
+    logger.info('POST /tasks/:id/regenerate-spec', { id, status: task.status });
+
+    // Validate task status
+    if (task.status !== 'pending_approval') {
+      res.status(400).json({
+        error: 'Invalid task status',
+        message: `Cannot regenerate spec for task with status: ${task.status}. Expected: pending_approval`,
+      });
+      return;
+    }
+
+    // Get AI config from headers
+    const aiConfig = getAIConfig(req);
+    if (!aiConfig) {
+      res.status(400).json({
+        error: 'Missing AI configuration',
+        message: 'Please provide X-AI-Provider and X-AI-API-Key headers',
+      });
+      return;
+    }
+
+    // Parse optional request body for additional context
+    const bodyResult = GenerateSpecRequestSchema.safeParse(req.body || {});
+    const additionalContext = bodyResult.success ? bodyResult.data.additional_context : undefined;
+
+    // Regenerate spec asynchronously
+    regenerateSpec(id!, aiConfig, additionalContext)
+      .then((result) => {
+        logger.info('PM Agent regeneration completed', { taskId: id, tokens: result.tokens_used });
+      })
+      .catch((error) => {
+        logger.error('PM Agent regeneration failed', { taskId: id, error: getErrorMessage(error) });
+      });
+
+    res.status(202).json({
+      status: 'regenerating',
+      message: 'PM Agent is regenerating the specification.',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * PATCH /tasks/:id/spec - User edits the spec
+ *
+ * Valid for tasks with status: 'pending_approval'
+ */
+router.patch('/:id/spec', requireTaskId, loadTask, (req: Request, res: Response, next: NextFunction): void => {
+  try {
+    const { task } = req as RequestWithTask;
+    const { id } = req.params;
+    logger.info('PATCH /tasks/:id/spec', { id, status: task.status });
+
+    // Validate task status
+    if (task.status !== 'pending_approval') {
+      res.status(400).json({
+        error: 'Invalid task status',
+        message: `Cannot edit spec for task with status: ${task.status}. Expected: pending_approval`,
+      });
+      return;
+    }
+
+    // Parse request body
+    const result = UpdateSpecRequestSchema.safeParse(req.body);
+    if (!result.success) {
+      res.status(400).json(formatZodError(result.error));
+      return;
+    }
+
+    // Update the spec (marks as user-edited)
+    const updatedTask = taskService.updateSpec(id!, result.data.spec, false);
+    if (!updatedTask) {
+      res.status(500).json({ error: 'Failed to update spec' });
+      return;
+    }
+
+    res.json(updatedTask);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /tasks/:id/approve-spec - Approve the spec and start Dev Agent
+ *
+ * Valid for tasks with status: 'pending_approval'
+ */
+router.post('/:id/approve-spec', requireTaskId, loadTask, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { task } = req as RequestWithTask;
+    const { id } = req.params;
+    logger.info('POST /tasks/:id/approve-spec', { id, status: task.status });
+
+    // Validate task status
+    if (task.status !== 'pending_approval') {
+      res.status(400).json({
+        error: 'Invalid task status',
+        message: `Cannot approve spec for task with status: ${task.status}. Expected: pending_approval`,
+      });
+      return;
+    }
+
+    // Parse optional request body
+    const bodyResult = ApproveSpecRequestSchema.safeParse(req.body || {});
+    const finalSpec = bodyResult.success ? bodyResult.data.final_spec : undefined;
+
+    // Approve the spec
+    const approvedTask = taskService.approveSpec(id!, finalSpec);
+    if (!approvedTask) {
+      res.status(500).json({ error: 'Failed to approve spec' });
+      return;
+    }
+
+    // Emit SSE status update
+    const sseEmitter = getSSEEmitter();
+    sseEmitter.emitStatus(id!, 'approved');
+    sseEmitter.emitLog(id!, 'info', 'Spec approved! Dev Agent will start working...');
+
+    // Start the Dev Agent
+    try {
+      await executeSpec({ task_id: id! });
+    } catch (execError) {
+      const errorMsg = getErrorMessage(execError);
+      logger.error('Failed to start Dev Agent after spec approval', { id, error: errorMsg });
+      // Don't fail the approval, just log the error
+      // The task will remain in 'approved' status and can be manually started
+    }
+
+    res.json({
+      status: 'approved',
+      task_status: approvedTask.status,
+      message: 'Spec approved. Dev Agent has started working.',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// =============================================================================
+// Agent Execution Endpoints (Legacy + Updated)
 // =============================================================================
 
 /**
  * POST /tasks/:id/execute - Start the agent for a task
  *
  * Accepts tasks with status:
- * - 'backlog': Initial execution
+ * - 'backlog': Initial execution (legacy workflow)
+ * - 'approved': Start Dev Agent (new workflow)
  * - 'failed': Retry after failure
  * - 'changes_requested': Resume to address reviewer feedback
  */
@@ -227,7 +480,7 @@ router.post('/:id/execute', requireTaskId, loadTask, async (req: Request, res: R
     logger.info('POST /tasks/:id/execute', { id, status: task.status });
 
     // Check if task can be executed
-    const validStatuses = ['backlog', 'failed', 'changes_requested'];
+    const validStatuses = ['backlog', 'approved', 'failed', 'changes_requested'];
     if (!validStatuses.includes(task.status)) {
       res.status(400).json({
         error: 'Invalid task status',
@@ -255,6 +508,22 @@ router.post('/:id/execute', requireTaskId, loadTask, async (req: Request, res: R
     // Determine if this is a resume from changes_requested
     const isResume = task.status === 'changes_requested';
 
+    // For new workflow tasks with 'approved' status, use Dev Agent
+    if (task.status === 'approved') {
+      try {
+        await executeSpec({ task_id: id! });
+        res.status(202).json({
+          status: 'started',
+          task_status: 'coding',
+          message: 'Dev Agent started working on the spec',
+        });
+        return;
+      } catch (execError) {
+        next(execError);
+        return;
+      }
+    }
+
     // Update status to 'planning' SYNCHRONOUSLY before responding
     // This ensures:
     // 1. The frontend receives the updated status and can show logs (SSE connects on planning/in_progress)
@@ -273,10 +542,22 @@ router.post('/:id/execute', requireTaskId, loadTask, async (req: Request, res: R
 
     // Start the agent asynchronously (don't await completion)
     agentService.startAgent(id!, isResume).catch((error) => {
+      const errorMsg = getErrorMessage(error);
       logger.error('Agent execution failed', {
         taskId: id,
-        error: getErrorMessage(error),
+        error: errorMsg,
       });
+
+      // Ensure task status is updated to failed (backup in case startAgent's catch didn't run)
+      const currentTask = taskService.getById(id!);
+      if (currentTask && currentTask.status !== 'failed') {
+        taskService.update(id!, {
+          status: 'failed',
+          error: errorMsg,
+        });
+        sseEmitter.emitStatus(id!, 'failed');
+        sseEmitter.emitError(id!, errorMsg);
+      }
     });
 
     res.status(202).json({
@@ -363,11 +644,26 @@ router.post('/:id/extend', requireTaskId, loadTask, (req: Request, res: Response
  */
 router.post('/:id/cancel', requireTaskId, loadTask, (req: Request, res: Response, next: NextFunction): void => {
   try {
+    const { task } = req as RequestWithTask;
     const { id } = req.params;
     logger.info('POST /tasks/:id/cancel', { id });
 
     const agentService = getAgentService();
 
+    // Handle cancellation for PM Agent (refining status)
+    if (task.status === 'refining') {
+      // PM Agent doesn't run in a separate process, just update status
+      taskService.update(id!, { status: 'draft', error: 'Spec generation cancelled' });
+
+      const sseEmitter = getSSEEmitter();
+      sseEmitter.emitStatus(id!, 'draft');
+      sseEmitter.emitError(id!, 'Spec generation cancelled by user');
+
+      res.json({ status: 'cancelled' });
+      return;
+    }
+
+    // For Dev Agent / legacy agent
     if (!agentService.isAgentRunning(id!)) {
       res.status(400).json({
         error: 'No active agent',
@@ -393,11 +689,11 @@ router.post('/:id/approve', requireTaskId, loadTask, async (req: Request, res: R
     const { id } = req.params;
     logger.info('POST /tasks/:id/approve', { id });
 
-    // Validate task status
-    if (task.status !== 'awaiting_review') {
+    // Validate task status (support both legacy and new workflow)
+    if (task.status !== 'awaiting_review' && task.status !== 'review') {
       res.status(400).json({
         error: 'Invalid task status',
-        message: `Cannot approve task with status: ${task.status}. Expected: awaiting_review`,
+        message: `Cannot approve task with status: ${task.status}. Expected: awaiting_review or review`,
       });
       return;
     }
@@ -418,7 +714,7 @@ router.post('/:id/approve', requireTaskId, loadTask, async (req: Request, res: R
  * POST /tasks/:id/request-changes - Request changes on a PR
  *
  * When a reviewer requests changes on a PR, this endpoint:
- * - Validates the task is in 'pr_created' status
+ * - Validates the task is in 'pr_created' or 'review' status
  * - Changes status to 'changes_requested'
  * - Stores the reviewer feedback for the agent
  *
@@ -441,11 +737,11 @@ router.post('/:id/request-changes', requireTaskId, loadTask, async (req: Request
       return;
     }
 
-    // Validate task status
-    if (task.status !== 'pr_created') {
+    // Validate task status (support both legacy and new workflow)
+    if (task.status !== 'pr_created' && task.status !== 'review') {
       res.status(400).json({
         error: 'Invalid task status',
-        message: `Cannot request changes for task with status: ${task.status}. Expected: pr_created`,
+        message: `Cannot request changes for task with status: ${task.status}. Expected: pr_created or review`,
       });
       return;
     }
@@ -475,11 +771,11 @@ router.post('/:id/pr-merged', requireTaskId, loadTask, async (req: Request, res:
     const { id } = req.params;
     logger.info('POST /tasks/:id/pr-merged', { id });
 
-    // Validate task status
-    if (task.status !== 'pr_created') {
+    // Validate task status (support both legacy and new workflow)
+    if (task.status !== 'pr_created' && task.status !== 'review') {
       res.status(400).json({
         error: 'Invalid task status',
-        message: `Cannot mark PR as merged for task with status: ${task.status}. Expected: pr_created`,
+        message: `Cannot mark PR as merged for task with status: ${task.status}. Expected: pr_created or review`,
       });
       return;
     }
@@ -509,11 +805,11 @@ router.post('/:id/pr-closed', requireTaskId, loadTask, async (req: Request, res:
     const { id } = req.params;
     logger.info('POST /tasks/:id/pr-closed', { id });
 
-    // Validate task status
-    if (!['pr_created', 'changes_requested'].includes(task.status)) {
+    // Validate task status (support both legacy and new workflow)
+    if (!['pr_created', 'review', 'changes_requested'].includes(task.status)) {
       res.status(400).json({
         error: 'Invalid task status',
-        message: `Cannot mark PR as closed for task with status: ${task.status}. Expected: pr_created or changes_requested`,
+        message: `Cannot mark PR as closed for task with status: ${task.status}. Expected: pr_created, review, or changes_requested`,
       });
       return;
     }
@@ -654,12 +950,19 @@ router.get('/:id/logs', requireTaskId, loadTask, (req: Request, res: Response, n
       res.write(errorEvent);
       res.end();
       return;
-    } else if (task.status === 'awaiting_review') {
+    } else if (task.status === 'awaiting_review' || task.status === 'review') {
       const reviewEvent = `event: awaiting_review\ndata: ${JSON.stringify({
         message: 'Agent completed. Review changes before creating PR.',
       })}\n\n`;
       res.write(reviewEvent);
       // Don't close - user may want to monitor while reviewing
+    } else if (task.status === 'pending_approval') {
+      const pendingEvent = `event: log\ndata: ${JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: 'info',
+        message: 'Spec is ready for review. Please review and approve or edit.',
+      })}\n\n`;
+      res.write(pendingEvent);
     }
 
     // Keep connection alive with periodic heartbeat (every 15s)
@@ -720,6 +1023,65 @@ router.get('/:id/changes', requireTaskId, loadTask, async (req: Request, res: Re
         newContent: f.newContent,
       })),
       diff,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /tasks/:id/pr-comments - Get PR comments for a task
+ *
+ * Returns all comments on the PR associated with this task.
+ * Only works for tasks with status 'pr_created', 'review', or 'changes_requested'.
+ */
+router.get('/:id/pr-comments', requireTaskId, loadTask, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { task } = req as RequestWithTask;
+    const { id } = req.params;
+    logger.debug('GET /tasks/:id/pr-comments', { id });
+
+    // Validate task has a PR
+    if (!task.pr_url) {
+      res.status(400).json({
+        error: 'No PR',
+        message: 'This task does not have an associated pull request.',
+      });
+      return;
+    }
+
+    // Extract PR number from URL
+    const prMatch = task.pr_url.match(/\/pull\/(\d+)/);
+    if (!prMatch || !prMatch[1]) {
+      res.status(400).json({
+        error: 'Invalid PR URL',
+        message: 'Could not extract PR number from the PR URL.',
+      });
+      return;
+    }
+
+    const prNumber = parseInt(prMatch[1], 10);
+
+    // Get comments from GitHub
+    const githubClient = getGitHubClient();
+    const comments = await githubClient.getPullRequestComments(task.repo_url, prNumber);
+
+    res.json({
+      comments: comments.map((c) => ({
+        id: c.id,
+        body: c.body,
+        author: {
+          login: c.author.login,
+          avatarUrl: c.author.avatarUrl,
+        },
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+        url: c.url,
+        isReviewComment: c.isReviewComment,
+        path: c.path,
+        line: c.line,
+      })),
+      totalCount: comments.length,
     });
   } catch (error) {
     next(error);

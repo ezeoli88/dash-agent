@@ -6,6 +6,7 @@
 export {
   GitHubClient,
   getGitHubClient,
+  resetGitHubClient,
   type PullRequestInfo,
   type CreatePullRequestParams,
   type CreatePullRequestResult,

@@ -1,9 +1,11 @@
 'use client'
 
 import Link from 'next/link'
+import { MessageSquare } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime, extractRepoName, truncateText } from '@/lib/formatters'
 import { StatusBadge } from '@/components/shared/status-badge'
+import { useTaskUIStore } from '../stores/task-ui-store'
 import type { Task } from '../types'
 
 interface TaskListItemProps {
@@ -14,6 +16,8 @@ interface TaskListItemProps {
 export function TaskListItem({ task, isSelected }: TaskListItemProps) {
   const repoName = extractRepoName(task.repo_url)
   const isInProgress = task.status === 'in_progress'
+  const hasUnreadComments = useTaskUIStore((state) => state.hasUnreadComments(task.id))
+  const unreadCount = useTaskUIStore((state) => state.getUnreadCount(task.id))
 
   return (
     <Link
@@ -52,6 +56,15 @@ export function TaskListItem({ task, isSelected }: TaskListItemProps) {
           <span className="truncate">{repoName}</span>
           <span className="shrink-0">&#183;</span>
           <span className="shrink-0">{formatRelativeTime(task.updated_at)}</span>
+          {hasUnreadComments && (
+            <>
+              <span className="shrink-0">&#183;</span>
+              <span className="inline-flex items-center gap-1 text-blue-500 dark:text-blue-400">
+                <MessageSquare className="h-3 w-3" />
+                {unreadCount}
+              </span>
+            </>
+          )}
         </div>
       </div>
 

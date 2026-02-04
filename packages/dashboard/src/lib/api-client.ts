@@ -6,6 +6,9 @@ import type {
   RequestChangesResponse,
   PRMergedResponse,
   PRClosedResponse,
+  PRCommentsResponse,
+  GenerateSpecResponse,
+  ApproveSpecResponse,
 } from '@/features/tasks/types';
 import type { ActionResponse, CleanupWorktreeResponse } from '@/types/api';
 
@@ -54,6 +57,30 @@ function buildUrl(endpoint: string, params?: Record<string, string | number | bo
   }
 
   return url.toString();
+}
+
+/**
+ * Gets AI configuration from localStorage
+ */
+function getAIConfigHeaders(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+
+  try {
+    const setupConfig = localStorage.getItem('dash-agent-setup-config');
+    if (setupConfig) {
+      const config = JSON.parse(setupConfig);
+      if (config.aiProvider && config.aiApiKey) {
+        return {
+          'X-AI-Provider': config.aiProvider,
+          'X-AI-API-Key': config.aiApiKey,
+        };
+      }
+    }
+  } catch (e) {
+    console.error('Failed to get AI config from localStorage:', e);
+  }
+
+  return {};
 }
 
 // Generic fetch wrapper
@@ -145,7 +172,7 @@ export const apiClient = {
 
   // Task-specific endpoints
   tasks: {
-    getAll: (params?: { status?: string; search?: string }) =>
+    getAll: (params?: { status?: string; search?: string; repository_id?: string }) =>
       apiClient.get<Task[]>('/tasks', { params }),
 
     getById: (id: string) =>
@@ -178,7 +205,7 @@ export const apiClient = {
 
 // Standalone tasksApi for use with TanStack Query hooks
 export const tasksApi = {
-  getAll: async (filters?: { status?: string[]; search?: string }) => {
+  getAll: async (filters?: { status?: string[]; search?: string; repository_id?: string }) => {
     const params: Record<string, string | undefined> = {}
 
     if (filters?.status && filters.status.length > 0) {
@@ -186,6 +213,9 @@ export const tasksApi = {
     }
     if (filters?.search) {
       params.search = filters.search
+    }
+    if (filters?.repository_id) {
+      params.repository_id = filters.repository_id
     }
 
     return apiClient.get<Task[]>('/tasks', { params })
@@ -202,15 +232,58 @@ export const tasksApi = {
 
   getLogs: (id: string) => apiClient.get<string[]>(`/tasks/${id}/logs`),
 
-  // Task action endpoints (return ActionResponse)
+  // ==========================================================================
+  // Two-Agent Workflow Endpoints
+  // ==========================================================================
+
+  /** Generate spec using PM Agent (status: draft -> refining -> pending_approval) */
+  generateSpec: (id: string, additionalContext?: string) => {
+    const aiHeaders = getAIConfigHeaders();
+    return apiClient.post<{ status: string; message: string }>(
+      `/tasks/${id}/generate-spec`,
+      additionalContext ? { additional_context: additionalContext } : {},
+      { headers: aiHeaders }
+    );
+  },
+
+  /** Regenerate spec with different approach (status: pending_approval -> refining -> pending_approval) */
+  regenerateSpec: (id: string, additionalContext?: string) => {
+    const aiHeaders = getAIConfigHeaders();
+    return apiClient.post<{ status: string; message: string }>(
+      `/tasks/${id}/regenerate-spec`,
+      additionalContext ? { additional_context: additionalContext } : {},
+      { headers: aiHeaders }
+    );
+  },
+
+  /** Update the spec (user editing) */
+  updateSpec: (id: string, spec: string) =>
+    apiClient.patch<Task>(`/tasks/${id}/spec`, { spec }),
+
+  /** Approve spec and start Dev Agent (status: pending_approval -> approved -> coding) */
+  approveSpec: (id: string, finalSpec?: string) =>
+    apiClient.post<ApproveSpecResponse>(
+      `/tasks/${id}/approve-spec`,
+      finalSpec ? { final_spec: finalSpec } : {}
+    ),
+
+  // ==========================================================================
+  // Legacy + Updated Task Actions
+  // ==========================================================================
+
+  /** Execute task (start Dev Agent or legacy agent) */
   execute: (id: string) => apiClient.post<ActionResponse>(`/tasks/${id}/execute`),
 
+  /** Approve and create PR (status: awaiting_review/review -> pr_created) */
   approve: (id: string) => apiClient.post<ActionResponse>(`/tasks/${id}/approve`),
 
+  /** Cancel running agent */
   cancel: (id: string) => apiClient.post<ActionResponse>(`/tasks/${id}/cancel`),
 
+  /** Extend agent timeout */
   extend: (id: string) => apiClient.post<ActionResponse>(`/tasks/${id}/extend`),
 
+  /** Send feedback to running agent */
   feedback: (id: string, message: string) =>
     apiClient.post<ActionResponse>(`/tasks/${id}/feedback`, { message }),
 
@@ -229,6 +302,10 @@ export const tasksApi = {
 
   cleanupWorktree: (id: string): Promise<CleanupWorktreeResponse> =>
     apiClient.post<CleanupWorktreeResponse>(`/tasks/${id}/cleanup-worktree`),
+
+  // PR comments
+  getPRComments: (id: string): Promise<PRCommentsResponse> =>
+    apiClient.get<PRCommentsResponse>(`/tasks/${id}/pr-comments`),
 }
 
 // Export types for consumers

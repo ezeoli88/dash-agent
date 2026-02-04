@@ -16,6 +16,12 @@ export {
   type Task,
   type CreateTaskInput,
   type UpdateTaskInput,
+  // Two-agent workflow types
+  type GenerateSpecRequest,
+  type GenerateSpecResponse,
+  type UpdateSpecRequest,
+  type ApproveSpecRequest,
+  type ApproveSpecResponse,
   // Task utilities
   TASK_STATUS_LABELS,
   TASK_STATUS_COLORS,
@@ -23,6 +29,11 @@ export {
   isTerminalStatus,
   isActiveStatus,
   requiresUserAction,
+  // New two-agent workflow utilities
+  isSpecPhase,
+  isCodingPhase,
+  mapLegacyStatus,
+  getPhaseForStatus,
   // SSE types
   type LogLevel,
   type LogEntry,
@@ -33,8 +44,13 @@ export {
   type SSEAwaitingReviewEvent,
   type SSECompleteEvent,
   type SSEErrorEvent,
+  type SSEPRCommentEvent,
   type SSEEvent,
   type SSEConnectionStatus,
+  // PR Comment types
+  type PRComment,
+  type PRCommentAuthor,
+  type PRCommentsResponse,
   // File change types (for diff viewer)
   type FileChangeStatus,
   type FileChange,

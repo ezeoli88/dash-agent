@@ -1,4 +1,5 @@
 import type { TaskStatus } from '../schemas/task.schema.js';
+import type { PRComment } from '../schemas/pr-comment.schema.js';
 
 /**
  * Log levels for task execution logs
@@ -25,7 +26,8 @@ export type SSEEventType =
   | 'timeout_warning'
   | 'awaiting_review'
   | 'complete'
-  | 'error';
+  | 'error'
+  | 'pr_comment';
 
 /**
  * SSE log event - new log entry from agent execution
@@ -94,6 +96,17 @@ export interface SSEErrorEvent {
 }
 
 /**
+ * SSE PR comment event - new comment on PR
+ */
+export interface SSEPRCommentEvent {
+  type: 'pr_comment';
+  data: {
+    comment: PRComment;
+    taskId: string;
+  };
+}
+
+/**
  * Union type for all SSE events
  */
 export type SSEEvent =
@@ -102,7 +115,8 @@ export type SSEEvent =
   | SSETimeoutWarningEvent
   | SSEAwaitingReviewEvent
   | SSECompleteEvent
-  | SSEErrorEvent;
+  | SSEErrorEvent
+  | SSEPRCommentEvent;
 
 /**
  * Connection status for SSE client

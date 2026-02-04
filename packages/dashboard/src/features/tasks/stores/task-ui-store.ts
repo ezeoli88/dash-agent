@@ -1,6 +1,7 @@
 'use client'
 
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 import type { TaskStatus, LogEntry } from '../types'
 
 interface TaskUIState {
@@ -31,56 +32,113 @@ interface TaskUIState {
   setTaskLogs: (taskId: string, logs: LogEntry[]) => void;
   clearTaskLogs: (taskId: string) => void;
   getTaskLogs: (taskId: string) => LogEntry[];
+
+  // Unread PR comments state - persisted to localStorage
+  // Map of taskId to Set of unread comment IDs
+  unreadComments: Record<string, number[]>;
+  addUnreadComment: (taskId: string, commentId: number) => void;
+  markCommentAsRead: (taskId: string, commentId: number) => void;
+  markAllCommentsAsRead: (taskId: string) => void;
+  getUnreadCount: (taskId: string) => number;
+  hasUnreadComments: (taskId: string) => boolean;
 }
 
-export const useTaskUIStore = create<TaskUIState>((set, get) => ({
-  // Filter state
-  statusFilter: [],
-  searchQuery: '',
-  setStatusFilter: (statuses) => set({ statusFilter: statuses }),
-  setSearchQuery: (query) => set({ searchQuery: query }),
-  clearFilters: () => set({ statusFilter: [], searchQuery: '' }),
+// Persisted state for unread comments (stored in localStorage)
+interface PersistedState {
+  unreadComments: Record<string, number[]>;
+}
 
-  // Create modal state
-  isCreateModalOpen: false,
-  openCreateModal: () => set({ isCreateModalOpen: true }),
-  closeCreateModal: () => set({ isCreateModalOpen: false }),
+export const useTaskUIStore = create<TaskUIState>()(
+  persist(
+    (set, get) => ({
+      // Filter state
+      statusFilter: [],
+      searchQuery: '',
+      setStatusFilter: (statuses) => set({ statusFilter: statuses }),
+      setSearchQuery: (query) => set({ searchQuery: query }),
+      clearFilters: () => set({ statusFilter: [], searchQuery: '' }),
 
-  // Auto-scroll state
-  isAutoScrollEnabled: true,
-  toggleAutoScroll: () => set((state) => ({
-    isAutoScrollEnabled: !state.isAutoScrollEnabled
-  })),
+      // Create modal state
+      isCreateModalOpen: false,
+      openCreateModal: () => set({ isCreateModalOpen: true }),
+      closeCreateModal: () => set({ isCreateModalOpen: false }),
 
-  // Selected task
-  selectedTaskId: null,
-  setSelectedTaskId: (taskId) => set({ selectedTaskId: taskId }),
+      // Auto-scroll state
+      isAutoScrollEnabled: true,
+      toggleAutoScroll: () => set((state) => ({
+        isAutoScrollEnabled: !state.isAutoScrollEnabled
+      })),
 
-  // Task logs state - persisted across tab switches
-  taskLogs: {},
-  addTaskLog: (taskId, log) => set((state) => ({
-    taskLogs: {
-      ...state.taskLogs,
-      [taskId]: [...(state.taskLogs[taskId] || []), log],
-    },
-  })),
-  addTaskLogs: (taskId, logs) => set((state) => ({
-    taskLogs: {
-      ...state.taskLogs,
-      [taskId]: [...(state.taskLogs[taskId] || []), ...logs],
-    },
-  })),
-  setTaskLogs: (taskId, logs) => set((state) => ({
-    taskLogs: {
-      ...state.taskLogs,
-      [taskId]: logs,
-    },
-  })),
-  clearTaskLogs: (taskId) => set((state) => ({
-    taskLogs: {
-      ...state.taskLogs,
-      [taskId]: [],
-    },
-  })),
-  getTaskLogs: (taskId) => get().taskLogs[taskId] || [],
-}));
+      // Selected task
+      selectedTaskId: null,
+      setSelectedTaskId: (taskId) => set({ selectedTaskId: taskId }),
+
+      // Task logs state - persisted across tab switches
+      taskLogs: {},
+      addTaskLog: (taskId, log) => set((state) => ({
+        taskLogs: {
+          ...state.taskLogs,
+          [taskId]: [...(state.taskLogs[taskId] || []), log],
+        },
+      })),
+      addTaskLogs: (taskId, logs) => set((state) => ({
+        taskLogs: {
+          ...state.taskLogs,
+          [taskId]: [...(state.taskLogs[taskId] || []), ...logs],
+        },
+      })),
+      setTaskLogs: (taskId, logs) => set((state) => ({
+        taskLogs: {
+          ...state.taskLogs,
+          [taskId]: logs,
+        },
+      })),
+      clearTaskLogs: (taskId) => set((state) => ({
+        taskLogs: {
+          ...state.taskLogs,
+          [taskId]: [],
+        },
+      })),
+      getTaskLogs: (taskId) => get().taskLogs[taskId] || [],
+
+      // Unread comments state
+      unreadComments: {},
+      addUnreadComment: (taskId, commentId) => set((state) => {
+        const currentUnread = state.unreadComments[taskId] || [];
+        if (currentUnread.includes(commentId)) {
+          return state; // Already marked as unread
+        }
+        return {
+          unreadComments: {
+            ...state.unreadComments,
+            [taskId]: [...currentUnread, commentId],
+          },
+        };
+      }),
+      markCommentAsRead: (taskId, commentId) => set((state) => {
+        const currentUnread = state.unreadComments[taskId] || [];
+        return {
+          unreadComments: {
+            ...state.unreadComments,
+            [taskId]: currentUnread.filter((id) => id !== commentId),
+          },
+        };
+      }),
+      markAllCommentsAsRead: (taskId) => set((state) => ({
+        unreadComments: {
+          ...state.unreadComments,
+          [taskId]: [],
+        },
+      })),
+      getUnreadCount: (taskId) => (get().unreadComments[taskId] || []).length,
+      hasUnreadComments: (taskId) => (get().unreadComments[taskId] || []).length > 0,
+    }),
+    {
+      name: 'dash-agent-task-ui',
+      // Only persist unreadComments to localStorage
+      partialize: (state): PersistedState => ({
+        unreadComments: state.unreadComments,
+      }),
+    }
+  )
+);

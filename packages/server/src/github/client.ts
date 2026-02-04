@@ -3,6 +3,7 @@ import { getConfig } from '../config.js';
 import { createLogger } from '../utils/logger.js';
 import { getErrorMessage } from '../utils/errors.js';
 import { parseGitHubUrl } from '../utils/github-url.js';
+import { getGitHubCredentials } from '../services/secrets.service.js';
 
 const logger = createLogger('github-client');
 
@@ -57,20 +58,71 @@ export interface CreatePullRequestResult {
 }
 
 /**
+ * Information about a PR comment.
+ */
+export interface PRCommentInfo {
+  id: number;
+  body: string;
+  author: {
+    login: string;
+    avatarUrl?: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+  url: string;
+  isReviewComment: boolean;
+  /** For review comments: the file path */
+  path?: string;
+  /** For review comments: the line number */
+  line?: number;
+}
+
+/**
+ * Gets the GitHub token from the best available source:
+ * 1. Secrets service (server-side storage)
+ * 2. Environment variable (fallback for backward compatibility)
+ *
+ * @returns The GitHub token or null if not configured
+ */
+function getGitHubToken(): string | null {
+  // First, try to get from secrets service (preferred)
+  const credentials = getGitHubCredentials();
+  if (credentials?.token) {
+    logger.debug('Using GitHub token from secrets service');
+    return credentials.token;
+  }
+
+  // Fallback to environment variable
+  const config = getConfig();
+  if (config.githubToken) {
+    logger.debug('Using GitHub token from environment variable');
+    return config.githubToken;
+  }
+
+  return null;
+}
+
+/**
  * GitHub API client wrapper around Octokit.
  * Provides methods for common GitHub operations.
  */
 export class GitHubClient {
   private readonly octokit: Octokit;
 
-  constructor() {
-    const config = getConfig();
-    if (!config.githubToken) {
-      throw new Error('GITHUB_TOKEN is required for GitHub operations');
+  /**
+   * Creates a new GitHub client.
+   *
+   * @param token - Optional token to use. If not provided, will try secrets service then env var.
+   */
+  constructor(token?: string) {
+    const authToken = token ?? getGitHubToken();
+
+    if (!authToken) {
+      throw new Error('GitHub token is required. Configure via Setup or set GITHUB_TOKEN environment variable.');
     }
 
     this.octokit = new Octokit({
-      auth: config.githubToken,
+      auth: authToken,
     });
   }
 
@@ -431,6 +483,110 @@ export class GitHubClient {
       throw new Error(`Failed to fetch repository: ${errorMessage}`);
     }
   }
+
+  /**
+   * Gets all comments on a pull request (both issue comments and review comments).
+   *
+   * @param repoUrl - The GitHub repository URL
+   * @param prNumber - The pull request number
+   * @param since - Optional ISO timestamp to filter comments created after this time
+   * @returns Array of PR comments
+   */
+  async getPullRequestComments(
+    repoUrl: string,
+    prNumber: number,
+    since?: string
+  ): Promise<PRCommentInfo[]> {
+    const { owner, repo } = parseGitHubUrl(repoUrl);
+
+    logger.debug('Fetching PR comments', { owner, repo, prNumber, since });
+
+    try {
+      // Fetch both issue comments (general PR comments) and review comments (code-specific)
+      const [issueCommentsResponse, reviewCommentsResponse] = await Promise.all([
+        this.octokit.rest.issues.listComments({
+          owner,
+          repo,
+          issue_number: prNumber,
+          since,
+          per_page: 100,
+        }),
+        this.octokit.rest.pulls.listReviewComments({
+          owner,
+          repo,
+          pull_number: prNumber,
+          since,
+          per_page: 100,
+        }),
+      ]);
+
+      // Map issue comments
+      const issueComments: PRCommentInfo[] = issueCommentsResponse.data.map((comment) => {
+        const result: PRCommentInfo = {
+          id: comment.id,
+          body: comment.body ?? '',
+          author: {
+            login: comment.user?.login ?? 'unknown',
+          },
+          createdAt: comment.created_at,
+          updatedAt: comment.updated_at,
+          url: comment.html_url,
+          isReviewComment: false,
+        };
+        if (comment.user?.avatar_url) {
+          result.author.avatarUrl = comment.user.avatar_url;
+        }
+        return result;
+      });
+
+      // Map review comments (code-specific comments)
+      const reviewComments: PRCommentInfo[] = reviewCommentsResponse.data.map((comment) => {
+        const result: PRCommentInfo = {
+          id: comment.id,
+          body: comment.body,
+          author: {
+            login: comment.user?.login ?? 'unknown',
+          },
+          createdAt: comment.created_at,
+          updatedAt: comment.updated_at,
+          url: comment.html_url,
+          isReviewComment: true,
+          path: comment.path,
+        };
+        if (comment.user?.avatar_url) {
+          result.author.avatarUrl = comment.user.avatar_url;
+        }
+        const lineNum = comment.line ?? comment.original_line;
+        if (lineNum !== null && lineNum !== undefined) {
+          result.line = lineNum;
+        }
+        return result;
+      });
+
+      // Combine and sort by creation time
+      const allComments = [...issueComments, ...reviewComments].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+
+      logger.debug('Fetched PR comments', {
+        prNumber,
+        issueCommentsCount: issueComments.length,
+        reviewCommentsCount: reviewComments.length,
+        totalCount: allComments.length,
+      });
+
+      return allComments;
+    } catch (error) {
+      const errorMessage = getErrorMessage(error);
+      logger.error('Failed to fetch PR comments', {
+        error: errorMessage,
+        owner,
+        repo,
+        prNumber,
+      });
+      throw new Error(`Failed to fetch PR comments for #${prNumber}: ${errorMessage}`);
+    }
+  }
 }
 
 /**
@@ -442,13 +598,32 @@ let githubClientInstance: GitHubClient | null = null;
  * Gets the GitHub client instance.
  * Creates a new instance if one doesn't exist.
  *
- * @throws Error if GITHUB_TOKEN is not configured
+ * @param forceNew - If true, creates a new instance even if one exists (useful when token changes)
+ * @throws Error if no GitHub token is configured
  */
-export function getGitHubClient(): GitHubClient {
-  if (githubClientInstance === null) {
+export function getGitHubClient(forceNew: boolean = false): GitHubClient {
+  if (githubClientInstance === null || forceNew) {
     githubClientInstance = new GitHubClient();
   }
   return githubClientInstance;
+}
+
+/**
+ * Resets the GitHub client singleton.
+ * Call this when the GitHub token changes (e.g., after saving a new token).
+ */
+export function resetGitHubClient(): void {
+  logger.info('Resetting GitHub client singleton');
+  githubClientInstance = null;
+}
+
+/**
+ * Checks if a GitHub token is available (from any source).
+ *
+ * @returns true if a token is configured
+ */
+export function hasGitHubToken(): boolean {
+  return getGitHubToken() !== null;
 }
 
 export default getGitHubClient;

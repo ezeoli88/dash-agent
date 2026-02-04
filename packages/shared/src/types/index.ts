@@ -6,6 +6,11 @@ export {
   isTerminalStatus,
   isActiveStatus,
   requiresUserAction,
+  // New two-agent workflow utilities
+  isSpecPhase,
+  isCodingPhase,
+  mapLegacyStatus,
+  getPhaseForStatus,
 } from './task.types.js';
 
 // SSE types
@@ -19,6 +24,7 @@ export type {
   SSEAwaitingReviewEvent,
   SSECompleteEvent,
   SSEErrorEvent,
+  SSEPRCommentEvent,
   SSEEvent,
   SSEConnectionStatus,
 } from './sse.types.js';
@@ -46,3 +52,17 @@ export {
   type TaskChangesResponse,
   type ApiError,
 } from './api.types.js';
+
+// Setup types
+export {
+  AI_PROVIDER_INFO,
+  SETUP_ERROR_CODES,
+  type AIProviderInfo,
+  type SetupStep,
+  type StepStatus,
+  type SetupStepInfo,
+  type ValidationState,
+  type GitHubConnectionState,
+  type SetupErrorCode,
+  type SetupError,
+} from './setup.types.js';

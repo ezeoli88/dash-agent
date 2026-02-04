@@ -14,6 +14,8 @@ import type {
   SSEAwaitingReviewEvent,
   SSECompleteEvent,
   SSEErrorEvent,
+  SSEPRCommentEvent,
+  PRComment,
 } from '../types'
 
 // Re-export SSEConnectionStatus as ConnectionStatus for backwards compatibility
@@ -26,6 +28,7 @@ interface UseTaskSSEOptions {
   onComplete?: (prUrl: string) => void;
   onError?: (message: string) => void;
   onTimeoutWarning?: (message: string, expiresAt: string) => void;
+  onPRComment?: (comment: PRComment) => void;
 }
 
 interface ConnectOptions {
@@ -36,6 +39,7 @@ interface ConnectOptions {
   onComplete?: (prUrl: string) => void;
   onError?: (message: string) => void;
   onTimeoutWarning?: (message: string, expiresAt: string) => void;
+  onPRComment?: (comment: PRComment) => void;
   invalidateQueries: () => void;
 }
 
@@ -64,7 +68,7 @@ function createSSEConnectionManager() {
   }
 
   function connect(options: ConnectOptions) {
-    const { taskId, enabled, onLog, onStatusChange, onComplete, onError, onTimeoutWarning, invalidateQueries } = options;
+    const { taskId, enabled, onLog, onStatusChange, onComplete, onError, onTimeoutWarning, onPRComment, invalidateQueries } = options;
 
     if (!enabled || !taskId) return;
 
@@ -164,6 +168,16 @@ function createSSEConnectionManager() {
         }
       });
 
+      // Handle 'pr_comment' event - new comment on PR
+      es.addEventListener('pr_comment', (event) => {
+        try {
+          const parsed = JSON.parse(event.data) as SSEPRCommentEvent['data'];
+          onPRComment?.(parsed.comment);
+        } catch (e) {
+          console.error('Failed to parse pr_comment event:', e);
+        }
+      });
+
       es.onerror = () => {
         setStatus('error');
         es.close();
@@ -190,7 +204,7 @@ function createSSEConnectionManager() {
 }
 
 export function useTaskSSE(options: UseTaskSSEOptions) {
-  const { taskId, enabled = true, onStatusChange, onComplete, onError, onTimeoutWarning } = options;
+  const { taskId, enabled = true, onStatusChange, onComplete, onError, onTimeoutWarning, onPRComment } = options;
   const queryClient = useQueryClient();
 
   // Use Zustand store for logs persistence across tab switches
@@ -216,11 +230,12 @@ export function useTaskSSE(options: UseTaskSSEOptions) {
     onComplete,
     onError,
     onTimeoutWarning,
+    onPRComment,
     invalidateQueries: () => {
       queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskId) });
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
     },
-  }), [taskId, enabled, onStatusChange, onComplete, onError, onTimeoutWarning, queryClient, addTaskLog]);
+  }), [taskId, enabled, onStatusChange, onComplete, onError, onTimeoutWarning, onPRComment, queryClient, addTaskLog]);
 
   // Connect/disconnect effect
   useEffect(() => {

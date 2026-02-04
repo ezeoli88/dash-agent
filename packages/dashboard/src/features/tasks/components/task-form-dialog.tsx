@@ -20,6 +20,10 @@ export function TaskFormDialog() {
   const handleSubmit = async (data: CreateTaskFormData) => {
     try {
       await createTaskMutation.mutateAsync({
+        // Required fields for two-agent workflow (use placeholder values for legacy form)
+        repository_id: '00000000-0000-0000-0000-000000000000', // Placeholder - legacy form doesn't have repo selector
+        user_input: data.description,
+        // Legacy fields
         title: data.title,
         description: data.description,
         repo_url: data.repo_url,
