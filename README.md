@@ -191,24 +191,6 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
 | GET | `/api/tasks/:id/diff` | Obtener diff de cambios |
 | POST | `/api/tasks/:id/approve` | Aprobar y crear PR |
 
-## Roadmap
-
-- [x] Phase 1: Setup inicial
-- [x] Phase 2: Componentes UI (shadcn/ui)
-- [x] Phase 3: Layout y navegación
-- [x] Phase 4: Lista de tareas
-- [x] Phase 5: Detalle de tarea
-- [x] Phase 6: Crear tarea
-- [x] Phase 7: Acciones de tarea
-- [x] Phase 8: Logs en tiempo real (SSE)
-- [x] Phase 9: Diff Viewer
-- [x] Phase 10: Sistema de feedback
-- [x] Phase 11: Polish
-- [ ] Phase 12: Refactoring
-- [ ] Phase 13: Testing
-- [ ] Phase 14: CLI (`npx dash-agent`)
-- [ ] Phase 15: Publicación npm
-
 ## Contributing
 
 1. Fork el repositorio
