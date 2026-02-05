@@ -14,6 +14,7 @@ import {
   Ban,
   Trash2,
   Sparkles,
+  Pencil,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -42,6 +43,7 @@ import {
 import { useTaskActions } from '../hooks/use-task-actions'
 import { useGenerateSpec } from '../hooks/use-generate-spec'
 import { FeedbackForm } from './feedback-form'
+import { EditTaskDialog } from './edit-task-dialog'
 import type { Task, TaskStatus } from '../types'
 
 interface TaskActionsProps {
@@ -61,6 +63,7 @@ type ActionType =
   | 'mark_merged'
   | 'mark_closed'
   | 'generate_spec'
+  | 'edit'
 
 type ActionConfig = {
   type: ActionType
@@ -80,10 +83,23 @@ function getActionsForStatus(task: Task): ActionConfig[] {
     // === New two-agent workflow statuses ===
     draft: [
       {
+        type: 'edit',
+        label: 'Edit Task',
+        icon: <Pencil className="h-4 w-4" />,
+        variant: 'outline',
+      },
+      {
         type: 'generate_spec',
         label: 'Generate Spec',
         icon: <Sparkles className="h-4 w-4" />,
         variant: 'default',
+      },
+      {
+        type: 'delete',
+        label: 'Delete Task',
+        icon: <Trash2 className="h-4 w-4" />,
+        variant: 'destructive',
+        isDestructive: true,
       },
     ],
     refining: [
@@ -95,7 +111,15 @@ function getActionsForStatus(task: Task): ActionConfig[] {
         isDestructive: true,
       },
     ],
-    pending_approval: [], // Actions are handled by SpecEditor component
+    pending_approval: [
+      {
+        type: 'delete',
+        label: 'Delete Task',
+        icon: <Trash2 className="h-4 w-4" />,
+        variant: 'destructive',
+        isDestructive: true,
+      },
+    ],
     approved: [], // Processing state, no actions
     coding: [
       {
@@ -357,6 +381,7 @@ export function TaskActions({ task }: TaskActionsProps) {
   const { execute, approve, cancel, extend, requestChanges, markPRMerged, markPRClosed, retry, cleanupWorktree, deleteTask } =
     useTaskActions(task.id)
   const generateSpecMutation = useGenerateSpec()
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
 
   // Helper to check if any action is pending
   const isAnyActionPending =
@@ -430,17 +455,47 @@ export function TaskActions({ task }: TaskActionsProps) {
     )
   }
 
-  // Show message for pending_approval (actions in SpecEditor)
+  // Show message for pending_approval (actions in SpecEditor) with delete option
   if (task.status === 'pending_approval') {
     return (
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Actions</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
             Review the generated specification in the Overview tab. You can edit it and then approve to start development.
           </p>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="destructive"
+                className="w-full justify-start"
+                disabled={isAnyActionPending}
+              >
+                {deleteTask.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                {deleteTask.isPending ? 'Deleting...' : 'Delete Task'}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete Task</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Are you sure you want to delete this task? This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => deleteTask.mutate()}
+                  disabled={deleteTask.isPending}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Delete Task
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </CardContent>
       </Card>
     )
@@ -553,6 +608,22 @@ export function TaskActions({ task }: TaskActionsProps) {
             )
           }
 
+          // Edit task button
+          if (action.type === 'edit') {
+            return (
+              <Button
+                key={action.label}
+                variant={action.variant}
+                className="w-full justify-start"
+                disabled={isAnyActionPending}
+                onClick={() => setIsEditDialogOpen(true)}
+              >
+                {action.icon}
+                {action.label}
+              </Button>
+            )
+          }
+
           // Destructive action with AlertDialog
           if (action.isDestructive) {
             const isMarkClosed = action.type === 'mark_closed'
@@ -641,6 +712,13 @@ export function TaskActions({ task }: TaskActionsProps) {
         {/* Feedback form for in_progress status */}
         {task.status === 'in_progress' && <FeedbackForm task={task} />}
       </CardContent>
+
+      {/* Edit Task Dialog */}
+      <EditTaskDialog
+        task={task}
+        open={isEditDialogOpen}
+        onOpenChange={setIsEditDialogOpen}
+      />
     </Card>
   )
 }

@@ -4,12 +4,21 @@ Dashboard web para gestionar tareas de un agente IA autónomo. Permite crear tar
 
 ## Features
 
-- **Task Management** - Crear, listar y gestionar tareas para el agente IA
+### Core Features
+- **Two-Agent Workflow** - PM Agent genera especificaciones detalladas, Dev Agent las ejecuta
+- **Board View** - Vista Kanban para gestionar tareas (To Do, In Progress, In Review, Done)
+- **Task Management** - Crear, editar, listar y gestionar tareas para el agente IA
 - **Real-time Logs** - Streaming de logs de ejecución via Server-Sent Events (SSE)
 - **Diff Viewer** - Revisar cambios de código antes de aprobarlos
 - **Feedback Loop** - Enviar feedback al agente durante la ejecución
 - **PR Creation** - Crear Pull Requests en GitHub automáticamente
 - **Dark Mode** - Soporte completo para tema claro/oscuro
+
+### Advanced Features
+- **Empty Repository Support** - Crear proyectos desde cero en repositorios vacíos
+- **Spec Editing** - Editar y refinar especificaciones antes de ejecutar
+- **Multi-Repository** - Gestionar múltiples repositorios desde el dashboard
+- **Error Visibility** - Mensajes de error claros y visibles en la UI
 
 ## Quick Start
 
@@ -30,6 +39,45 @@ npm run dev
 ```
 
 El dashboard estará disponible en `http://localhost:3003` y el servidor en `http://localhost:3000`.
+
+## Two-Agent Workflow
+
+El sistema utiliza dos agentes especializados para dividir el trabajo:
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Usuario   │────▶│  PM Agent   │────▶│   Review    │────▶│  Dev Agent  │
+│  crea task  │     │ genera spec │     │  del spec   │     │  implementa │
+└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
+      │                                        │                    │
+      │                                        ▼                    ▼
+      │                                 ┌─────────────┐     ┌─────────────┐
+      │                                 │   Editar/   │     │  Crear PR   │
+      │                                 │  Regenerar  │     │             │
+      │                                 └─────────────┘     └─────────────┘
+```
+
+### Flujo de trabajo:
+
+1. **Usuario crea tarea** - Describe lo que necesita en lenguaje natural
+2. **PM Agent analiza** - Genera una especificación técnica detallada
+3. **Usuario revisa spec** - Puede editar, regenerar o aprobar
+4. **Dev Agent implementa** - Ejecuta la especificación aprobada
+5. **Review de cambios** - Usuario revisa el diff y aprueba PR
+
+### Estados de tarea:
+
+| Estado | Descripción | Columna Board |
+|--------|-------------|---------------|
+| `draft` | Tarea creada, esperando generar spec | To Do |
+| `refining` | PM Agent generando spec | To Do |
+| `pending_approval` | Spec lista para revisar | To Do |
+| `approved` | Spec aprobada, Dev Agent iniciando | In Progress |
+| `coding` | Dev Agent trabajando | In Progress |
+| `awaiting_review` | Cambios listos para revisar | In Review |
+| `pr_created` | PR creado en GitHub | In Review |
+| `done` | PR mergeado | Done |
+| `failed` | Error durante ejecución | Cancelled |
 
 ## Project Structure
 
@@ -179,17 +227,46 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
 
 ## API Endpoints
 
+### Task CRUD
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
-| GET | `/api/tasks` | Listar todas las tareas |
-| POST | `/api/tasks` | Crear nueva tarea |
-| GET | `/api/tasks/:id` | Obtener tarea por ID |
-| PATCH | `/api/tasks/:id` | Actualizar tarea |
-| DELETE | `/api/tasks/:id` | Eliminar tarea |
-| GET | `/api/tasks/:id/logs` | SSE stream de logs |
-| POST | `/api/tasks/:id/feedback` | Enviar feedback |
-| GET | `/api/tasks/:id/diff` | Obtener diff de cambios |
-| POST | `/api/tasks/:id/approve` | Aprobar y crear PR |
+| GET | `/tasks` | Listar todas las tareas |
+| POST | `/tasks` | Crear nueva tarea |
+| GET | `/tasks/:id` | Obtener tarea por ID |
+| PATCH | `/tasks/:id` | Actualizar tarea |
+| DELETE | `/tasks/:id` | Eliminar tarea |
+
+### Two-Agent Workflow
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| POST | `/tasks/:id/generate-spec` | PM Agent genera especificación |
+| POST | `/tasks/:id/regenerate-spec` | Regenerar especificación |
+| PATCH | `/tasks/:id/spec` | Editar especificación manualmente |
+| POST | `/tasks/:id/approve-spec` | Aprobar spec e iniciar Dev Agent |
+
+### Execution & Feedback
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| POST | `/tasks/:id/execute` | Ejecutar/retry tarea |
+| POST | `/tasks/:id/cancel` | Cancelar ejecución |
+| POST | `/tasks/:id/feedback` | Enviar feedback al agente |
+| GET | `/tasks/:id/logs` | SSE stream de logs |
+
+### Review & PR
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/tasks/:id/changes` | Obtener diff de cambios |
+| POST | `/tasks/:id/request-changes` | Solicitar cambios |
+| POST | `/tasks/:id/pr-merged` | Marcar PR como mergeado |
+| POST | `/tasks/:id/pr-closed` | Marcar PR como cerrado |
+| GET | `/tasks/:id/pr-comments` | Obtener comentarios del PR |
+
+### Repository Management
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/repos` | Listar repositorios |
+| POST | `/repos` | Agregar repositorio |
+| DELETE | `/repos/:id` | Eliminar repositorio |
 
 ## Contributing
 

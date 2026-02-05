@@ -53,6 +53,8 @@ export interface SetupWorktreeResult {
   reused: boolean;
   /** The branch name */
   branchName: string;
+  /** Whether the repository is empty (no commits) */
+  isEmptyRepo: boolean;
 }
 
 /**
@@ -277,6 +279,30 @@ export class GitService {
   }
 
   /**
+   * Checks if a bare repository is empty (has no commits).
+   * An empty repository has no branches and no commits.
+   *
+   * @param bareRepoPath - Path to the bare repository
+   * @returns True if the repository has no commits
+   */
+  async isEmptyRepo(bareRepoPath: string): Promise<boolean> {
+    // Try to list branches - an empty repo has no branches
+    const result = await execGit(['branch', '--list'], bareRepoPath);
+
+    // If no branches exist, the repository is empty
+    if (result.exitCode === 0 && result.stdout.trim() === '') {
+      // Double-check by trying to get any commit
+      const revParseResult = await execGit(['rev-parse', '--verify', 'HEAD'], bareRepoPath);
+      if (revParseResult.exitCode !== 0) {
+        logger.info('Repository is empty (no commits)', { bareRepoPath });
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * Ensures the bare repository exists, cloning if not present.
    * Bare repos are used as the central repository for worktrees.
    *
@@ -325,12 +351,21 @@ export class GitService {
   /**
    * Fetches the latest changes from origin in a bare repository.
    * Updates local branches to match their remote counterparts.
+   * Handles empty repositories gracefully by skipping fetch operations.
    *
    * @param bareRepoPath - Path to the bare repository
    * @param targetBranch - Optional branch to specifically update (e.g., 'main')
+   * @returns True if fetch was successful or skipped (empty repo), false otherwise
    */
   async fetchRepo(bareRepoPath: string, targetBranch?: string): Promise<void> {
     logger.debug('Fetching latest changes', { bareRepoPath, targetBranch });
+
+    // Check if repository is empty - if so, skip fetch
+    const isEmpty = await this.isEmptyRepo(bareRepoPath);
+    if (isEmpty) {
+      logger.info('Skipping fetch for empty repository', { bareRepoPath });
+      return;
+    }
 
     // Set up authentication for fetch if we have a token
     const env: Record<string, string> = {};
@@ -413,19 +448,27 @@ export class GitService {
 
         // Ensure bare repo is up to date for subsequent operations (including the target branch)
         const bareRepoPath = await this.ensureBareRepo(repoUrl);
-        await this.fetchRepo(bareRepoPath, targetBranch);
 
-        // Merge latest changes from targetBranch to keep branch up to date
-        // The local targetBranch ref was updated by fetchRepo to match origin
-        logger.debug('Merging latest changes into existing worktree', { targetBranch });
-        try {
-          await execGitOrThrow(['merge', targetBranch, '--no-edit'], worktreePath);
-          logger.debug('Successfully merged latest changes', { targetBranch });
-        } catch (mergeError) {
-          logger.warn('Could not auto-merge latest changes, branch may have conflicts', {
-            targetBranch,
-            error: getErrorMessage(mergeError),
-          });
+        // Check if repository is empty before trying to fetch/merge
+        const isEmptyRepo = await this.isEmptyRepo(bareRepoPath);
+
+        if (!isEmptyRepo) {
+          await this.fetchRepo(bareRepoPath, targetBranch);
+
+          // Merge latest changes from targetBranch to keep branch up to date
+          // The local targetBranch ref was updated by fetchRepo to match origin
+          logger.debug('Merging latest changes into existing worktree', { targetBranch });
+          try {
+            await execGitOrThrow(['merge', targetBranch, '--no-edit'], worktreePath);
+            logger.debug('Successfully merged latest changes', { targetBranch });
+          } catch (mergeError) {
+            logger.warn('Could not auto-merge latest changes, branch may have conflicts', {
+              targetBranch,
+              error: getErrorMessage(mergeError),
+            });
+          }
+        } else {
+          logger.debug('Skipping merge for empty repository', { bareRepoPath });
         }
 
         // Re-track the worktree in memory if not already tracked
@@ -442,6 +485,7 @@ export class GitService {
           worktreePath,
           reused: true,
           branchName,
+          isEmptyRepo,
         };
       } else {
         // Directory exists but is not a valid worktree - clean it up
@@ -534,36 +578,46 @@ export class GitService {
     }
 
     // No existing worktree, create a new one
-    const createdPath = await this.createWorktree(taskId, repoUrl, targetBranch);
+    const createResult = await this.createWorktree(taskId, repoUrl, targetBranch);
 
     return {
-      worktreePath: createdPath,
+      worktreePath: createResult.worktreePath,
       reused: false,
       branchName,
+      isEmptyRepo: createResult.isEmptyRepo,
     };
   }
 
-  /**
+/**
    * Creates a new worktree for a task.
    * WARNING: This will fail if a worktree already exists. Use setupWorktree() instead
    * for retry/resume scenarios where you want to reuse existing worktrees.
    *
+   * For empty repositories (no commits), creates an orphan branch and initializes
+   * a basic worktree structure for the agent to build upon.
+   *
    * @param taskId - Unique identifier for the task
    * @param repoUrl - The GitHub repository URL
    * @param targetBranch - The branch to base the worktree on (e.g., 'main')
-   * @returns The path to the created worktree
+   * @returns Object containing the worktree path and whether the repo is empty
    */
   async createWorktree(
     taskId: string,
     repoUrl: string,
     targetBranch: string = 'main'
-  ): Promise<string> {
+  ): Promise<{ worktreePath: string; isEmptyRepo: boolean }> {
     validateTaskId(taskId);
     logger.info('Creating worktree for task', { taskId, repoUrl, targetBranch });
 
     // Ensure bare repo exists and is up to date (including the target branch)
     const bareRepoPath = await this.ensureBareRepo(repoUrl);
     await this.fetchRepo(bareRepoPath, targetBranch);
+
+    // Check if repository is empty
+    const isEmptyRepo = await this.isEmptyRepo(bareRepoPath);
+    if (isEmptyRepo) {
+      logger.info('Repository is empty, will create orphan branch', { taskId, bareRepoPath });
+    }
 
     // Prune orphaned worktree references BEFORE attempting to create
     // This helps clean up stale references from previous failed cleanups
@@ -600,37 +654,43 @@ export class GitService {
       await execGit(['worktree', 'prune'], bareRepoPath);
     }
 
-    // Check if branch already exists
-    const branchCheckResult = await execGit(
-      ['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`],
-      bareRepoPath
-    );
-
-    if (branchCheckResult.exitCode === 0) {
-      // Branch exists, create worktree from existing branch
-      logger.debug('Branch already exists, using existing branch', { branchName });
-      await execGitOrThrow(['worktree', 'add', worktreePath, branchName], bareRepoPath);
-
-      // Merge latest changes from targetBranch to keep branch up to date
-      // The local targetBranch ref was updated by fetchRepo to match origin
-      logger.debug('Merging latest changes into existing branch', { targetBranch });
-      try {
-        await execGitOrThrow(['merge', targetBranch, '--no-edit'], worktreePath);
-        logger.debug('Successfully merged latest changes', { targetBranch });
-      } catch (mergeError) {
-        logger.warn('Could not auto-merge latest changes, branch may have conflicts', {
-          targetBranch,
-          error: getErrorMessage(mergeError),
-        });
-      }
+    // Handle empty repository case - need to create orphan branch manually
+    if (isEmptyRepo) {
+      await this.createWorktreeForEmptyRepo(bareRepoPath, worktreePath, branchName);
     } else {
-      // Create new worktree with new branch based on targetBranch
-      // The local targetBranch ref was updated by fetchRepo to match origin
-      logger.debug('Creating new branch from target branch', { branchName, targetBranch });
-      await execGitOrThrow(
-        ['worktree', 'add', worktreePath, '-b', branchName, targetBranch],
+      // Normal case: repository has commits
+      // Check if branch already exists
+      const branchCheckResult = await execGit(
+        ['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`],
         bareRepoPath
       );
+
+      if (branchCheckResult.exitCode === 0) {
+        // Branch exists, create worktree from existing branch
+        logger.debug('Branch already exists, using existing branch', { branchName });
+        await execGitOrThrow(['worktree', 'add', worktreePath, branchName], bareRepoPath);
+
+        // Merge latest changes from targetBranch to keep branch up to date
+        // The local targetBranch ref was updated by fetchRepo to match origin
+        logger.debug('Merging latest changes into existing branch', { targetBranch });
+        try {
+          await execGitOrThrow(['merge', targetBranch, '--no-edit'], worktreePath);
+          logger.debug('Successfully merged latest changes', { targetBranch });
+        } catch (mergeError) {
+          logger.warn('Could not auto-merge latest changes, branch may have conflicts', {
+            targetBranch,
+            error: getErrorMessage(mergeError),
+          });
+        }
+      } else {
+        // Create new worktree with new branch based on targetBranch
+        // The local targetBranch ref was updated by fetchRepo to match origin
+        logger.debug('Creating new branch from target branch', { branchName, targetBranch });
+        await execGitOrThrow(
+          ['worktree', 'add', worktreePath, '-b', branchName, targetBranch],
+          bareRepoPath
+        );
+      }
     }
 
     // Configure git user for the worktree
@@ -645,8 +705,83 @@ export class GitService {
       bareRepoPath,
     });
 
-    logger.info('Worktree created successfully', { taskId, worktreePath, branchName });
-    return worktreePath;
+    logger.info('Worktree created successfully', { taskId, worktreePath, branchName, isEmptyRepo });
+    return { worktreePath, isEmptyRepo };
+  }
+
+  /**
+   * Creates a worktree for an empty repository using an orphan branch.
+   * Since there are no commits to base the worktree on, we need to:
+   * 1. Create the worktree directory manually
+   * 2. Initialize it as a git worktree pointing to the bare repo
+   * 3. Create an orphan branch
+   *
+   * @param bareRepoPath - Path to the bare repository
+   * @param worktreePath - Path where the worktree should be created
+   * @param branchName - Name of the branch to create
+   */
+  private async createWorktreeForEmptyRepo(
+    bareRepoPath: string,
+    worktreePath: string,
+    branchName: string
+  ): Promise<void> {
+    logger.info('Creating worktree for empty repository', { bareRepoPath, worktreePath, branchName });
+
+    // Create the worktree directory
+    await ensureDir(worktreePath);
+
+    // Create a .git file pointing to the bare repo's worktree folder
+    // First, we need to create the worktree metadata in the bare repo
+    const worktreeMetadataPath = path.join(bareRepoPath, 'worktrees', path.basename(worktreePath));
+    await ensureDir(worktreeMetadataPath);
+
+    // Create the gitdir file in worktree metadata
+    const gitdirPath = path.join(worktreeMetadataPath, 'gitdir');
+    const gitFilePath = path.join(worktreePath, '.git');
+    await fs.writeFile(gitdirPath, gitFilePath + '\n', 'utf-8');
+
+    // Create commondir file pointing to the bare repo
+    const commondirPath = path.join(worktreeMetadataPath, 'commondir');
+    await fs.writeFile(commondirPath, '../..\n', 'utf-8');
+
+    // Create the HEAD file for the worktree (pointing to the orphan branch)
+    const headPath = path.join(worktreeMetadataPath, 'HEAD');
+    await fs.writeFile(headPath, `ref: refs/heads/${branchName}\n`, 'utf-8');
+
+    // Create the .git file in the worktree pointing to the metadata
+    const relativeMetadataPath = path.relative(worktreePath, worktreeMetadataPath).replace(/\\/g, '/');
+    await fs.writeFile(gitFilePath, `gitdir: ${relativeMetadataPath}\n`, 'utf-8');
+
+    // Create index file (empty index for new worktree)
+    const indexPath = path.join(worktreeMetadataPath, 'index');
+    // Initialize an empty git index
+    await execGitOrThrow(['read-tree', '--empty'], worktreePath).catch(() => {
+      // If read-tree fails, create an empty index file
+      logger.debug('read-tree --empty failed, creating empty index manually');
+    });
+
+    // Verify the worktree is functional by running a git command
+    const statusResult = await execGit(['status'], worktreePath);
+    if (statusResult.exitCode !== 0) {
+      // Fallback: use git init to properly initialize
+      logger.debug('Worktree setup incomplete, using git init fallback', { stderr: statusResult.stderr });
+
+      // Remove the .git file and reinitialize
+      await fs.rm(gitFilePath, { force: true });
+      await fs.rm(worktreeMetadataPath, { recursive: true, force: true });
+
+      // Initialize as regular git repo and set up as worktree manually
+      await execGitOrThrow(['init'], worktreePath);
+      await execGitOrThrow(['checkout', '--orphan', branchName], worktreePath);
+
+      // Add the bare repo as origin
+      const remoteResult = await execGit(['remote', 'get-url', 'origin'], bareRepoPath);
+      if (remoteResult.exitCode === 0 && remoteResult.stdout.trim()) {
+        await execGitOrThrow(['remote', 'add', 'origin', remoteResult.stdout.trim()], worktreePath);
+      }
+    }
+
+    logger.info('Worktree for empty repository created successfully', { worktreePath, branchName });
   }
 
   /**
@@ -1010,18 +1145,36 @@ export class GitService {
   /**
    * Gets a list of changed files in a worktree with detailed stats.
    * Compares against the base branch to include committed changes.
+   * For empty repositories (where base branch doesn't exist), shows all files as added.
    *
    * @param worktreePath - Path to the worktree
    * @param baseBranch - The base branch to compare against (e.g., 'main')
    * @returns Array of changed file information with content
    */
   async getChangedFiles(worktreePath: string, baseBranch: string = 'main'): Promise<ChangedFile[]> {
-    // Use git diff against the base branch to capture ALL changes (committed + uncommitted)
-    // This works even after the agent has committed changes
-    const diffResult = await execGit(
-      ['diff', '--name-status', baseBranch, 'HEAD'],
+    // Check if base branch exists
+    const baseBranchExists = await execGit(
+      ['rev-parse', '--verify', baseBranch],
       worktreePath
     );
+
+    // Use git diff against the base branch to capture ALL changes (committed + uncommitted)
+    // This works even after the agent has committed changes
+    // For empty repos where baseBranch doesn't exist, we'll rely on git status
+    let diffResult: { exitCode: number; stdout: string; stderr: string };
+    if (baseBranchExists.exitCode === 0) {
+      diffResult = await execGit(
+        ['diff', '--name-status', baseBranch, 'HEAD'],
+        worktreePath
+      );
+    } else {
+      // Base branch doesn't exist (empty repo case) - use --root to show all files
+      logger.debug('Base branch does not exist, using root diff for empty repo', { baseBranch });
+      diffResult = await execGit(
+        ['diff', '--name-status', '--root', 'HEAD'],
+        worktreePath
+      );
+    }
 
     // Also get uncommitted changes
     const statusResult = await execGit(['status', '--porcelain'], worktreePath);
@@ -1088,10 +1241,20 @@ export class GitService {
       let additions = 0;
       let deletions = 0;
 
-      const numstatResult = await execGit(
-        ['diff', '--numstat', baseBranch, 'HEAD', '--', filePath],
-        worktreePath
-      );
+      // Use appropriate numstat command based on whether base branch exists
+      let numstatResult: { exitCode: number; stdout: string; stderr: string };
+      if (baseBranchExists.exitCode === 0) {
+        numstatResult = await execGit(
+          ['diff', '--numstat', baseBranch, 'HEAD', '--', filePath],
+          worktreePath
+        );
+      } else {
+        // For empty repos, use --root to compare against empty tree
+        numstatResult = await execGit(
+          ['diff', '--numstat', '--root', 'HEAD', '--', filePath],
+          worktreePath
+        );
+      }
 
       if (numstatResult.exitCode === 0 && numstatResult.stdout) {
         const [adds, dels] = numstatResult.stdout.split('\t');
@@ -1129,7 +1292,12 @@ export class GitService {
             break;
 
           case 'deleted':
-            oldContent = await this.getFileContentAtRef(worktreePath, filePath, baseBranch) ?? undefined;
+            // For empty repos, this case shouldn't happen, but handle gracefully
+            if (baseBranchExists.exitCode === 0) {
+              oldContent = await this.getFileContentAtRef(worktreePath, filePath, baseBranch) ?? undefined;
+            } else {
+              oldContent = ''; // No previous content in empty repo
+            }
             newContent = '';
             // Check size limit
             if (oldContent && oldContent.length > GitService.MAX_CONTENT_SIZE) {
@@ -1138,7 +1306,12 @@ export class GitService {
             break;
 
           case 'modified':
-            oldContent = await this.getFileContentAtRef(worktreePath, filePath, baseBranch) ?? undefined;
+            // For empty repos, treat as added (no previous content)
+            if (baseBranchExists.exitCode === 0) {
+              oldContent = await this.getFileContentAtRef(worktreePath, filePath, baseBranch) ?? undefined;
+            } else {
+              oldContent = ''; // No previous content in empty repo
+            }
             newContent = await this.getFileContent(worktreePath, filePath) ?? undefined;
             // Check size limits
             if (oldContent && oldContent.length > GitService.MAX_CONTENT_SIZE) {

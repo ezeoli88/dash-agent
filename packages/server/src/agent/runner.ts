@@ -13,6 +13,7 @@ import {
   getBuildFailurePrompt,
   getSummaryPrompt,
   getResumePrompt,
+  getEmptyRepoPrompt,
 } from './prompts.js';
 
 const logger = createLogger('agent-runner');
@@ -50,6 +51,8 @@ export interface AgentRunnerOptions {
   isResume?: boolean;
   /** Reviewer feedback when resuming (from changes_requested) */
   reviewFeedback?: string;
+  /** Whether the repository is empty (no commits) */
+  isEmptyRepo?: boolean;
 }
 
 /**
@@ -123,6 +126,16 @@ export class AgentRunner {
 
         // Add the resume prompt with reviewer feedback
         this.addUserMessage(getResumePrompt(this.options.reviewFeedback));
+      } else if (this.options.isEmptyRepo) {
+        // Empty repository mode: instruct agent to create initial project structure
+        this.options.onLog('info', 'Empty repository detected, starting project initialization');
+        this.options.onStatusChange('planning');
+
+        // Add the empty repo prompt
+        this.addUserMessage(getEmptyRepoPrompt());
+
+        // Transition to in_progress after planning prompt
+        this.options.onStatusChange('in_progress');
       } else {
         // Normal mode: Planning phase
         this.options.onStatusChange('planning');

@@ -507,6 +507,12 @@ router.post('/:id/execute', requireTaskId, loadTask, async (req: Request, res: R
 
     // Determine if this is a resume from changes_requested
     const isResume = task.status === 'changes_requested';
+    const isRetry = task.status === 'failed';
+
+    // Clear error on retry
+    if (isRetry) {
+      taskService.update(id!, { error: null });
+    }
 
     // For new workflow tasks with 'approved' status, use Dev Agent
     if (task.status === 'approved') {
@@ -528,7 +534,8 @@ router.post('/:id/execute', requireTaskId, loadTask, async (req: Request, res: R
     // This ensures:
     // 1. The frontend receives the updated status and can show logs (SSE connects on planning/in_progress)
     // 2. The Execute button is disabled immediately
-    const updatedTask = taskService.update(id!, { status: 'planning' });
+    // Also clear error on retry
+    const updatedTask = taskService.update(id!, { status: 'planning', error: isRetry ? null : undefined });
     if (!updatedTask) {
       res.status(500).json({ error: 'Failed to update task status' });
       return;

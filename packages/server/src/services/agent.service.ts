@@ -128,6 +128,11 @@ export class AgentService {
         this.log(taskId, 'info', `New worktree created at: ${workspacePath}`);
       }
 
+      // Log if this is an empty repository
+      if (worktreeResult.isEmptyRepo) {
+        this.log(taskId, 'info', 'Repository is empty (no commits) - agent will create initial project structure');
+      }
+
       // Get any pending review feedback for resume
       const reviewFeedback = isResume ? this.getPendingReviewFeedback(taskId) : null;
 
@@ -139,6 +144,7 @@ export class AgentService {
         onLog: (level, message, data) => this.log(taskId, level, message, data),
         onStatusChange: (status) => this.handleStatusChange(taskId, status),
         isResume,
+        isEmptyRepo: worktreeResult.isEmptyRepo,
       };
 
       // Only add reviewFeedback if it has a value

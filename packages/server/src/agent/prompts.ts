@@ -187,6 +187,43 @@ Remember:
 - Provide a clear summary of what you changed to address the feedback`;
 }
 
+/**
+ * Generates a prompt for working with an empty repository.
+ * This prompt instructs the agent to create the initial project structure.
+ *
+ * @returns The empty repository prompt string
+ */
+export function getEmptyRepoPrompt(): string {
+  return `## Empty Repository Detected
+
+This repository is completely empty - there are no files or commits yet.
+
+Your task is to create the initial project structure from scratch. Based on the task description, you should:
+
+1. **Analyze the requirements** from the task description to determine the appropriate project type
+2. **Create the project structure** including:
+   - A README.md file explaining the project
+   - Configuration files (package.json, tsconfig.json, etc. as appropriate)
+   - Source code directories and initial files
+   - Any necessary configuration for the tech stack
+
+3. **Follow best practices** for the chosen technology:
+   - Use appropriate directory structures
+   - Include necessary configuration files
+   - Add a .gitignore file
+   - Consider adding basic documentation
+
+4. **Implement the requested functionality** as described in the task
+
+Remember:
+- Start by creating the most fundamental files first (README.md, package.json or equivalent)
+- Create directories before creating files within them
+- Make sure all files have proper content, not just placeholders
+- The project should be ready to run after you complete your work
+
+Begin by listing what files and directories you need to create, then proceed to create them.`;
+}
+
 export default {
   getSystemPrompt,
   getPlanningPrompt,
@@ -195,4 +232,5 @@ export default {
   getBuildFailurePrompt,
   getSummaryPrompt,
   getResumePrompt,
+  getEmptyRepoPrompt,
 };

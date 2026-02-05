@@ -1,8 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { Loader2, Sparkles } from 'lucide-react'
+import { Loader2, Plus } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -23,14 +22,11 @@ import {
 import { toast } from 'sonner'
 import { useTaskUIStore } from '../stores/task-ui-store'
 import { useCreateTask } from '../hooks/use-create-task'
-import { useGenerateSpec } from '../hooks/use-generate-spec'
 import { useRepos } from '@/features/repos/hooks/use-repos'
 
 export function CreateTaskDialog() {
-  const router = useRouter()
   const { isCreateModalOpen, closeCreateModal } = useTaskUIStore()
   const createTaskMutation = useCreateTask()
-  const generateSpecMutation = useGenerateSpec()
   const { data: repos, isLoading: reposLoading } = useRepos()
 
   const [repositoryId, setRepositoryId] = useState<string>('')
@@ -46,8 +42,10 @@ export function CreateTaskDialog() {
       return
     }
 
-    if (!userInput.trim()) {
-      toast.error('Please describe what you need')
+    if (!userInput.trim() || userInput.trim().length < 10) {
+      toast.error('Please describe what you need', {
+        description: 'Description must be at least 10 characters',
+      })
       return
     }
 
@@ -65,27 +63,12 @@ export function CreateTaskDialog() {
       })
 
       toast.success('Task created', {
-        description: 'Generating specification...',
+        description: 'You can generate the spec when ready.',
       })
-
-      // Immediately trigger spec generation
-      try {
-        await generateSpecMutation.mutateAsync({
-          taskId: task.id,
-        })
-      } catch (specError) {
-        // Task was created but spec generation failed
-        toast.error('Spec generation started but may have issues', {
-          description: specError instanceof Error ? specError.message : 'Check the task for details',
-        })
-      }
 
       closeCreateModal()
       setRepositoryId('')
       setUserInput('')
-
-      // Navigate to the new task
-      router.push(`/tasks/${task.id}`)
     } catch (error) {
       console.error('Failed to create task:', error)
       toast.error('Failed to create task', {
@@ -95,25 +78,25 @@ export function CreateTaskDialog() {
   }
 
   const handleOpenChange = (open: boolean) => {
-    if (!open && !createTaskMutation.isPending && !generateSpecMutation.isPending) {
+    if (!open && !createTaskMutation.isPending) {
       closeCreateModal()
       setRepositoryId('')
       setUserInput('')
     }
   }
 
-  const isSubmitting = createTaskMutation.isPending || generateSpecMutation.isPending
+  const isSubmitting = createTaskMutation.isPending
 
   return (
     <Dialog open={isCreateModalOpen} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[500px] overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" />
+            <Plus className="h-5 w-5 text-primary" />
             New Task
           </DialogTitle>
           <DialogDescription>
-            Describe what you need and the PM Agent will create a detailed specification for you to review.
+            Describe what you need. The task will be created in &quot;To Do&quot; status and you can generate the spec when ready.
           </DialogDescription>
         </DialogHeader>
 
@@ -161,7 +144,7 @@ export function CreateTaskDialog() {
               disabled={isSubmitting}
             />
             <p className="text-xs text-muted-foreground">
-              Describe your idea in simple terms. The PM Agent will analyze the repository and create a detailed technical specification.
+              Describe your idea in simple terms (min. 10 characters). The PM Agent will analyze the repository and create a detailed technical specification.
             </p>
           </div>
 
@@ -177,7 +160,7 @@ export function CreateTaskDialog() {
             </Button>
             <Button
               type="submit"
-              disabled={!repositoryId || !userInput.trim() || isSubmitting}
+              disabled={!repositoryId || userInput.trim().length < 10 || isSubmitting}
             >
               {isSubmitting ? (
                 <>
@@ -186,8 +169,8 @@ export function CreateTaskDialog() {
                 </>
               ) : (
                 <>
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  Generate Spec
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Task
                 </>
               )}
             </Button>

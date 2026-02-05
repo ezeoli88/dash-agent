@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { ArrowLeft, ExternalLink } from 'lucide-react'
+import { ArrowLeft, ExternalLink, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/shared/status-badge'
 import { extractRepoName } from '@/lib/formatters'
@@ -44,6 +44,14 @@ export function TaskHeader({ task }: TaskHeaderProps) {
           </div>
         </div>
       </div>
+
+      {/* Error message */}
+      {task.error && (
+        <div className="flex items-center gap-2 rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span>{task.error}</span>
+        </div>
+      )}
     </div>
   )
 }
