@@ -106,7 +106,7 @@ export function CreateTaskDialog() {
 
   return (
     <Dialog open={isCreateModalOpen} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[500px] overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-primary" />
@@ -126,20 +126,18 @@ export function CreateTaskDialog() {
               onValueChange={setRepositoryId}
               disabled={reposLoading || isSubmitting}
             >
-              <SelectTrigger id="repository">
+              <SelectTrigger id="repository" className="w-full">
                 <SelectValue placeholder="Select a repository" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="max-w-[calc(100vw-3rem)] sm:max-w-[468px]">
                 {repos?.map((repo) => (
                   <SelectItem key={repo.id} value={repo.id}>
-                    <div className="flex items-center gap-2">
-                      <span>{repo.name}</span>
-                      {repo.detected_stack?.framework && (
-                        <span className="text-xs text-muted-foreground">
-                          ({repo.detected_stack.framework})
-                        </span>
-                      )}
-                    </div>
+                    <span className="truncate">{repo.name}</span>
+                    {repo.detected_stack?.framework && (
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        ({repo.detected_stack.framework})
+                      </span>
+                    )}
                   </SelectItem>
                 ))}
               </SelectContent>

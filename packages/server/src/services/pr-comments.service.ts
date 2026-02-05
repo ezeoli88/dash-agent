@@ -3,6 +3,7 @@ import { getErrorMessage } from '../utils/errors.js';
 import { getGitHubClient, type PRCommentInfo } from '../github/client.js';
 import { getSSEEmitter, type PRCommentData } from '../utils/sse-emitter.js';
 import { taskService, type Task, type TaskStatus } from './task.service.js';
+import { getAgentService } from './agent.service.js';
 
 const logger = createLogger('pr-comments-service');
 
@@ -214,6 +215,43 @@ export class PRCommentsService {
    */
   private async fetchAndProcessComments(trackedPR: TrackedPR, isInitialFetch: boolean): Promise<void> {
     const githubClient = getGitHubClient();
+
+    // Check PR state first (only on regular polling, not initial fetch)
+    if (!isInitialFetch) {
+      try {
+        const prInfo = await githubClient.getPullRequest(trackedPR.repoUrl, trackedPR.prNumber);
+
+        if (prInfo.state === 'merged') {
+          logger.info('PR was merged on GitHub, auto-updating task status', {
+            taskId: trackedPR.taskId,
+            prNumber: trackedPR.prNumber,
+          });
+          const agentService = getAgentService();
+          await agentService.markPRMerged(trackedPR.taskId);
+          this.untrackPR(trackedPR.taskId);
+          return; // No need to process comments
+        }
+
+        if (prInfo.state === 'closed') {
+          logger.info('PR was closed on GitHub, auto-updating task status', {
+            taskId: trackedPR.taskId,
+            prNumber: trackedPR.prNumber,
+          });
+          const agentService = getAgentService();
+          await agentService.markPRClosed(trackedPR.taskId);
+          this.untrackPR(trackedPR.taskId);
+          return; // No need to process comments
+        }
+      } catch (error) {
+        // Log the error but continue with comment fetching
+        // The PR might still be accessible for comments even if state check fails
+        logger.warn('Failed to check PR state, continuing with comment fetch', {
+          taskId: trackedPR.taskId,
+          prNumber: trackedPR.prNumber,
+          error: getErrorMessage(error),
+        });
+      }
+    }
 
     // Fetch comments (only new ones if we have a lastPollTime and not initial)
     const since = isInitialFetch ? undefined : trackedPR.lastPollTime;

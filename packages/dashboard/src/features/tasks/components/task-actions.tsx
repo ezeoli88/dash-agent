@@ -52,6 +52,7 @@ type ActionType =
   | 'execute'
   | 'approve'
   | 'cancel'
+  | 'delete'
   | 'extend'
   | 'retry'
   | 'start_fresh'
@@ -187,9 +188,9 @@ function getActionsForStatus(task: Task): ActionConfig[] {
         variant: 'default',
       },
       {
-        type: 'cancel',
-        label: 'Cancel',
-        icon: <XCircle className="h-4 w-4" />,
+        type: 'delete',
+        label: 'Delete Task',
+        icon: <Trash2 className="h-4 w-4" />,
         variant: 'destructive',
         isDestructive: true,
       },
@@ -267,6 +268,13 @@ function getActionsForStatus(task: Task): ActionConfig[] {
       {
         type: 'start_fresh',
         label: 'Start Fresh',
+        icon: <RefreshCw className="h-4 w-4" />,
+        variant: 'outline',
+        isDestructive: true,
+      },
+      {
+        type: 'delete',
+        label: 'Delete Task',
         icon: <Trash2 className="h-4 w-4" />,
         variant: 'destructive',
         isDestructive: true,
@@ -346,7 +354,7 @@ function RequestChangesDialog({
 
 export function TaskActions({ task }: TaskActionsProps) {
   const actions = getActionsForStatus(task)
-  const { execute, approve, cancel, extend, requestChanges, markPRMerged, markPRClosed, retry, cleanupWorktree } =
+  const { execute, approve, cancel, extend, requestChanges, markPRMerged, markPRClosed, retry, cleanupWorktree, deleteTask } =
     useTaskActions(task.id)
   const generateSpecMutation = useGenerateSpec()
 
@@ -355,6 +363,7 @@ export function TaskActions({ task }: TaskActionsProps) {
     execute.isPending ||
     approve.isPending ||
     cancel.isPending ||
+    deleteTask.isPending ||
     extend.isPending ||
     requestChanges.isPending ||
     markPRMerged.isPending ||
@@ -386,6 +395,8 @@ export function TaskActions({ task }: TaskActionsProps) {
         return { handler: () => approve.mutate(), isPending: approve.isPending }
       case 'cancel':
         return { handler: () => cancel.mutate(), isPending: cancel.isPending }
+      case 'delete':
+        return { handler: () => deleteTask.mutate(), isPending: deleteTask.isPending }
       case 'extend':
         return { handler: () => extend.mutate(), isPending: extend.isPending }
       case 'mark_merged':
@@ -546,6 +557,7 @@ export function TaskActions({ task }: TaskActionsProps) {
           if (action.isDestructive) {
             const isMarkClosed = action.type === 'mark_closed'
             const isStartFresh = action.type === 'start_fresh'
+            const isDelete = action.type === 'delete'
 
             let dialogTitle = 'Cancel Task'
             let dialogDescription = 'Are you sure you want to cancel this task? This action cannot be undone and will stop any ongoing processing.'
@@ -553,7 +565,13 @@ export function TaskActions({ task }: TaskActionsProps) {
             let pendingLabel = 'Cancelling...'
             let cancelLabel = 'Keep Task'
 
-            if (isMarkClosed) {
+            if (isDelete) {
+              dialogTitle = 'Delete Task'
+              dialogDescription = 'Are you sure you want to delete this task? This action cannot be undone.'
+              confirmLabel = 'Delete Task'
+              pendingLabel = 'Deleting...'
+              cancelLabel = 'Cancel'
+            } else if (isMarkClosed) {
               dialogTitle = 'Close PR'
               dialogDescription = 'Are you sure you want to mark this PR as closed? The task will be marked as failed.'
               confirmLabel = 'Close PR'

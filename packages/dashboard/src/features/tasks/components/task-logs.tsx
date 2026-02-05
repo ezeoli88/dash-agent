@@ -140,20 +140,20 @@ export function TaskLogs({
         </div>
       </div>
 
-      {/* Log content */}
+      {/* Log content - always dark background (terminal style) */}
       <div
         ref={scrollAreaRef}
-        className="flex-1 overflow-y-auto bg-zinc-950 dark:bg-zinc-900"
+        className="flex-1 overflow-y-auto bg-zinc-900 dark:bg-zinc-950"
       >
         <div className="p-2">
           {sse.logs.length === 0 ? (
-            <div className="flex items-center justify-center h-48 text-muted-foreground">
+            <div className="flex items-center justify-center h-48 text-zinc-400">
               <div className="text-center">
                 <p className="text-sm">No logs yet</p>
                 {isActiveTask ? (
-                  <p className="text-xs mt-1">Waiting for agent output...</p>
+                  <p className="text-xs mt-1 text-zinc-500">Waiting for agent output...</p>
                 ) : (
-                  <p className="text-xs mt-1">Execute the task to see logs</p>
+                  <p className="text-xs mt-1 text-zinc-500">Execute the task to see logs</p>
                 )}
               </div>
             </div>

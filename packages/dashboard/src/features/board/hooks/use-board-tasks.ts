@@ -30,11 +30,11 @@ export function useBoardTasks(options: UseBoardTasksOptions = {}): UseBoardTasks
   const columns = useMemo<BoardState>(() => {
     // Initialize empty columns
     const result: BoardState = {
-      ideas: [],
-      ready: [],
+      todo: [],
       inProgress: [],
-      review: [],
+      inReview: [],
       done: [],
+      cancelled: [],
     }
 
     if (!tasks) return result
@@ -67,11 +67,11 @@ export function useBoardTasks(options: UseBoardTasksOptions = {}): UseBoardTasks
 
   const totalTasks = useMemo(() => {
     return (
-      columns.ideas.length +
-      columns.ready.length +
+      columns.todo.length +
       columns.inProgress.length +
-      columns.review.length +
-      columns.done.length
+      columns.inReview.length +
+      columns.done.length +
+      columns.cancelled.length
     )
   }, [columns])
 

@@ -1,7 +1,6 @@
 'use client'
 
-import { Plus, LayoutGrid } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { LayoutGrid } from 'lucide-react'
 import {
   Select,
   SelectContent,
@@ -9,9 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
 import { useRepos } from '@/features/repos/hooks/use-repos'
-import type { Repository } from '@/features/repos/types'
 
 interface BoardHeaderProps {
   selectedRepoId?: string
@@ -20,10 +17,9 @@ interface BoardHeaderProps {
 
 /**
  * Header component for the board view.
- * Contains the board title, repository filter, and new task button.
+ * Contains the board title and repository filter.
  */
 export function BoardHeader({ selectedRepoId, onRepoChange }: BoardHeaderProps) {
-  const openCreateModal = useTaskUIStore((state) => state.openCreateModal)
   const { data: repos, isLoading: reposLoading } = useRepos()
 
   const selectedRepo = repos?.find((r) => r.id === selectedRepoId)
@@ -50,32 +46,24 @@ export function BoardHeader({ selectedRepoId, onRepoChange }: BoardHeaderProps) 
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        {/* Repository Filter */}
-        <Select
-          value={selectedRepoId ?? 'all'}
-          onValueChange={handleRepoChange}
-          disabled={reposLoading}
-        >
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="All repositories" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All repositories</SelectItem>
-            {repos?.map((repo) => (
-              <SelectItem key={repo.id} value={repo.id}>
-                {repo.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {/* New Task Button */}
-        <Button onClick={openCreateModal} className="gap-2">
-          <Plus className="h-4 w-4" />
-          <span className="hidden sm:inline">New Task</span>
-        </Button>
-      </div>
+      {/* Repository Filter */}
+      <Select
+        value={selectedRepoId ?? 'all'}
+        onValueChange={handleRepoChange}
+        disabled={reposLoading}
+      >
+        <SelectTrigger className="w-[200px]">
+          <SelectValue placeholder="All repositories" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All repositories</SelectItem>
+          {repos?.map((repo) => (
+            <SelectItem key={repo.id} value={repo.id}>
+              {repo.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </header>
   )
 }

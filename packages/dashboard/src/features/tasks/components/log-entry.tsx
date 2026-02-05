@@ -15,7 +15,7 @@ const LOG_LEVEL_CONFIG: Record<LogLevel, {
 }> = {
   info: {
     icon: Info,
-    className: 'text-muted-foreground',
+    className: 'text-zinc-400',
     label: 'INFO',
   },
   warn: {
@@ -30,19 +30,19 @@ const LOG_LEVEL_CONFIG: Record<LogLevel, {
   },
   agent: {
     icon: Bot,
-    className: 'text-purple-500',
+    className: 'text-purple-400',
     label: 'AGENT',
   },
   user: {
     icon: User,
-    className: 'text-emerald-500',
+    className: 'text-emerald-400',
     label: 'YOU',
   },
 }
 
 const DEFAULT_CONFIG = {
   icon: Info,
-  className: 'text-muted-foreground',
+  className: 'text-zinc-400',
   label: 'LOG',
 }
 
@@ -65,9 +65,9 @@ export function LogEntry({ entry }: LogEntryProps) {
   const Icon = config.icon
 
   return (
-    <div className="flex items-start gap-2 py-1 px-2 hover:bg-muted/30 rounded group">
+    <div className="flex items-start gap-2 py-1 px-2 hover:bg-white/5 rounded group">
       {/* Timestamp */}
-      <span className="text-xs text-muted-foreground/70 font-mono shrink-0 tabular-nums">
+      <span className="text-xs text-zinc-500 font-mono shrink-0 tabular-nums">
         {formatTimestamp(entry.timestamp)}
       </span>
 
@@ -81,12 +81,11 @@ export function LogEntry({ entry }: LogEntryProps) {
 
       {/* Message */}
       <span className={cn(
-        'text-sm font-mono break-all',
+        'text-sm font-mono break-all text-zinc-200',
         entry.level === 'error' && 'text-red-400',
         entry.level === 'warn' && 'text-amber-400',
         entry.level === 'agent' && 'text-purple-300',
-        entry.level === 'user' && 'text-emerald-300',
-        entry.level === 'info' && 'text-foreground/90'
+        entry.level === 'user' && 'text-emerald-300'
       )}>
         {entry.message}
       </span>
@@ -107,10 +106,10 @@ export function LogEntryHighlighted({ entry }: LogEntryProps) {
       'flex items-start gap-2 py-1.5 px-2 rounded group',
       isUserMessage
         ? 'bg-emerald-500/10 border border-emerald-500/20'
-        : 'hover:bg-muted/30'
+        : 'hover:bg-white/5'
     )}>
       {/* Timestamp */}
-      <span className="text-xs text-muted-foreground/70 font-mono shrink-0 tabular-nums">
+      <span className="text-xs text-zinc-500 font-mono shrink-0 tabular-nums">
         {formatTimestamp(entry.timestamp)}
       </span>
 
@@ -124,12 +123,11 @@ export function LogEntryHighlighted({ entry }: LogEntryProps) {
 
       {/* Message */}
       <span className={cn(
-        'text-sm font-mono break-all',
+        'text-sm font-mono break-all text-zinc-200',
         entry.level === 'error' && 'text-red-400',
         entry.level === 'warn' && 'text-amber-400',
         entry.level === 'agent' && 'text-purple-300',
-        entry.level === 'user' && 'text-emerald-300 font-medium',
-        entry.level === 'info' && 'text-foreground/90'
+        entry.level === 'user' && 'text-emerald-300 font-medium'
       )}>
         {entry.message}
       </span>

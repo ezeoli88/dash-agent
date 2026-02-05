@@ -116,7 +116,7 @@ export function AddRepoDialog() {
 
   return (
     <Dialog open={isAddDialogOpen} onOpenChange={(open) => !open && handleClose()}>
-      <DialogContent className="sm:max-w-[600px]">
+      <DialogContent className="sm:max-w-[600px] overflow-hidden">
         <DialogHeader>
           <DialogTitle>Agregar Repositorio</DialogTitle>
           <DialogDescription>
@@ -124,20 +124,20 @@ export function AddRepoDialog() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="space-y-4 pt-2 w-full min-w-0 overflow-hidden">
           {/* Search input */}
-          <div className="relative">
+          <div className="relative w-full">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Buscar repositorios..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
+              className="pl-9 w-full"
             />
           </div>
 
           {/* GitHub repos list */}
-          <div className="rounded-md border">
+          <div className="rounded-md border w-full overflow-hidden">
             <div className="px-3 py-2 text-xs font-medium text-muted-foreground bg-muted/50">
               Tus repositorios de GitHub
             </div>
@@ -226,14 +226,14 @@ export function AddRepoDialog() {
           </div>
 
           {/* Custom URL input */}
-          <div className="space-y-2">
-            <div className="relative">
+          <div className="space-y-2 w-full">
+            <div className="relative w-full">
               <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="https://github.com/usuario/repo"
                 value={customUrl}
                 onChange={(e) => handleCustomUrlChange(e.target.value)}
-                className={cn('pl-9', urlError && 'border-destructive')}
+                className={cn('pl-9 w-full', urlError && 'border-destructive')}
               />
             </div>
             {urlError && (

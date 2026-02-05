@@ -22,7 +22,7 @@ export function BoardView({ initialRepoId }: BoardViewProps) {
   const [selectedRepoId, setSelectedRepoId] = useState<string | undefined>(initialRepoId)
   const queryClient = useQueryClient()
 
-  const { columns, isLoading, isError, error, totalTasks } = useBoardTasks({
+  const { columns, isLoading, isError, error } = useBoardTasks({
     repositoryId: selectedRepoId,
   })
 
@@ -69,24 +69,6 @@ export function BoardView({ initialRepoId }: BoardViewProps) {
         )}
       </div>
 
-      {/* Footer info */}
-      {!isLoading && (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>
-            {totalTasks} {totalTasks === 1 ? 'task' : 'tasks'}
-            {selectedRepoId && ' in this repository'}
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleRefresh}
-            className="gap-2 text-muted-foreground"
-          >
-            <RefreshCw className="h-3 w-3" />
-            Refresh
-          </Button>
-        </div>
-      )}
     </div>
   )
 }

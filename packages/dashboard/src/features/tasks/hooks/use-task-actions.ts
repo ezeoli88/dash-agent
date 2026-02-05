@@ -1,6 +1,7 @@
 'use client'
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useRouter } from 'next/navigation'
 import { taskKeys } from './query-keys'
 import { tasksApi } from '@/lib/api-client'
 import { toast } from 'sonner'
@@ -8,6 +9,7 @@ import type { ActionResponse, RequestChangesResponse, PRMergedResponse, PRClosed
 
 export function useTaskActions(taskId: string) {
   const queryClient = useQueryClient()
+  const router = useRouter()
 
   const invalidateTask = () => {
     queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskId) })
@@ -128,5 +130,18 @@ export function useTaskActions(taskId: string) {
     },
   })
 
-  return { execute, approve, cancel, extend, sendFeedback, requestChanges, markPRMerged, markPRClosed, retry, cleanupWorktree }
+  // Delete task - permanently removes the task
+  const deleteTask = useMutation({
+    mutationFn: (): Promise<void> => tasksApi.delete(taskId),
+    onSuccess: () => {
+      toast.success('Task deleted')
+      queryClient.invalidateQueries({ queryKey: taskKeys.lists() })
+      router.push('/tasks')
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to delete task: ${error.message}`)
+    },
+  })
+
+  return { execute, approve, cancel, extend, sendFeedback, requestChanges, markPRMerged, markPRClosed, retry, cleanupWorktree, deleteTask }
 }

@@ -6,6 +6,7 @@ import { createLogger } from '../utils/logger.js';
 import { getErrorMessage } from '../utils/errors.js';
 import { repoUrlToDir, toAuthenticatedCloneUrl, parseGitHubUrl } from '../utils/github-url.js';
 import { killProcessesForTask, killProcessesInDirectory } from '../utils/process-killer.js';
+import { getGitHubCredentials } from './secrets.service.js';
 
 const logger = createLogger('git-service');
 
@@ -254,13 +255,25 @@ async function removeDirectoryWithRetry(
 export class GitService {
   private readonly reposBaseDir: string;
   private readonly worktreesDir: string;
-  private readonly githubToken: string;
 
   constructor() {
     const config = getConfig();
     this.reposBaseDir = config.reposBaseDir;
     this.worktreesDir = config.worktreesDir;
-    this.githubToken = config.githubToken;
+  }
+
+  /**
+   * Gets the GitHub token from secrets service (primary) or config (fallback).
+   * This allows the token to be updated at runtime via the dashboard.
+   */
+  private get githubToken(): string {
+    // Try to get from secrets service first (configured via dashboard)
+    const credentials = getGitHubCredentials();
+    if (credentials?.token) {
+      return credentials.token;
+    }
+    // Fallback to config (environment variable)
+    return getConfig().githubToken;
   }
 
   /**
@@ -311,11 +324,13 @@ export class GitService {
 
   /**
    * Fetches the latest changes from origin in a bare repository.
+   * Updates local branches to match their remote counterparts.
    *
    * @param bareRepoPath - Path to the bare repository
+   * @param targetBranch - Optional branch to specifically update (e.g., 'main')
    */
-  async fetchRepo(bareRepoPath: string): Promise<void> {
-    logger.debug('Fetching latest changes', { bareRepoPath });
+  async fetchRepo(bareRepoPath: string, targetBranch?: string): Promise<void> {
+    logger.debug('Fetching latest changes', { bareRepoPath, targetBranch });
 
     // Set up authentication for fetch if we have a token
     const env: Record<string, string> = {};
@@ -326,7 +341,29 @@ export class GitService {
       env['GIT_PASSWORD'] = this.githubToken;
     }
 
+    // Fetch all changes first
     await execGitOrThrow(['fetch', 'origin', '--prune'], bareRepoPath, env);
+
+    // If a target branch is specified, update the local branch to match origin
+    // In a bare repo, we need to explicitly update the local ref
+    if (targetBranch) {
+      try {
+        // Update local branch ref to match origin
+        // This is equivalent to: git update-ref refs/heads/main refs/remotes/origin/main
+        await execGitOrThrow(
+          ['fetch', 'origin', `${targetBranch}:${targetBranch}`, '--force'],
+          bareRepoPath,
+          env
+        );
+        logger.debug('Updated local branch from origin', { targetBranch });
+      } catch (error) {
+        logger.warn('Could not update local branch ref, will use existing', {
+          targetBranch,
+          error: getErrorMessage(error),
+        });
+      }
+    }
+
     logger.info('Repository fetched successfully', { bareRepoPath });
   }
 
@@ -374,9 +411,22 @@ export class GitService {
       if (isValidWorktree) {
         logger.info('Reusing existing worktree for task', { taskId, worktreePath });
 
-        // Ensure bare repo is up to date for subsequent operations
+        // Ensure bare repo is up to date for subsequent operations (including the target branch)
         const bareRepoPath = await this.ensureBareRepo(repoUrl);
-        await this.fetchRepo(bareRepoPath);
+        await this.fetchRepo(bareRepoPath, targetBranch);
+
+        // Merge latest changes from targetBranch to keep branch up to date
+        // The local targetBranch ref was updated by fetchRepo to match origin
+        logger.debug('Merging latest changes into existing worktree', { targetBranch });
+        try {
+          await execGitOrThrow(['merge', targetBranch, '--no-edit'], worktreePath);
+          logger.debug('Successfully merged latest changes', { targetBranch });
+        } catch (mergeError) {
+          logger.warn('Could not auto-merge latest changes, branch may have conflicts', {
+            targetBranch,
+            error: getErrorMessage(mergeError),
+          });
+        }
 
         // Re-track the worktree in memory if not already tracked
         if (!activeWorktrees.has(taskId)) {
@@ -511,9 +561,9 @@ export class GitService {
     validateTaskId(taskId);
     logger.info('Creating worktree for task', { taskId, repoUrl, targetBranch });
 
-    // Ensure bare repo exists and is up to date
+    // Ensure bare repo exists and is up to date (including the target branch)
     const bareRepoPath = await this.ensureBareRepo(repoUrl);
-    await this.fetchRepo(bareRepoPath);
+    await this.fetchRepo(bareRepoPath, targetBranch);
 
     // Prune orphaned worktree references BEFORE attempting to create
     // This helps clean up stale references from previous failed cleanups
@@ -560,9 +610,23 @@ export class GitService {
       // Branch exists, create worktree from existing branch
       logger.debug('Branch already exists, using existing branch', { branchName });
       await execGitOrThrow(['worktree', 'add', worktreePath, branchName], bareRepoPath);
+
+      // Merge latest changes from targetBranch to keep branch up to date
+      // The local targetBranch ref was updated by fetchRepo to match origin
+      logger.debug('Merging latest changes into existing branch', { targetBranch });
+      try {
+        await execGitOrThrow(['merge', targetBranch, '--no-edit'], worktreePath);
+        logger.debug('Successfully merged latest changes', { targetBranch });
+      } catch (mergeError) {
+        logger.warn('Could not auto-merge latest changes, branch may have conflicts', {
+          targetBranch,
+          error: getErrorMessage(mergeError),
+        });
+      }
     } else {
-      // Create new worktree with new branch based on target
-      // In a bare repo, branches don't have origin/ prefix - they're direct refs
+      // Create new worktree with new branch based on targetBranch
+      // The local targetBranch ref was updated by fetchRepo to match origin
+      logger.debug('Creating new branch from target branch', { branchName, targetBranch });
       await execGitOrThrow(
         ['worktree', 'add', worktreePath, '-b', branchName, targetBranch],
         bareRepoPath

@@ -1,10 +1,13 @@
 'use client'
 
+import { Plus } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import type { Task } from '@/features/tasks/types'
 import type { BoardColumnConfig } from '../types'
 import { BoardCard } from './board-card'
+import { useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
 
 interface BoardColumnProps {
   config: BoardColumnConfig
@@ -16,8 +19,9 @@ interface BoardColumnProps {
  * Displays a header with title and task count, followed by a scrollable list of cards.
  */
 export function BoardColumn({ config, tasks }: BoardColumnProps) {
-  const { title, color, bgColor, borderColor } = config
+  const { id, title, color, bgColor, borderColor } = config
   const count = tasks.length
+  const openCreateModal = useTaskUIStore((state) => state.openCreateModal)
 
   return (
     <div
@@ -41,6 +45,17 @@ export function BoardColumn({ config, tasks }: BoardColumnProps) {
             {count}
           </span>
         </div>
+        {id === 'todo' && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={openCreateModal}
+            aria-label="Add new task"
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+        )}
       </div>
 
       {/* Column Content */}
