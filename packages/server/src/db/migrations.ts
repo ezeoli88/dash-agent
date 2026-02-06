@@ -139,6 +139,25 @@ export function runMigrations(): void {
         CREATE INDEX IF NOT EXISTS idx_user_secrets_key_type ON user_secrets(key_type);
       `,
     },
+    {
+      version: 6,
+      description: 'Create user_settings table for application configuration',
+      sql: `
+        CREATE TABLE IF NOT EXISTS user_settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+      `,
+    },
+    {
+      version: 7,
+      description: 'Add agent_type and agent_model columns to tasks table',
+      sql: `
+        ALTER TABLE tasks ADD COLUMN agent_type TEXT;
+        ALTER TABLE tasks ADD COLUMN agent_model TEXT;
+      `,
+    },
   ];
 
   // Apply pending migrations

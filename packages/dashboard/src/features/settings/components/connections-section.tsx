@@ -1,16 +1,23 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, X, Bot } from 'lucide-react'
+import { Check, X, Bot, Terminal } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useSetupStore } from '@/features/setup/stores/setup-store'
 import { ApiKeyDialog } from '@/features/setup/components/api-key-dialog'
 import { GitHubConnect } from '@/features/setup/components/github-connect'
+import { AgentSelector } from '@/features/setup/components/agent-selector'
 import { useDeleteAISecret } from '@/features/setup/hooks/use-save-ai-secret'
 import { AI_PROVIDER_INFO, type AIProvider } from '@/features/setup/types'
+
+const AGENT_DISPLAY_NAMES: Record<string, string> = {
+  'claude-code': 'Claude Code',
+  'codex': 'Codex',
+  'copilot': 'Copilot',
+  'gemini': 'Gemini',
+}
 
 /**
  * Claude icon component
@@ -43,17 +50,23 @@ function OpenAIIcon({ className }: { className?: string }) {
 }
 
 /**
- * Connections section showing AI and GitHub connection status
+ * Connections section showing CLI Agent, AI and GitHub connection status
  */
 export function ConnectionsSection() {
   const [selectedProvider, setSelectedProvider] = useState<AIProvider | null>(null)
   const [isApiKeyDialogOpen, setIsApiKeyDialogOpen] = useState(false)
+  const [showAgentSelector, setShowAgentSelector] = useState(false)
 
   const { mutate: deleteAISecret } = useDeleteAISecret()
 
   const aiProvider = useSetupStore((state) => state.aiProvider)
   const aiConnected = useSetupStore((state) => state.aiConnected)
   const clearAI = useSetupStore((state) => state.clearAI)
+
+  const selectedAgent = useSetupStore((state) => state.selectedAgent)
+  const selectedAgentModel = useSetupStore((state) => state.selectedAgentModel)
+  const agentConnected = useSetupStore((state) => state.agentConnected)
+  const clearAgent = useSetupStore((state) => state.clearAgent)
 
   const isAIConnected = aiConnected && aiProvider !== null
 
@@ -87,6 +100,67 @@ export function ConnectionsSection() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* CLI Agent Connection */}
+          <div
+            className={cn(
+              'flex items-center justify-between rounded-lg border p-4 transition-colors',
+              agentConnected && 'border-green-500/50 bg-green-50 dark:bg-green-950/20'
+            )}
+          >
+            <div className="flex items-center gap-4">
+              <div
+                className={cn(
+                  'rounded-full p-2.5',
+                  agentConnected
+                    ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
+                    : 'bg-muted text-muted-foreground'
+                )}
+              >
+                <Terminal className="size-5" />
+              </div>
+              <div>
+                <h4 className="font-medium">
+                  {agentConnected && selectedAgent ? AGENT_DISPLAY_NAMES[selectedAgent] || selectedAgent : 'Agente CLI'}
+                </h4>
+                <p className="text-sm text-muted-foreground">
+                  {agentConnected ? `Modelo: ${selectedAgentModel || 'default'}` : 'Selecciona un agente de coding CLI'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {agentConnected ? (
+                <>
+                  <div className="flex items-center gap-1 text-green-600 dark:text-green-400">
+                    <Check className="size-4" />
+                    <span className="text-sm font-medium">Conectado</span>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => setShowAgentSelector(true)}>
+                    Cambiar
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={clearAgent}
+                    className="text-muted-foreground hover:text-destructive"
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => setShowAgentSelector(true)}>
+                  Seleccionar
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Agent Selector (collapsible) */}
+          {showAgentSelector && (
+            <div className="rounded-lg border bg-muted/30 p-4">
+              <AgentSelector onAgentSelected={() => setShowAgentSelector(false)} compact />
+            </div>
+          )}
+
           {/* AI Connection */}
           <div
             className={cn(

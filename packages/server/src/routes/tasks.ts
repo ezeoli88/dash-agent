@@ -274,22 +274,15 @@ router.post('/:id/generate-spec', requireTaskId, loadTask, async (req: Request, 
       return;
     }
 
-    // Get AI config from headers
-    const aiConfig = getAIConfig(req);
-    if (!aiConfig) {
-      res.status(400).json({
-        error: 'Missing AI configuration',
-        message: 'Please provide X-AI-Provider and X-AI-API-Key headers',
-      });
-      return;
-    }
+    // Get AI config (can be null - generateSpec will try CLI agent first)
+    const aiConfig = getAIConfig(req) ?? undefined;
 
     // Parse optional request body
     const bodyResult = GenerateSpecRequestSchema.safeParse(req.body || {});
     const additionalContext = bodyResult.success ? bodyResult.data.additional_context : undefined;
 
     // Generate spec asynchronously and return immediately
-    // The PM Agent will emit SSE events as it works
+    // The PM Agent will try CLI agent first, then fallback to API
     generateSpec(
       additionalContext
         ? { task_id: id!, additional_context: additionalContext }
@@ -332,21 +325,14 @@ router.post('/:id/regenerate-spec', requireTaskId, loadTask, async (req: Request
       return;
     }
 
-    // Get AI config from headers
-    const aiConfig = getAIConfig(req);
-    if (!aiConfig) {
-      res.status(400).json({
-        error: 'Missing AI configuration',
-        message: 'Please provide X-AI-Provider and X-AI-API-Key headers',
-      });
-      return;
-    }
+    // Get AI config (can be null - regenerateSpec will try CLI agent first)
+    const aiConfig = getAIConfig(req) ?? undefined;
 
     // Parse optional request body for additional context
     const bodyResult = GenerateSpecRequestSchema.safeParse(req.body || {});
     const additionalContext = bodyResult.success ? bodyResult.data.additional_context : undefined;
 
-    // Regenerate spec asynchronously
+    // Regenerate spec asynchronously (tries CLI agent first, then API fallback)
     regenerateSpec(id!, aiConfig, additionalContext)
       .then((result) => {
         logger.info('PM Agent regeneration completed', { taskId: id, tokens: result.tokens_used });

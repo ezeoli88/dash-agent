@@ -8,3 +8,7 @@ export { useSecretsStatus, useInvalidateSecretsStatus, useIsSetupComplete, SECRE
 export { useSaveAISecret, useDeleteAISecret } from './use-save-ai-secret'
 export { useSaveGitHubSecret, useDeleteGitHubSecret } from './use-save-github-secret'
 export { useValidateGitHubPAT } from './use-validate-github-pat'
+
+// Agent detection and settings hooks
+export { useDetectedAgents } from './use-detected-agents'
+export { useSettings, useUpdateSettings } from './use-settings'

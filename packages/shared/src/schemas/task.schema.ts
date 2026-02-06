@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AgentTypeSchema } from './agent.schema.js';
 
 /**
  * Valid task statuses representing the lifecycle of a task in the two-agent system.
@@ -84,6 +85,10 @@ export const TaskSchema = z.object({
   pr_url: z.string().url().nullable(),
   pr_number: z.number().nullable(),
 
+  // CLI Agent configuration (optional override per task)
+  agent_type: AgentTypeSchema.nullable().optional(),
+  agent_model: z.string().nullable().optional(),
+
   // Status and metadata
   status: TaskStatusSchema,
   error: z.string().nullable(),
@@ -114,6 +119,8 @@ export const CreateTaskSchema = z.object({
   target_branch: z.string().optional().default('main'),
   context_files: z.array(z.string()).optional().default([]),
   build_command: z.string().optional(),
+  agent_type: AgentTypeSchema.optional(),
+  agent_model: z.string().optional(),
 });
 
 /**
@@ -144,6 +151,8 @@ export const UpdateTaskSchema = z.object({
   spec_approved_at: z.string().datetime().nullable().optional(),
   was_spec_edited: z.boolean().optional(),
   repository_id: z.string().uuid().nullable().optional(),
+  agent_type: AgentTypeSchema.nullable().optional(),
+  agent_model: z.string().nullable().optional(),
 });
 
 /**

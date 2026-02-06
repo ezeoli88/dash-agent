@@ -106,7 +106,15 @@ See `packages/dashboard/frontend-plan.md` for the complete frontend implementati
 - Phase 12: Refactoring
 - Phase 13: Testing
 
+See `cli-integration-plan.md` for the Multi-Agent CLI integration plan.
 See `integration-plan.md` for the npm publish plan.
+
+## Plan Tracking (MANDATORY)
+When implementing phases from any plan file (e.g., `cli-integration-plan.md`, `frontend-plan.md`):
+- **After completing each sub-task**, update the plan file marking it with ✅
+- **After completing a full phase**, mark the phase header with ✅ COMPLETADA
+- **Update the file status table** (Archivos Críticos) with ✅ for completed items
+- This ensures progress is always visible and trackable across sessions
 
 ## Key Directories
 

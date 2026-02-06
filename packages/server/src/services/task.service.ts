@@ -45,6 +45,11 @@ export interface Task {
   /** PR number on GitHub */
   pr_number: number | null;
 
+  /** CLI agent type override for this task */
+  agent_type: string | null;
+  /** CLI agent model override for this task */
+  agent_model: string | null;
+
   /** Current status of the task */
   status: TaskStatus;
   /** URL of the created PR (when status is 'pr_created' or later) */
@@ -86,6 +91,8 @@ const TASK_COLUMNS = [
   'was_spec_edited',
   'branch_name',
   'pr_number',
+  'agent_type',
+  'agent_model',
 ] as const;
 
 /**
@@ -111,6 +118,8 @@ const ALLOWED_UPDATE_COLUMNS = new Set([
   'was_spec_edited',
   'branch_name',
   'pr_number',
+  'agent_type',
+  'agent_model',
 ]);
 
 /**
@@ -154,6 +163,8 @@ function rowToTask(values: (string | number | null | Uint8Array)[]): Task {
     was_spec_edited: ((values[18] as number | null) ?? 0) === 1,
     branch_name: (values[19] as string | null) ?? null,
     pr_number: (values[20] as number | null) ?? null,
+    agent_type: (values[21] as string | null) ?? null,
+    agent_model: (values[22] as string | null) ?? null,
   };
 }
 

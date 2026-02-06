@@ -3,7 +3,9 @@ import { getErrorMessage } from '../utils/errors.js';
 import { taskService, type Task, type TaskStatus } from './task.service.js';
 import { getGitService } from './git.service.js';
 import { getGitHubClient } from '../github/client.js';
-import { AgentRunner, createAgentRunner, type AgentRunResult } from '../agent/runner.js';
+import { type AgentRunResult } from '../agent/runner.js';
+import { createRunner } from '../agent/index.js';
+import type { IAgentRunner, RunnerOptions } from '../agent/types.js';
 import { getSSEEmitter } from '../utils/sse-emitter.js';
 import { killProcessesForTask } from '../utils/process-killer.js';
 import { getPRCommentsService } from './pr-comments.service.js';
@@ -26,7 +28,7 @@ interface ActiveAgent {
   /** The task ID being executed */
   taskId: string;
   /** The agent runner instance */
-  runner: AgentRunner;
+  runner: IAgentRunner;
   /** Promise that resolves when the agent completes */
   promise: Promise<AgentRunResult>;
   /** Timestamp when the agent started */
@@ -137,7 +139,7 @@ export class AgentService {
       const reviewFeedback = isResume ? this.getPendingReviewFeedback(taskId) : null;
 
       // Build runner options
-      const runnerOptions: Parameters<typeof createAgentRunner>[0] = {
+      const runnerOptions: RunnerOptions = {
         taskId,
         workspacePath,
         task,
@@ -145,6 +147,9 @@ export class AgentService {
         onStatusChange: (status) => this.handleStatusChange(taskId, status),
         isResume,
         isEmptyRepo: worktreeResult.isEmptyRepo,
+        // CLI agent options (from task or global defaults)
+        agentType: (task as any).agent_type ?? undefined,
+        agentModel: (task as any).agent_model ?? undefined,
       };
 
       // Only add reviewFeedback if it has a value
@@ -152,8 +157,8 @@ export class AgentService {
         runnerOptions.reviewFeedback = reviewFeedback;
       }
 
-      // Create the agent runner with resume context if applicable
-      const runner = createAgentRunner(runnerOptions);
+      // Create the appropriate runner (CLI or legacy)
+      const runner = createRunner(runnerOptions);
 
       // Calculate timeout
       const now = new Date();
@@ -340,7 +345,7 @@ export class AgentService {
    */
   private async runAgent(
     taskId: string,
-    runner: AgentRunner,
+    runner: IAgentRunner,
     task: Task,
     isResume: boolean = false
   ): Promise<AgentRunResult> {

@@ -7,6 +7,7 @@ import type { ConnectionStatus as ConnectionStatusType } from '../hooks/use-task
 
 interface ConnectionStatusProps {
   status: ConnectionStatusType
+  agentName?: string | null
   onReconnect?: () => void
   className?: string
 }
@@ -38,14 +39,16 @@ const STATUS_CONFIG: Record<ConnectionStatusType, {
   },
 }
 
-export function ConnectionStatus({ status, onReconnect, className }: ConnectionStatusProps) {
+export function ConnectionStatus({ status, agentName, onReconnect, className }: ConnectionStatusProps) {
   const config = STATUS_CONFIG[status]
 
   return (
     <div className={cn('flex items-center gap-2', className)}>
       <div className="flex items-center gap-1.5">
         <span className={cn('size-2 rounded-full', config.dotClass)} />
-        <span className="text-xs text-muted-foreground">{config.label}</span>
+        <span className="text-xs text-muted-foreground">
+          {agentName ? `${agentName} \u2014 ${config.label}` : config.label}
+        </span>
       </div>
 
       {config.showReconnect && onReconnect && (

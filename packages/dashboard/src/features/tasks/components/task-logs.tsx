@@ -10,6 +10,7 @@ import { useTaskSSE } from '../hooks/use-task-sse'
 import { LogEntry, LogEntryHighlighted } from './log-entry'
 import { ConnectionStatus } from './connection-status'
 import { FeedbackForm } from './feedback-form'
+import { getAgentDisplayInfo, getAgentLabel } from '../utils/agent-display'
 import type { Task } from '../types'
 
 interface TaskLogsProps {
@@ -31,6 +32,8 @@ export function TaskLogs({
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const { isAutoScrollEnabled, toggleAutoScroll } = useTaskUIStore()
+  const agentInfo = getAgentDisplayInfo(task.agent_type)
+  const agentLabel = getAgentLabel(task.agent_type, task.agent_model)
 
   // Determine if logs should be active
   const isActiveTask = task.status === 'planning' || task.status === 'in_progress'
@@ -102,6 +105,7 @@ export function TaskLogs({
       <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/30">
         <ConnectionStatus
           status={sse.connectionStatus}
+          agentName={agentInfo?.name}
           onReconnect={sse.reconnect}
         />
 
@@ -151,7 +155,9 @@ export function TaskLogs({
               <div className="text-center">
                 <p className="text-sm">No logs yet</p>
                 {isActiveTask ? (
-                  <p className="text-xs mt-1 text-zinc-500">Waiting for agent output...</p>
+                  <p className="text-xs mt-1 text-zinc-500">
+                    Waiting for {agentLabel ?? 'agent'} output...
+                  </p>
                 ) : (
                   <p className="text-xs mt-1 text-zinc-500">Execute the task to see logs</p>
                 )}

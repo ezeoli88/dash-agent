@@ -1,10 +1,16 @@
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { createLogger } from '../utils/logger.js';
 import { getErrorMessage } from '../utils/errors.js';
 import { getRepoService, type Repository } from './repo.service.js';
 import { taskService, type Task } from './task.service.js';
 import { getSSEEmitter } from '../utils/sse-emitter.js';
 import { callOpenRouter } from './ai-provider.service.js';
-import type { GenerateSpecResponse } from '@dash-agent/shared';
+import { settingsService } from './settings.service.js';
+import { detectAgent } from './agent-detection.service.js';
+import type { GenerateSpecResponse, AgentType } from '@dash-agent/shared';
+
+const execFileAsync = promisify(execFile);
 
 const logger = createLogger('pm-agent-service');
 
@@ -64,16 +70,174 @@ interface AIProviderConfig {
   model?: string; // Required for OpenRouter
 }
 
+// =============================================================================
+// CLI Agent Support
+// =============================================================================
+
+/**
+ * Checks if a CLI agent is configured and available for use.
+ * Returns the agent type and model if available, null otherwise.
+ */
+async function getAvailableCLIAgent(): Promise<{ agentType: AgentType; model: string | null } | null> {
+  const { agentType, agentModel } = settingsService.getDefaultAgent();
+  if (!agentType) return null;
+
+  try {
+    const detected = await detectAgent(agentType as AgentType);
+    if (detected.installed && detected.authenticated) {
+      return { agentType: agentType as AgentType, model: agentModel };
+    }
+    logger.debug('CLI agent configured but not available', { agentType, installed: detected.installed, authenticated: detected.authenticated });
+    return null;
+  } catch (error) {
+    logger.debug('Failed to detect CLI agent', { agentType, error: getErrorMessage(error) });
+    return null;
+  }
+}
+
+/**
+ * Builds the CLI command and arguments for spec generation.
+ */
+function buildSpecCommand(agentType: AgentType, prompt: string, model: string | null): { command: string; args: string[] } {
+  switch (agentType) {
+    case 'claude-code':
+      return {
+        command: 'claude',
+        args: [
+          '-p', prompt,
+          '--output-format', 'json',
+          '--max-turns', '1',
+          ...(model ? ['--model', model] : []),
+        ],
+      };
+    case 'codex':
+      return {
+        command: 'codex',
+        args: [
+          'exec', prompt,
+          '--json',
+          ...(model ? ['-m', model] : []),
+        ],
+      };
+    case 'copilot':
+      return {
+        command: 'copilot',
+        args: ['-p', prompt],
+      };
+    case 'gemini':
+      return {
+        command: 'gemini',
+        args: [
+          '--non-interactive', prompt,
+          ...(model ? ['--model', model] : []),
+        ],
+      };
+    default:
+      throw new Error(`Unsupported CLI agent type: ${agentType}`);
+  }
+}
+
+/**
+ * Parses CLI output to extract the generated spec text.
+ * Different CLIs have different output formats.
+ */
+function parseCLIOutput(agentType: AgentType, stdout: string): string {
+  switch (agentType) {
+    case 'claude-code': {
+      try {
+        const parsed = JSON.parse(stdout);
+        if (parsed.result) return parsed.result;
+        if (Array.isArray(parsed.content)) {
+          return parsed.content
+            .filter((b: { type: string }) => b.type === 'text')
+            .map((b: { text: string }) => b.text)
+            .join('\n');
+        }
+        return typeof parsed === 'string' ? parsed : stdout;
+      } catch {
+        return stdout.trim();
+      }
+    }
+    case 'codex': {
+      try {
+        const lines = stdout.trim().split('\n');
+        for (let i = lines.length - 1; i >= 0; i--) {
+          const parsed = JSON.parse(lines[i]!);
+          if (parsed.type === 'message' && parsed.content) return parsed.content;
+          if (parsed.output) return parsed.output;
+        }
+        return stdout.trim();
+      } catch {
+        return stdout.trim();
+      }
+    }
+    case 'copilot':
+      return stdout.trim();
+    case 'gemini': {
+      try {
+        const lines = stdout.trim().split('\n');
+        const textParts: string[] = [];
+        for (const line of lines) {
+          const parsed = JSON.parse(line);
+          if (parsed.text) textParts.push(parsed.text);
+          if (parsed.content) textParts.push(parsed.content);
+        }
+        return textParts.length > 0 ? textParts.join('') : stdout.trim();
+      } catch {
+        return stdout.trim();
+      }
+    }
+    default:
+      return stdout.trim();
+  }
+}
+
+/**
+ * Calls a CLI agent to generate a spec.
+ * Combines system prompt + user message into a single prompt for the CLI.
+ */
+async function callCLIForSpec(
+  agentType: AgentType,
+  model: string | null,
+  userMessage: string
+): Promise<GenerateSpecResponse> {
+  const fullPrompt = `${PM_AGENT_SYSTEM_PROMPT}\n\n---\n\n${userMessage}`;
+
+  const { command, args } = buildSpecCommand(agentType, fullPrompt, model);
+
+  logger.info('PM Agent: Calling CLI for spec', { agentType, command, model });
+
+  const { stdout } = await execFileAsync(command, args, {
+    timeout: 120_000,
+    maxBuffer: 10 * 1024 * 1024,
+    windowsHide: true,
+  });
+
+  const spec = parseCLIOutput(agentType, stdout);
+
+  return {
+    spec,
+    model_used: `${agentType}${model ? `:${model}` : ''}`,
+    tokens_used: 0,
+  };
+}
+
+// =============================================================================
+// Spec Generation
+// =============================================================================
+
 /**
  * Generates a spec for a task using the PM Agent.
  *
+ * Tries CLI agent first (if configured and available), then falls back to API.
+ *
  * @param input - The input for spec generation
- * @param aiConfig - AI provider configuration from request headers
+ * @param aiConfig - AI provider configuration (optional if CLI agent is available)
  * @returns The generated spec response
  */
 export async function generateSpec(
   input: GenerateSpecInput,
-  aiConfig: AIProviderConfig
+  aiConfig?: AIProviderConfig
 ): Promise<GenerateSpecResponse> {
   const { task_id, additional_context } = input;
 
@@ -112,10 +276,29 @@ export async function generateSpec(
     // Build the user message
     const userMessage = buildUserMessage(task.user_input || task.description, additional_context, context);
 
-    // Call the AI provider
-    sseEmitter.emitLog(task_id, 'info', `PM Agent: Generating specification using ${aiConfig.provider}...`);
+    // Try CLI agent first, then fallback to API
+    let result: GenerateSpecResponse;
 
-    const result = await callAIProvider(aiConfig, userMessage);
+    const cliAgent = await getAvailableCLIAgent();
+    if (cliAgent) {
+      sseEmitter.emitLog(task_id, 'info', `PM Agent: Generating specification using ${cliAgent.agentType} CLI...`);
+      try {
+        result = await callCLIForSpec(cliAgent.agentType, cliAgent.model, userMessage);
+      } catch (cliError) {
+        logger.warn('PM Agent: CLI agent failed, trying API fallback', { error: getErrorMessage(cliError) });
+        sseEmitter.emitLog(task_id, 'warn', 'CLI agent failed, falling back to API...');
+        if (!aiConfig) {
+          throw new Error(`CLI agent (${cliAgent.agentType}) failed and no API fallback configured: ${getErrorMessage(cliError)}`);
+        }
+        sseEmitter.emitLog(task_id, 'info', `PM Agent: Generating specification using ${aiConfig.provider} API...`);
+        result = await callAIProvider(aiConfig, userMessage);
+      }
+    } else if (aiConfig) {
+      sseEmitter.emitLog(task_id, 'info', `PM Agent: Generating specification using ${aiConfig.provider}...`);
+      result = await callAIProvider(aiConfig, userMessage);
+    } else {
+      throw new Error('No CLI agent available and no API configuration provided. Please configure a CLI agent or provide API credentials.');
+    }
 
     // Update task with the generated spec
     taskService.updateSpec(task_id, result.spec, true);
@@ -369,7 +552,7 @@ async function callOpenRouterProvider(
  */
 export async function regenerateSpec(
   taskId: string,
-  aiConfig: AIProviderConfig,
+  aiConfig?: AIProviderConfig,
   additionalContext?: string
 ): Promise<GenerateSpecResponse> {
   logger.info('PM Agent: Regenerating spec', { taskId });

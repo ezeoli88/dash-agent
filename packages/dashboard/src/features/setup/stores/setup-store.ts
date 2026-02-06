@@ -28,6 +28,11 @@ interface SetupState {
   aiModel: string | null // For OpenRouter model selection
   aiModelInfo: { name: string; description: string } | null
 
+  // CLI Agent Connection State
+  selectedAgent: string | null           // agent type id: 'claude-code' | 'codex' | etc.
+  selectedAgentModel: string | null      // model id: 'opus' | 'sonnet' | etc.
+  agentConnected: boolean                // whether a CLI agent is detected and authenticated
+
   // GitHub Connection State (no token stored)
   githubConnected: boolean
   githubUsername: string | null
@@ -59,6 +64,10 @@ interface SetupState {
     }
   }) => void
 
+  // CLI Agent actions
+  setSelectedAgent: (agentType: string, model?: string | null) => void
+  clearAgent: () => void
+
   // Actions - Update local state after successful server operations
   setAIConnected: (provider: AIProvider, modelInfo?: { name: string; description: string }, model?: string) => void
   clearAI: () => void
@@ -87,6 +96,11 @@ const DEFAULT_STATE = {
   aiModel: null as string | null,
   aiModelInfo: null as { name: string; description: string } | null,
 
+  // CLI Agent
+  selectedAgent: null as string | null,
+  selectedAgentModel: null as string | null,
+  agentConnected: false,
+
   // GitHub
   githubConnected: false,
   githubUsername: null as string | null,
@@ -109,6 +123,9 @@ interface PersistedState {
   aiConnected: boolean
   aiModel: string | null
   aiModelInfo: { name: string; description: string } | null
+  selectedAgent: string | null
+  selectedAgentModel: string | null
+  agentConnected: boolean
   githubConnected: boolean
   githubUsername: string | null
   githubAvatarUrl: string | null
@@ -134,6 +151,19 @@ export const useSetupStore = create<SetupState>()(
         // Update connection states based on server
         githubConnectionState: serverState.github.connected ? 'connected' : 'disconnected',
         validationState: serverState.ai.connected ? 'valid' : 'idle',
+      }),
+
+      // CLI Agent actions
+      setSelectedAgent: (agentType, model) => set({
+        selectedAgent: agentType,
+        selectedAgentModel: model ?? null,
+        agentConnected: true,
+      }),
+
+      clearAgent: () => set({
+        selectedAgent: null,
+        selectedAgentModel: null,
+        agentConnected: false,
       }),
 
       // Set AI connected after successful server save
@@ -193,7 +223,8 @@ export const useSetupStore = create<SetupState>()(
       // Computed
       isSetupComplete: () => {
         const state = get()
-        return state.aiConnected && state.githubConnected
+        // Either legacy AI provider OR CLI agent must be connected, plus GitHub
+        return (state.aiConnected || state.agentConnected) && state.githubConnected
       },
 
       // Reset
@@ -207,6 +238,9 @@ export const useSetupStore = create<SetupState>()(
         aiConnected: state.aiConnected,
         aiModel: state.aiModel,
         aiModelInfo: state.aiModelInfo,
+        selectedAgent: state.selectedAgent,
+        selectedAgentModel: state.selectedAgentModel,
+        agentConnected: state.agentConnected,
         githubConnected: state.githubConnected,
         githubUsername: state.githubUsername,
         githubAvatarUrl: state.githubAvatarUrl,

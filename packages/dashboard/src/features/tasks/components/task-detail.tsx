@@ -4,6 +4,8 @@ import { FileText, ScrollText, GitPullRequest, MessageSquarePlus, MessageSquare,
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
+import { getAgentDisplayInfo } from '../utils/agent-display'
 import type { Task } from '../types'
 import { TaskHeader } from './task-header'
 import { TaskMetadata } from './task-metadata'
@@ -22,6 +24,8 @@ interface TaskDetailProps {
 }
 
 export function TaskDetail({ task }: TaskDetailProps) {
+  const agentInfo = getAgentDisplayInfo(task.agent_type)
+
   // Two-agent workflow: Check if we're in spec phase
   const isInSpecPhase = task.status === 'pending_approval'
   const isRefiningSpec = task.status === 'refining'
@@ -141,6 +145,15 @@ export function TaskDetail({ task }: TaskDetailProps) {
                   <CardTitle className="flex items-center gap-2 text-lg">
                     <ScrollText className="h-5 w-5" />
                     Execution Logs
+                    {task.agent_type && (
+                      <span className={cn(
+                        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-normal',
+                        agentInfo?.colorClasses.bg ?? 'bg-muted',
+                        agentInfo?.colorClasses.text ?? 'text-muted-foreground'
+                      )}>
+                        {agentInfo?.icon} {agentInfo?.name ?? task.agent_type}
+                      </span>
+                    )}
                     {isActiveTask && (
                       <span className="flex items-center gap-1 text-xs font-normal text-emerald-500">
                         <MessageSquarePlus className="size-3.5" />

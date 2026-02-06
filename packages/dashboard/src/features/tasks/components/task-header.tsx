@@ -1,10 +1,12 @@
 'use client'
 
 import Link from 'next/link'
-import { ArrowLeft, ExternalLink, AlertCircle } from 'lucide-react'
+import { ArrowLeft, ExternalLink, AlertCircle, Terminal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/shared/status-badge'
 import { extractRepoName } from '@/lib/formatters'
+import { cn } from '@/lib/utils'
+import { getAgentDisplayInfo, getAgentLabel } from '../utils/agent-display'
 import type { Task } from '../types'
 
 interface TaskHeaderProps {
@@ -13,6 +15,7 @@ interface TaskHeaderProps {
 
 export function TaskHeader({ task }: TaskHeaderProps) {
   const repoName = extractRepoName(task.repo_url)
+  const agentInfo = getAgentDisplayInfo(task.agent_type)
 
   return (
     <div className="space-y-4">
@@ -41,6 +44,16 @@ export function TaskHeader({ task }: TaskHeaderProps) {
               {repoName}
               <ExternalLink className="h-3.5 w-3.5" />
             </a>
+            {task.agent_type && (
+              <span className={cn(
+                'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium',
+                agentInfo?.colorClasses.bg ?? 'bg-muted',
+                agentInfo?.colorClasses.text ?? 'text-muted-foreground'
+              )}>
+                <Terminal className="size-3" />
+                {getAgentLabel(task.agent_type, task.agent_model)}
+              </span>
+            )}
           </div>
         </div>
       </div>

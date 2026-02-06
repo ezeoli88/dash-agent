@@ -144,3 +144,16 @@ export {
   type AddPatternResponse,
   type DeletePatternResponse,
 } from './repository.schema.js';
+
+// Agent schemas and types
+export {
+  AgentTypeSchema,
+  AGENT_TYPES,
+  AgentModelSchema,
+  DetectedAgentSchema,
+  DetectedAgentsResponseSchema,
+  type AgentType,
+  type AgentModel,
+  type DetectedAgent,
+  type DetectedAgentsResponse,
+} from './agent.schema.js';

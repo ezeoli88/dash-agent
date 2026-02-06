@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 import { createLogger } from '../utils/logger.js';
 import { validateAPIKey, validateOpenRouterKey } from '../services/ai-provider.service.js';
+import { detectInstalledAgents } from '../services/agent-detection.service.js';
 import {
   generateAuthUrl,
   handleCallback,
@@ -11,7 +12,9 @@ import {
   ValidateAIKeyRequestSchema,
   GitHubCallbackRequestSchema,
   ValidateOpenRouterKeyRequestSchema,
+  AgentTypeSchema,
 } from '@dash-agent/shared';
+import { settingsService } from '../services/settings.service.js';
 
 const logger = createLogger('routes:setup');
 const router = Router();
@@ -28,6 +31,115 @@ function formatZodError(error: ZodError) {
     })),
   };
 }
+
+// =============================================================================
+// Agent Detection Endpoints
+// =============================================================================
+
+/**
+ * GET /setup/agents - Detect installed coding CLI agents
+ *
+ * Returns a list of detected agents with their installation status,
+ * version, authentication status, and available models.
+ *
+ * Response:
+ * - agents: DetectedAgent[] (list of detected agents)
+ */
+router.get('/agents', async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    logger.info('GET /setup/agents');
+
+    const agents = await detectInstalledAgents();
+
+    res.json({ agents });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// =============================================================================
+// Settings Endpoints
+// =============================================================================
+
+/**
+ * GET /setup/settings - Get application settings
+ *
+ * Response:
+ * - default_agent_type: string | null
+ * - default_agent_model: string | null
+ */
+router.get('/settings', (_req: Request, res: Response, next: NextFunction): void => {
+  try {
+    logger.info('GET /setup/settings');
+
+    const { agentType, agentModel } = settingsService.getDefaultAgent();
+
+    res.json({
+      default_agent_type: agentType,
+      default_agent_model: agentModel,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * PATCH /setup/settings - Update application settings
+ *
+ * Request body:
+ * - default_agent_type?: string (one of: 'claude-code', 'codex', 'copilot', 'gemini')
+ * - default_agent_model?: string
+ *
+ * Response:
+ * - success: boolean
+ * - settings: { default_agent_type, default_agent_model }
+ */
+router.patch('/settings', (req: Request, res: Response, next: NextFunction): void => {
+  try {
+    logger.info('PATCH /setup/settings', { body: req.body });
+
+    const { default_agent_type, default_agent_model } = req.body;
+
+    // Validate agent type if provided
+    if (default_agent_type !== undefined) {
+      if (default_agent_type === null) {
+        settingsService.deleteSetting('default_agent_type');
+      } else {
+        const parsed = AgentTypeSchema.safeParse(default_agent_type);
+        if (!parsed.success) {
+          res.status(400).json({
+            error: 'Invalid agent type',
+            details: parsed.error.issues,
+          });
+          return;
+        }
+        settingsService.setSetting('default_agent_type', parsed.data);
+      }
+    }
+
+    // Update model if provided
+    if (default_agent_model !== undefined) {
+      if (default_agent_model === null) {
+        settingsService.deleteSetting('default_agent_model');
+      } else {
+        settingsService.setSetting('default_agent_model', default_agent_model);
+      }
+    }
+
+    // Return current settings
+    const { agentType, agentModel } = settingsService.getDefaultAgent();
+
+    res.json({
+      success: true,
+      settings: {
+        default_agent_type: agentType,
+        default_agent_model: agentModel,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // =============================================================================
 // AI Provider Endpoints

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Loader2, Plus } from 'lucide-react'
+import { Loader2, Plus, Terminal, ChevronDown } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -19,20 +19,41 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 import { toast } from 'sonner'
 import { useTaskUIStore } from '../stores/task-ui-store'
 import { useCreateTask } from '../hooks/use-create-task'
 import { useRepos } from '@/features/repos/hooks/use-repos'
+import { useDetectedAgents } from '@/features/setup/hooks/use-detected-agents'
+import { useSettings } from '@/features/setup/hooks/use-settings'
+import { getAgentDisplayInfo } from '../utils/agent-display'
 
 export function CreateTaskDialog() {
   const { isCreateModalOpen, closeCreateModal } = useTaskUIStore()
   const createTaskMutation = useCreateTask()
   const { data: repos, isLoading: reposLoading } = useRepos()
+  const { data: agents } = useDetectedAgents()
+  const { data: settings } = useSettings()
 
   const [repositoryId, setRepositoryId] = useState<string>('')
   const [userInput, setUserInput] = useState('')
+  const [agentType, setAgentType] = useState<string>('')
+  const [agentModel, setAgentModel] = useState<string>('')
 
   const selectedRepo = repos?.find((r) => r.id === repositoryId)
+
+  // Agent override derived values
+  const installedAgents = (agents ?? []).filter((a) => a.installed)
+  const defaultAgentInfo = getAgentDisplayInfo(settings?.default_agent_type)
+  const defaultAgentLabel = defaultAgentInfo
+    ? `${defaultAgentInfo.name}${settings?.default_agent_model ? ' / ' + settings.default_agent_model : ''}`
+    : null
+  const selectedAgentData = installedAgents.find((a) => a.id === agentType)
+  const selectedAgentModels = selectedAgentData?.models ?? []
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -60,6 +81,9 @@ export function CreateTaskDialog() {
         repo_url: selectedRepo?.url || '',
         target_branch: selectedRepo?.default_branch || 'main',
         context_files: [],
+        // Agent override (only if not "default")
+        ...(agentType && agentType !== 'default' ? { agent_type: agentType as 'claude-code' | 'codex' | 'copilot' | 'gemini' } : {}),
+        ...(agentModel ? { agent_model: agentModel } : {}),
       })
 
       toast.success('Task created', {
@@ -69,6 +93,8 @@ export function CreateTaskDialog() {
       closeCreateModal()
       setRepositoryId('')
       setUserInput('')
+      setAgentType('')
+      setAgentModel('')
     } catch (error) {
       console.error('Failed to create task:', error)
       toast.error('Failed to create task', {
@@ -82,6 +108,8 @@ export function CreateTaskDialog() {
       closeCreateModal()
       setRepositoryId('')
       setUserInput('')
+      setAgentType('')
+      setAgentModel('')
     }
   }
 
@@ -147,6 +175,76 @@ export function CreateTaskDialog() {
               Describe your idea in simple terms (min. 10 characters). The PM Agent will analyze the repository and create a detailed technical specification.
             </p>
           </div>
+
+          {/* Agent Override (Advanced) */}
+          {installedAgents.length > 0 && (
+            <Collapsible>
+              <CollapsibleTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  className="gap-1.5 text-muted-foreground hover:text-foreground -ml-2"
+                >
+                  <Terminal className="size-3.5" />
+                  <span className="text-xs">Agent override</span>
+                  <ChevronDown className="size-3" />
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="space-y-3 pt-2">
+                <div className="space-y-2">
+                  <Label htmlFor="agent-override" className="text-sm">Agent</Label>
+                  <Select
+                    value={agentType}
+                    onValueChange={(val) => {
+                      setAgentType(val)
+                      setAgentModel('')
+                    }}
+                    disabled={isSubmitting}
+                  >
+                    <SelectTrigger id="agent-override" className="w-full">
+                      <SelectValue placeholder={defaultAgentLabel ?? 'Use default agent'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">
+                        Use default{defaultAgentLabel ? ` (${defaultAgentLabel})` : ''}
+                      </SelectItem>
+                      {installedAgents.map((agent) => {
+                        const info = getAgentDisplayInfo(agent.id)
+                        return (
+                          <SelectItem key={agent.id} value={agent.id}>
+                            {info?.icon} {info?.name ?? agent.name}
+                          </SelectItem>
+                        )
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {selectedAgentModels.length > 1 && (
+                  <div className="space-y-2">
+                    <Label htmlFor="model-override" className="text-sm">Model</Label>
+                    <Select
+                      value={agentModel}
+                      onValueChange={setAgentModel}
+                      disabled={isSubmitting}
+                    >
+                      <SelectTrigger id="model-override" className="w-full">
+                        <SelectValue placeholder="Default model" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {selectedAgentModels.map((model) => (
+                          <SelectItem key={model.id} value={model.id}>
+                            {model.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </CollapsibleContent>
+            </Collapsible>
+          )}
 
           {/* Actions */}
           <div className="flex justify-end gap-3">

@@ -198,6 +198,19 @@ export {
   type SetupError,
 } from './types/setup.types.js';
 
+// Agent schemas
+export {
+  AgentTypeSchema,
+  AGENT_TYPES,
+  AgentModelSchema,
+  DetectedAgentSchema,
+  DetectedAgentsResponseSchema,
+  type AgentType,
+  type AgentModel,
+  type DetectedAgent,
+  type DetectedAgentsResponse,
+} from './schemas/agent.schema.js';
+
 // Secrets schemas
 export {
   GitHubConnectionMethodSchema,
