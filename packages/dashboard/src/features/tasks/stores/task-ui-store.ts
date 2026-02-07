@@ -41,11 +41,23 @@ interface TaskUIState {
   markAllCommentsAsRead: (taskId: string) => void;
   getUnreadCount: (taskId: string) => number;
   hasUnreadComments: (taskId: string) => boolean;
+
+  // Drawer state (ephemeral, not persisted)
+  drawerTaskId: string | null;
+  openDrawer: (taskId: string) => void;
+  closeDrawer: () => void;
+
+  // Last used agent preferences (persisted)
+  lastAgentType: string | null;
+  lastAgentModel: string | null;
+  setLastAgent: (agentType: string | null, agentModel: string | null) => void;
 }
 
-// Persisted state for unread comments (stored in localStorage)
+// Persisted state (stored in localStorage)
 interface PersistedState {
   unreadComments: Record<string, number[]>;
+  lastAgentType: string | null;
+  lastAgentModel: string | null;
 }
 
 export const useTaskUIStore = create<TaskUIState>()(
@@ -101,6 +113,16 @@ export const useTaskUIStore = create<TaskUIState>()(
       })),
       getTaskLogs: (taskId) => get().taskLogs[taskId] || [],
 
+      // Drawer state (ephemeral, not persisted)
+      drawerTaskId: null,
+      openDrawer: (taskId) => set({ drawerTaskId: taskId }),
+      closeDrawer: () => set({ drawerTaskId: null }),
+
+      // Last used agent preferences (persisted)
+      lastAgentType: null,
+      lastAgentModel: null,
+      setLastAgent: (agentType, agentModel) => set({ lastAgentType: agentType, lastAgentModel: agentModel }),
+
       // Unread comments state
       unreadComments: {},
       addUnreadComment: (taskId, commentId) => set((state) => {
@@ -135,9 +157,11 @@ export const useTaskUIStore = create<TaskUIState>()(
     }),
     {
       name: 'dash-agent-task-ui',
-      // Only persist unreadComments to localStorage
+      // Persist unreadComments and last agent preferences to localStorage
       partialize: (state): PersistedState => ({
         unreadComments: state.unreadComments,
+        lastAgentType: state.lastAgentType,
+        lastAgentModel: state.lastAgentModel,
       }),
     }
   )

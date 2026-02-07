@@ -1,8 +1,13 @@
 import type { ChildProcess } from 'child_process';
+import { writeFileSync, unlinkSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { randomUUID } from 'crypto';
 import { createLogger } from '../utils/logger.js';
 import { getErrorMessage } from '../utils/errors.js';
 import { spawnTracked, killChildProcessTree } from '../utils/process-killer.js';
 import { buildCLIPrompt } from './cli-prompts.js';
+import { getAICredentials } from '../services/secrets.service.js';
 import type { IAgentRunner, CLIRunnerOptions, AgentRunResult } from './types.js';
 
 const logger = createLogger('cli-runner');
@@ -13,6 +18,8 @@ const logger = createLogger('cli-runner');
 interface CLICommand {
   command: string;
   args: string[];
+  /** When true, the prompt is sent via stdin instead of as a CLI argument */
+  useStdin?: boolean;
 }
 
 /**
@@ -21,11 +28,14 @@ interface CLICommand {
 function buildCLICommand(agentType: string, prompt: string, model?: string): CLICommand {
   switch (agentType) {
     case 'claude-code':
+      // Prompt is sent via stdin to avoid Windows command-line argument issues:
+      // - cmd.exe interprets special chars (^, &, |, <, >, !) in .cmd wrappers
+      // - CreateProcessW has a 32,767 char limit for the entire command line
+      // - Multi-line prompts with specs can contain any character
       return {
         command: 'claude',
         args: [
           '-p',
-          prompt,
           '--output-format',
           'stream-json',
           '--verbose',
@@ -33,6 +43,7 @@ function buildCLICommand(agentType: string, prompt: string, model?: string): CLI
           'Read,Edit,Bash,Write',
           ...(model ? ['--model', model] : []),
         ],
+        useStdin: true,
       };
 
     case 'codex':
@@ -40,10 +51,11 @@ function buildCLICommand(agentType: string, prompt: string, model?: string): CLI
         command: 'codex',
         args: [
           'exec',
-          prompt,
           '--json',
           '--full-auto',
+          '--skip-git-repo-check',
           ...(model ? ['-m', model] : []),
+          prompt,
         ],
       };
 
@@ -93,6 +105,7 @@ export class CLIAgentRunner implements IAgentRunner {
   private readonly options: CLIRunnerOptions;
   private output: string = '';
   private feedbackQueue: string[] = [];
+  private promptFilePath: string | null = null;
 
   constructor(options: CLIRunnerOptions) {
     this.options = options;
@@ -126,6 +139,7 @@ export class CLIAgentRunner implements IAgentRunner {
       if (this.options.isResume !== undefined) promptOptions.isResume = this.options.isResume;
       if (this.options.reviewFeedback !== undefined) promptOptions.reviewFeedback = this.options.reviewFeedback;
       if (this.options.isEmptyRepo !== undefined) promptOptions.isEmptyRepo = this.options.isEmptyRepo;
+      if (this.options.repository) promptOptions.repository = this.options.repository;
       const prompt = buildCLIPrompt(this.options.task, promptOptions);
 
       // Build the CLI command
@@ -143,7 +157,7 @@ export class CLIAgentRunner implements IAgentRunner {
       this.options.onStatusChange('planning');
 
       // Spawn the child process
-      const result = await this.spawnAndMonitor(cliCommand);
+      const result = await this.spawnAndMonitor(cliCommand, prompt);
 
       // If successful, transition to awaiting_review
       if (result.success) {
@@ -167,6 +181,7 @@ export class CLIAgentRunner implements IAgentRunner {
     } finally {
       this.isRunning = false;
       this.process = null;
+      this.cleanupPromptFile();
     }
   }
 
@@ -194,6 +209,7 @@ export class CLIAgentRunner implements IAgentRunner {
       killChildProcessTree(this.process);
       this.options.onLog('info', 'CLI process cancelled');
     }
+    this.cleanupPromptFile();
   }
 
   /**
@@ -204,23 +220,120 @@ export class CLIAgentRunner implements IAgentRunner {
   }
 
   /**
+   * Cleans up any temporary prompt file created for the Windows shell workaround.
+   */
+  private cleanupPromptFile(): void {
+    if (this.promptFilePath) {
+      try { unlinkSync(this.promptFilePath); } catch { /* ignore */ }
+      this.promptFilePath = null;
+    }
+  }
+
+  /**
    * Spawns the CLI process and monitors its output until completion.
    */
-  private spawnAndMonitor(cliCommand: CLICommand): Promise<AgentRunResult> {
+  private spawnAndMonitor(cliCommand: CLICommand, prompt: string): Promise<AgentRunResult> {
     return new Promise<AgentRunResult>((resolve) => {
+      // On Windows, npm-installed CLIs (codex, copilot) are .cmd wrappers that need
+      // shell execution via cmd.exe. But cmd.exe cannot handle multi-line prompts
+      // as command-line arguments (newlines break the command).
+      // Workaround: write prompt to a temp file and use PowerShell to read it,
+      // which handles multi-line strings natively.
+      const needsWindowsShellWorkaround =
+        process.platform === 'win32' &&
+        (cliCommand.command === 'codex' || cliCommand.command === 'copilot');
+
+      let spawnCommand: string;
+      let spawnArgs: string[];
+      let useShell: boolean = false;
+
+      if (needsWindowsShellWorkaround) {
+        this.promptFilePath = join(tmpdir(), `agent-prompt-${randomUUID()}.txt`);
+        writeFileSync(this.promptFilePath, prompt, 'utf8');
+        const escapedPath = this.promptFilePath.replace(/'/g, "''");
+
+        let innerCmd: string;
+        switch (cliCommand.command) {
+          case 'codex': {
+            const modelArg = this.options.agentModel ? `-m '${this.options.agentModel}' ` : '';
+            innerCmd = `& codex exec --json --full-auto --skip-git-repo-check ${modelArg}$p`;
+            break;
+          }
+          case 'copilot':
+            innerCmd = `& copilot -p $p --allow-all-tools`;
+            break;
+          default:
+            innerCmd = `& ${cliCommand.command} $p`;
+        }
+
+        const psCommand = `$p = [IO.File]::ReadAllText('${escapedPath}'); ${innerCmd}; exit $LASTEXITCODE`;
+        spawnCommand = 'powershell.exe';
+        spawnArgs = ['-NoProfile', '-NonInteractive', '-Command', psCommand];
+        this.options.onLog('info', 'Using PowerShell workaround for Windows .cmd wrapper');
+      } else {
+        spawnCommand = cliCommand.command;
+        spawnArgs = cliCommand.args;
+        // Native binaries (claude, gemini) don't need shell on any platform.
+      }
+
+      // Build environment with API keys from secrets service
+      // The child process inherits process.env by default, but the API key
+      // may only be stored in the encrypted DB (configured via Settings UI)
+      const env: Record<string, string | undefined> = { ...process.env };
+      try {
+        const creds = getAICredentials();
+        if (creds) {
+          if (creds.provider === 'claude' && !env['ANTHROPIC_API_KEY']) {
+            env['ANTHROPIC_API_KEY'] = creds.apiKey;
+          } else if (creds.provider === 'openai' && !env['OPENAI_API_KEY']) {
+            env['OPENAI_API_KEY'] = creds.apiKey;
+          } else if (creds.provider === 'openrouter' && !env['OPENROUTER_API_KEY']) {
+            env['OPENROUTER_API_KEY'] = creds.apiKey;
+          }
+        }
+      } catch {
+        // Secrets service may not be initialized yet - continue without injecting
+      }
+
+      // Diagnostic logging
+      logger.info('Spawning CLI process', {
+        taskId: this.options.taskId,
+        command: spawnCommand,
+        argsCount: spawnArgs.length,
+        promptLength: prompt.length,
+        useStdin: !!cliCommand.useStdin,
+        hasAnthropicKey: !!env['ANTHROPIC_API_KEY'],
+        hasOpenAIKey: !!env['OPENAI_API_KEY'],
+      });
+
       const proc = spawnTracked(
-        cliCommand.command,
-        cliCommand.args,
+        spawnCommand,
+        spawnArgs,
         {
           cwd: this.options.workspacePath,
           stdio: ['pipe', 'pipe', 'pipe'],
           windowsHide: true,
-          shell: false,
+          shell: useShell,
+          env,
         },
         this.options.taskId
       );
 
       this.process = proc;
+
+      // For agents that use stdin for prompt delivery (claude-code),
+      // write the prompt to stdin and close it. This avoids all Windows
+      // command-line argument issues (special chars, length limits).
+      if (cliCommand.useStdin) {
+        if (proc.stdin) {
+          proc.stdin.write(prompt);
+          proc.stdin.end();
+          this.options.onLog('info', 'Prompt delivered via stdin', { promptLength: prompt.length });
+        } else {
+          this.options.onLog('error', 'Process stdin not available for prompt delivery');
+        }
+      }
+
       let hasTransitionedToInProgress = false;
       let stdoutBuffer = '';
       let stderrBuffer = '';
@@ -268,8 +381,22 @@ export class CLIAgentRunner implements IAgentRunner {
         }
       });
 
+      // Silence detector — warn if no stdout output after 30 seconds
+      const silenceTimer = setTimeout(() => {
+        if (!hasTransitionedToInProgress) {
+          this.options.onLog('warn', 'No output from CLI agent after 30s — agent may be stuck, authenticating, or waiting for input');
+          logger.warn('CLI agent silence detected', {
+            taskId: this.options.taskId,
+            command: spawnCommand,
+            promptLength: prompt.length,
+          });
+        }
+      }, 30_000);
+
       // Handle process exit
       proc.on('close', (code: number | null) => {
+        clearTimeout(silenceTimer);
+        this.cleanupPromptFile();
         // Process any remaining buffered data
         if (stdoutBuffer.trim()) {
           this.parseOutputLine(stdoutBuffer.trim());
@@ -310,6 +437,7 @@ export class CLIAgentRunner implements IAgentRunner {
 
       // Handle spawn errors
       proc.on('error', (error: Error) => {
+        this.cleanupPromptFile();
         const errorMessage = getErrorMessage(error);
         logger.error('CLI process spawn error', {
           taskId: this.options.taskId,
@@ -349,7 +477,11 @@ export class CLIAgentRunner implements IAgentRunner {
 
   /**
    * Parses Claude Code stream-json output.
-   * Looks for objects with a `type` field to identify message types.
+   *
+   * Claude Code emits JSON lines with a `type` field. Message types wrap
+   * an API-style `message` object with `role` and `content` array:
+   *   { type: "assistant", message: { role: "assistant", content: [{type: "text", text: "..."}, {type: "tool_use", name: "Read", input: {...}}] } }
+   *   { type: "user", message: { role: "user", content: [{type: "tool_result", tool_use_id: "...", content: "...", is_error: false}] } }
    */
   private parseClaudeCodeOutput(line: string): void {
     const parsed = tryParseJSON(line);
@@ -361,47 +493,115 @@ export class CLIAgentRunner implements IAgentRunner {
     }
 
     const type = parsed.type as string | undefined;
+    // Content blocks live inside message.content (stream-json format)
+    const message = parsed.message as Record<string, unknown> | undefined;
+    const contentBlocks = (message?.content ?? parsed.content) as unknown;
 
     switch (type) {
       case 'assistant': {
-        // Agent text response
-        const content = parsed.content as string | undefined;
-        if (content) {
-          this.options.onLog('info', `Agent: ${content.substring(0, 500)}`);
+        // Assistant turn — extract text and tool_use from content blocks
+        if (Array.isArray(contentBlocks)) {
+          for (const block of contentBlocks) {
+            const b = block as Record<string, unknown>;
+            if (b.type === 'text' && typeof b.text === 'string') {
+              this.options.onLog('info', `Agent: ${b.text.substring(0, 1000)}`);
+            } else if (b.type === 'tool_use') {
+              this.logToolUse(b);
+            }
+          }
+        } else if (typeof contentBlocks === 'string') {
+          // Fallback for plain string content
+          this.options.onLog('info', `Agent: ${contentBlocks.substring(0, 1000)}`);
         }
         break;
       }
-      case 'tool_use': {
-        // Tool invocation
-        const toolName = parsed.name as string | undefined;
-        this.options.onLog('info', `Tool: ${toolName ?? 'unknown'}`);
+
+      case 'user': {
+        // User turn — tool_result blocks. Only log errors to reduce noise.
+        if (Array.isArray(contentBlocks)) {
+          for (const block of contentBlocks) {
+            const b = block as Record<string, unknown>;
+            if (b.type === 'tool_result' && b.is_error) {
+              const errorContent = typeof b.content === 'string'
+                ? b.content.substring(0, 500)
+                : 'tool execution failed';
+              this.options.onLog('warn', `Tool error: ${errorContent}`);
+            }
+          }
+        }
         break;
       }
+
+      case 'system': {
+        // System init — extract useful metadata
+        const model = parsed.model as string | undefined;
+        const sessionId = parsed.session_id as string | undefined;
+        const tools = parsed.tools as unknown[] | undefined;
+        const parts: string[] = [];
+        if (model) parts.push(`model=${model}`);
+        if (sessionId) parts.push(`session=${sessionId.substring(0, 8)}`);
+        if (tools?.length) parts.push(`tools=${tools.length}`);
+        if (parts.length > 0) {
+          this.options.onLog('info', `System: ${parts.join(', ')}`);
+        }
+        break;
+      }
+
+      case 'tool_use': {
+        // Standalone tool_use event (alternative format)
+        this.logToolUse(parsed);
+        break;
+      }
+
       case 'tool_result': {
-        // Tool result
+        // Standalone tool_result event
         const output = parsed.output as string | undefined;
         if (output) {
-          this.options.onLog('debug', `Tool result: ${output.substring(0, 200)}`);
+          this.options.onLog('debug', `Tool result: ${output.substring(0, 500)}`);
         }
         break;
       }
+
       case 'result': {
-        // Final result
+        // Final result with optional cost/duration info
         const result = parsed.result as string | undefined;
-        if (result) {
-          this.options.onLog('info', `Result: ${result.substring(0, 500)}`);
-        }
+        const costUsd = parsed.cost_usd as number | undefined;
+        const durationMs = parsed.duration_ms as number | undefined;
+        let msg = result ? `Result: ${result.substring(0, 1000)}` : 'Result: completed';
+        const meta: string[] = [];
+        if (costUsd !== undefined) meta.push(`$${costUsd.toFixed(4)}`);
+        if (durationMs !== undefined) meta.push(`${(durationMs / 1000).toFixed(1)}s`);
+        if (meta.length > 0) msg += ` (${meta.join(', ')})`;
+        this.options.onLog('info', msg);
         break;
       }
+
       case 'error': {
-        const errorMsg = parsed.error as string | undefined;
+        const errorMsg = (parsed.error ?? parsed.message) as string | undefined;
         this.options.onLog('error', `CLI error: ${errorMsg ?? 'unknown error'}`);
         break;
       }
+
       default:
-        // Other message types — log at debug level
+        // Unknown event types — debug level to reduce noise
         this.options.onLog('debug', `CLI event (${type ?? 'unknown'}): ${line.substring(0, 200)}`);
     }
+  }
+
+  /**
+   * Logs a tool_use block (from assistant content blocks or standalone events).
+   */
+  private logToolUse(block: Record<string, unknown>): void {
+    const toolName = block.name as string | undefined;
+    const input = block.input as Record<string, unknown> | undefined;
+    let detail = '';
+    if (input) {
+      const key = input.file_path ?? input.command ?? input.pattern ?? input.query ?? input.path;
+      if (typeof key === 'string') {
+        detail = `: ${key.substring(0, 200)}`;
+      }
+    }
+    this.options.onLog('info', `Tool: ${toolName ?? 'unknown'}${detail}`);
   }
 
   /**
@@ -419,9 +619,9 @@ export class CLIAgentRunner implements IAgentRunner {
     const message = (parsed.message ?? parsed.content ?? parsed.text) as string | undefined;
 
     if (message) {
-      this.options.onLog('info', `Agent: ${message.substring(0, 500)}`);
+      this.options.onLog('info', `Agent: ${message.substring(0, 1000)}`);
     } else if (type) {
-      this.options.onLog('debug', `CLI event (${type}): ${line.substring(0, 200)}`);
+      this.options.onLog('info', `CLI event (${type}): ${line.substring(0, 200)}`);
     }
   }
 
@@ -435,7 +635,13 @@ export class CLIAgentRunner implements IAgentRunner {
     if (parsed) {
       const message = (parsed.message ?? parsed.content ?? parsed.text) as string | undefined;
       if (message) {
-        this.options.onLog('info', `Agent: ${message.substring(0, 500)}`);
+        this.options.onLog('info', `Agent: ${message.substring(0, 1000)}`);
+        return;
+      }
+      // JSON without recognized message fields — log type if available
+      const type = parsed.type as string | undefined;
+      if (type) {
+        this.options.onLog('info', `CLI event (${type}): ${line.substring(0, 200)}`);
         return;
       }
     }
@@ -474,7 +680,7 @@ export class CLIAgentRunner implements IAgentRunner {
         if (!rawLine) continue;
         const parsed = tryParseJSON(rawLine.trim());
         if (parsed?.type === 'result' && parsed.result) {
-          return String(parsed.result).substring(0, 1000);
+          return String(parsed.result).substring(0, 2000);
         }
       }
     }
@@ -482,7 +688,7 @@ export class CLIAgentRunner implements IAgentRunner {
     // Fall back to the last non-empty lines of output
     const lines = this.output.split('\n').filter((l) => l.trim().length > 0);
     const lastLines = lines.slice(-5).join('\n');
-    return lastLines.substring(0, 1000) || 'CLI agent completed';
+    return lastLines.substring(0, 2000) || 'CLI agent completed';
   }
 }
 

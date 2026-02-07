@@ -18,6 +18,11 @@ const LOG_LEVEL_CONFIG: Record<LogLevel, {
     className: 'text-zinc-400',
     label: 'INFO',
   },
+  debug: {
+    icon: Info,
+    className: 'text-zinc-500',
+    label: 'DEBUG',
+  },
   warn: {
     icon: AlertTriangle,
     className: 'text-amber-500',

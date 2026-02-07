@@ -77,6 +77,7 @@ export function createRunner(options: RunnerOptions): IAgentRunner {
     if (options.reviewFeedback !== undefined) cliOptions.reviewFeedback = options.reviewFeedback;
     if (options.isEmptyRepo !== undefined) cliOptions.isEmptyRepo = options.isEmptyRepo;
     if (options.agentModel !== undefined) cliOptions.agentModel = options.agentModel;
+    if (options.repository) cliOptions.repository = options.repository;
     return createCLIAgentRunner(cliOptions);
   }
   // Legacy runner (API-based)

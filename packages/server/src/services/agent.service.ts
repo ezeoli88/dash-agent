@@ -9,6 +9,7 @@ import type { IAgentRunner, RunnerOptions } from '../agent/types.js';
 import { getSSEEmitter } from '../utils/sse-emitter.js';
 import { killProcessesForTask } from '../utils/process-killer.js';
 import { getPRCommentsService } from './pr-comments.service.js';
+import { getRepoService } from './repo.service.js';
 
 const logger = createLogger('agent-service');
 
@@ -135,10 +136,27 @@ export class AgentService {
         this.log(taskId, 'info', 'Repository is empty (no commits) - agent will create initial project structure');
       }
 
+      // Load repository context for the Dev Agent prompt
+      let repository = null;
+      if (task.repository_id) {
+        try {
+          const repoService = getRepoService();
+          repository = await repoService.getRepositoryById(task.repository_id);
+          if (repository) {
+            this.log(taskId, 'info', `Repository context loaded: ${repository.name}`);
+          }
+        } catch (error) {
+          this.log(taskId, 'warn', `Failed to load repository context: ${getErrorMessage(error)}`);
+        }
+      }
+
       // Get any pending review feedback for resume
       const reviewFeedback = isResume ? this.getPendingReviewFeedback(taskId) : null;
 
       // Build runner options
+      const agentType = (task as any).agent_type ?? undefined;
+      const agentModel = (task as any).agent_model ?? undefined;
+
       const runnerOptions: RunnerOptions = {
         taskId,
         workspacePath,
@@ -147,14 +165,24 @@ export class AgentService {
         onStatusChange: (status) => this.handleStatusChange(taskId, status),
         isResume,
         isEmptyRepo: worktreeResult.isEmptyRepo,
+        repository,
         // CLI agent options (from task or global defaults)
-        agentType: (task as any).agent_type ?? undefined,
-        agentModel: (task as any).agent_model ?? undefined,
+        agentType,
+        agentModel,
       };
 
       // Only add reviewFeedback if it has a value
       if (reviewFeedback) {
         runnerOptions.reviewFeedback = reviewFeedback;
+      }
+
+      // Log agent configuration
+      if (agentType || agentModel) {
+        const agentInfo = [
+          agentType ? agentType : 'default',
+          agentModel ? agentModel : 'default model',
+        ].join(' / ');
+        this.log(taskId, 'info', `Agent configured: ${agentInfo}`);
       }
 
       // Create the appropriate runner (CLI or legacy)

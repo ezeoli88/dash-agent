@@ -182,3 +182,30 @@ export const DeletePatternResponseSchema = z.object({
   success: z.boolean(),
 });
 export type DeletePatternResponse = z.infer<typeof DeletePatternResponseSchema>;
+
+// ============================================================================
+// Local Repository Schema (from filesystem scan)
+// ============================================================================
+
+/**
+ * A repository detected on the local filesystem
+ */
+export const LocalRepositorySchema = z.object({
+  name: z.string(),
+  path: z.string(),
+  current_branch: z.string(),
+  remote_url: z.string().nullable(),
+  has_package_json: z.boolean(),
+  language: z.string().nullable(),
+});
+export type LocalRepository = z.infer<typeof LocalRepositorySchema>;
+
+/**
+ * Response from scanning the local filesystem for repositories
+ */
+export const LocalReposResponseSchema = z.object({
+  repos: z.array(LocalRepositorySchema),
+  scan_path: z.string(),
+  total: z.number(),
+});
+export type LocalReposResponse = z.infer<typeof LocalReposResponseSchema>;

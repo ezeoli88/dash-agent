@@ -33,6 +33,9 @@ interface SetupState {
   selectedAgentModel: string | null      // model id: 'opus' | 'sonnet' | etc.
   agentConnected: boolean                // whether a CLI agent is detected and authenticated
 
+  // Setup completion flag - only true after user explicitly clicks Continue/Skip
+  setupFinished: boolean
+
   // GitHub Connection State (no token stored)
   githubConnected: boolean
   githubUsername: string | null
@@ -82,6 +85,9 @@ interface SetupState {
   // Computed
   isSetupComplete: () => boolean
 
+  // Setup flow actions
+  finishSetup: () => void
+
   // Reset
   resetSetup: () => void
 }
@@ -100,6 +106,9 @@ const DEFAULT_STATE = {
   selectedAgent: null as string | null,
   selectedAgentModel: null as string | null,
   agentConnected: false,
+
+  // Setup completion
+  setupFinished: false as boolean,
 
   // GitHub
   githubConnected: false,
@@ -126,6 +135,7 @@ interface PersistedState {
   selectedAgent: string | null
   selectedAgentModel: string | null
   agentConnected: boolean
+  setupFinished: boolean
   githubConnected: boolean
   githubUsername: string | null
   githubAvatarUrl: string | null
@@ -223,9 +233,12 @@ export const useSetupStore = create<SetupState>()(
       // Computed
       isSetupComplete: () => {
         const state = get()
-        // Either legacy AI provider OR CLI agent must be connected, plus GitHub
-        return (state.aiConnected || state.agentConnected) && state.githubConnected
+        // Only true after user explicitly clicks Continue/Skip in setup flow
+        return state.setupFinished
       },
+
+      // Setup flow actions
+      finishSetup: () => set({ setupFinished: true }),
 
       // Reset
       resetSetup: () => set(DEFAULT_STATE),
@@ -241,6 +254,7 @@ export const useSetupStore = create<SetupState>()(
         selectedAgent: state.selectedAgent,
         selectedAgentModel: state.selectedAgentModel,
         agentConnected: state.agentConnected,
+        setupFinished: state.setupFinished,
         githubConnected: state.githubConnected,
         githubUsername: state.githubUsername,
         githubAvatarUrl: state.githubAvatarUrl,

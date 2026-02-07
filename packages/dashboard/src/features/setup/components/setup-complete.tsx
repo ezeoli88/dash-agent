@@ -16,7 +16,7 @@ export function SetupComplete() {
 
   useEffect(() => {
     if (countdown <= 0) {
-      router.push('/tasks')
+      router.push('/board')
       return
     }
 
@@ -69,7 +69,7 @@ export function SetupComplete() {
           <Button
             size="lg"
             className="w-full"
-            onClick={() => router.push('/tasks')}
+            onClick={() => router.push('/board')}
           >
             <Rocket className="mr-2 size-4" />
             Ir al Dashboard

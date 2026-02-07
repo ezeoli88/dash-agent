@@ -25,14 +25,14 @@ interface GenerateSpecResponse {
 export function useGenerateSpec() {
   const queryClient = useQueryClient()
   const aiConnected = useSetupStore((state) => state.aiConnected)
+  const agentConnected = useSetupStore((state) => state.agentConnected)
 
   return useMutation({
     mutationFn: async ({ taskId, additionalContext }: GenerateSpecInput): Promise<GenerateSpecResponse> => {
-      if (!aiConnected) {
+      if (!aiConnected && !agentConnected) {
         throw new Error('AI provider not configured. Please complete setup first.')
       }
 
-      // No need to send API key - backend gets it from secrets service
       const response = await apiClient.post<GenerateSpecResponse>(
         `/tasks/${taskId}/generate-spec`,
         { additional_context: additionalContext }
@@ -75,14 +75,14 @@ export function useGenerateSpec() {
 export function useRegenerateSpec() {
   const queryClient = useQueryClient()
   const aiConnected = useSetupStore((state) => state.aiConnected)
+  const agentConnected = useSetupStore((state) => state.agentConnected)
 
   return useMutation({
     mutationFn: async ({ taskId, additionalContext }: GenerateSpecInput): Promise<GenerateSpecResponse> => {
-      if (!aiConnected) {
+      if (!aiConnected && !agentConnected) {
         throw new Error('AI provider not configured. Please complete setup first.')
       }
 
-      // No need to send API key - backend gets it from secrets service
       const response = await apiClient.post<GenerateSpecResponse>(
         `/tasks/${taskId}/regenerate-spec`,
         { additional_context: additionalContext }

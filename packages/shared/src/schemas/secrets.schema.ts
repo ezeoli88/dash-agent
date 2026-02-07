@@ -120,7 +120,7 @@ export type ValidateGitHubPATResponse = z.infer<typeof ValidateGitHubPATResponse
 export const AllSecretsStatusSchema = z.object({
   ai: AISecretStatusSchema,
   github: GitHubSecretStatusSchema,
-  isComplete: z.boolean(), // True if both AI and GitHub are connected
+  isComplete: z.boolean(), // True if AI is connected (GitHub is optional)
 });
 export type AllSecretsStatus = z.infer<typeof AllSecretsStatusSchema>;
 

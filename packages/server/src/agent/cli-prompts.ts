@@ -1,9 +1,11 @@
 import type { Task } from '../services/task.service.js';
+import type { Repository } from '../services/repo.service.js';
 
 interface CLIPromptOptions {
   isResume?: boolean;
   reviewFeedback?: string;
   isEmptyRepo?: boolean;
+  repository?: Repository | null;
 }
 
 /**
@@ -12,27 +14,63 @@ interface CLIPromptOptions {
  * so we need to combine all context into a single comprehensive prompt.
  */
 export function buildCLIPrompt(task: Task, options: CLIPromptOptions = {}): string {
-  const { isResume, reviewFeedback, isEmptyRepo } = options;
+  const { isResume, reviewFeedback, isEmptyRepo, repository } = options;
 
   // If resuming with feedback, build a focused resume prompt
   if (isResume && reviewFeedback) {
-    return buildResumePrompt(task, reviewFeedback);
+    return buildResumePrompt(task, reviewFeedback, repository);
   }
 
   // If empty repo, build initialization prompt
   if (isEmptyRepo) {
-    return buildEmptyRepoPrompt(task);
+    return buildEmptyRepoPrompt(task, repository);
   }
 
   // Normal task prompt
-  return buildTaskPrompt(task);
+  return buildTaskPrompt(task, repository);
+}
+
+/**
+ * Builds a section describing the repository context (stack, conventions, patterns).
+ */
+function buildRepositorySection(repository: Repository): string {
+  const parts: string[] = [];
+  parts.push(`## Repository Context`);
+  parts.push(`**Repository:** ${repository.name}`);
+  parts.push(`**Default branch:** ${repository.default_branch}`);
+
+  const stack = repository.detected_stack;
+  if (stack.framework || stack.state_management || stack.styling || stack.testing) {
+    parts.push('');
+    parts.push('### Detected Stack');
+    if (stack.framework) parts.push(`- **Framework:** ${stack.framework}`);
+    if (stack.state_management) parts.push(`- **State Management:** ${stack.state_management}`);
+    if (stack.styling) parts.push(`- **Styling:** ${stack.styling}`);
+    if (stack.testing) parts.push(`- **Testing:** ${stack.testing}`);
+  }
+
+  if (repository.conventions?.trim()) {
+    parts.push('');
+    parts.push('### Project Conventions');
+    parts.push(repository.conventions);
+  }
+
+  if (repository.learned_patterns?.length > 0) {
+    parts.push('');
+    parts.push('### Learned Patterns');
+    for (const lp of repository.learned_patterns) {
+      parts.push(`- ${lp.pattern}`);
+    }
+  }
+
+  return parts.join('\n');
 }
 
 /**
  * Builds the main task prompt that consolidates all context into a single
  * comprehensive prompt for CLI agent execution.
  */
-function buildTaskPrompt(task: Task): string {
+function buildTaskPrompt(task: Task, repository?: Repository | null): string {
   const spec = task.final_spec || task.generated_spec || task.description;
 
   const contextSection =
@@ -61,6 +99,8 @@ Work on branch: \`${task.target_branch}\`
 `
     : '';
 
+  const repoSection = repository ? `\n${buildRepositorySection(repository)}\n` : '';
+
   return `You are an autonomous coding agent. Implement the following task in the current repository.
 
 ## Task
@@ -68,7 +108,7 @@ Work on branch: \`${task.target_branch}\`
 
 **Specification:**
 ${spec}
-${branchSection}${contextSection}${buildSection}
+${branchSection}${repoSection}${contextSection}${buildSection}
 ## Workflow
 
 1. **Explore** the codebase structure to understand the project layout and conventions
@@ -90,8 +130,9 @@ ${branchSection}${contextSection}${buildSection}
  * Builds a resume prompt for when the agent needs to address reviewer feedback
  * on a previously submitted task.
  */
-function buildResumePrompt(task: Task, feedback: string): string {
+function buildResumePrompt(task: Task, feedback: string, repository?: Repository | null): string {
   const spec = task.final_spec || task.generated_spec || task.description;
+  const repoSection = repository ? `\n${buildRepositorySection(repository)}\n` : '';
 
   return `You are an autonomous coding agent. You previously worked on a task that received reviewer feedback. Address the feedback and complete the task.
 
@@ -100,7 +141,7 @@ function buildResumePrompt(task: Task, feedback: string): string {
 
 **Original Specification:**
 ${spec}
-
+${repoSection}
 ## Reviewer Feedback
 The reviewer has requested the following changes:
 
@@ -125,8 +166,9 @@ ${feedback}
  * Builds a prompt for initializing an empty repository from scratch
  * based on the task requirements.
  */
-function buildEmptyRepoPrompt(task: Task): string {
+function buildEmptyRepoPrompt(task: Task, repository?: Repository | null): string {
   const spec = task.final_spec || task.generated_spec || task.description;
+  const repoSection = repository ? `\n${buildRepositorySection(repository)}\n` : '';
 
   const buildSection = task.build_command
     ? `
@@ -145,7 +187,7 @@ ${task.build_command}
 
 **Specification:**
 ${spec}
-${buildSection}
+${repoSection}${buildSection}
 ## Workflow
 
 1. **Analyze** the requirements from the specification to determine the appropriate project type and tech stack

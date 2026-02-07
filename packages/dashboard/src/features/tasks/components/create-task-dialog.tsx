@@ -41,8 +41,11 @@ export function CreateTaskDialog() {
 
   const [repositoryId, setRepositoryId] = useState<string>('')
   const [userInput, setUserInput] = useState('')
-  const [agentType, setAgentType] = useState<string>('')
-  const [agentModel, setAgentModel] = useState<string>('')
+  const lastAgentType = useTaskUIStore((state) => state.lastAgentType)
+  const lastAgentModel = useTaskUIStore((state) => state.lastAgentModel)
+  const setLastAgent = useTaskUIStore((state) => state.setLastAgent)
+  const [agentType, setAgentType] = useState<string>(lastAgentType ?? '')
+  const [agentModel, setAgentModel] = useState<string>(lastAgentModel ?? '')
 
   const selectedRepo = repos?.find((r) => r.id === repositoryId)
 
@@ -63,13 +66,6 @@ export function CreateTaskDialog() {
       return
     }
 
-    if (!userInput.trim() || userInput.trim().length < 10) {
-      toast.error('Please describe what you need', {
-        description: 'Description must be at least 10 characters',
-      })
-      return
-    }
-
     try {
       // Create task in draft status
       const task = await createTaskMutation.mutateAsync({
@@ -86,6 +82,11 @@ export function CreateTaskDialog() {
         ...(agentModel ? { agent_model: agentModel } : {}),
       })
 
+      // Persist agent preference for next time
+      if (agentType && agentType !== 'default') {
+        setLastAgent(agentType, agentModel || null)
+      }
+
       toast.success('Task created', {
         description: 'You can generate the spec when ready.',
       })
@@ -93,8 +94,6 @@ export function CreateTaskDialog() {
       closeCreateModal()
       setRepositoryId('')
       setUserInput('')
-      setAgentType('')
-      setAgentModel('')
     } catch (error) {
       console.error('Failed to create task:', error)
       toast.error('Failed to create task', {
@@ -108,8 +107,6 @@ export function CreateTaskDialog() {
       closeCreateModal()
       setRepositoryId('')
       setUserInput('')
-      setAgentType('')
-      setAgentModel('')
     }
   }
 
@@ -172,7 +169,7 @@ export function CreateTaskDialog() {
               disabled={isSubmitting}
             />
             <p className="text-xs text-muted-foreground">
-              Describe your idea in simple terms (min. 10 characters). The PM Agent will analyze the repository and create a detailed technical specification.
+              Describe your idea in simple terms. The PM Agent will analyze the repository and create a detailed technical specification.
             </p>
           </div>
 
@@ -258,7 +255,7 @@ export function CreateTaskDialog() {
             </Button>
             <Button
               type="submit"
-              disabled={!repositoryId || userInput.trim().length < 10 || isSubmitting}
+              disabled={!repositoryId || isSubmitting}
             >
               {isSubmitting ? (
                 <>

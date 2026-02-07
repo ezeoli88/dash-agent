@@ -22,7 +22,7 @@ export default function NotFound() {
 
             <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto mb-6">
               <Button asChild className="w-full sm:w-auto">
-                <Link href="/tasks">
+                <Link href="/board">
                   <ClipboardList className="h-4 w-4 mr-2" />
                   Go to Tasks
                 </Link>
@@ -40,7 +40,7 @@ export default function NotFound() {
               <ul className="mt-2 space-y-1">
                 <li>
                   <Link
-                    href="/tasks"
+                    href="/board"
                     className="text-primary hover:underline inline-flex items-center"
                   >
                     <ArrowLeft className="h-3 w-3 mr-1" />

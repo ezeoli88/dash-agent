@@ -14,9 +14,10 @@ import { useApproveSpec } from '../hooks/use-approve-spec'
 
 interface SpecEditorProps {
   task: Task
+  hideActions?: boolean
 }
 
-export function SpecEditor({ task }: SpecEditorProps) {
+export function SpecEditor({ task, hideActions }: SpecEditorProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editedSpec, setEditedSpec] = useState(task.generated_spec || task.final_spec || '')
 
@@ -162,32 +163,34 @@ export function SpecEditor({ task }: SpecEditorProps) {
               </pre>
             </div>
 
-            <div className="flex justify-between">
-              <Button
-                variant="outline"
-                onClick={handleRegenerate}
-                disabled={isLoading}
-              >
-                {regenerateSpecMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                )}
-                Regenerate
-              </Button>
+            {!hideActions && (
+              <div className="flex justify-between">
+                <Button
+                  variant="outline"
+                  onClick={handleRegenerate}
+                  disabled={isLoading}
+                >
+                  {regenerateSpecMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                  )}
+                  Regenerate
+                </Button>
 
-              <Button
-                onClick={handleApprove}
-                disabled={isLoading || !currentSpec}
-              >
-                {approveSpecMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="h-4 w-4 mr-2" />
-                )}
-                Approve & Execute
-              </Button>
-            </div>
+                <Button
+                  onClick={handleApprove}
+                  disabled={isLoading || !currentSpec}
+                >
+                  {approveSpecMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="h-4 w-4 mr-2" />
+                  )}
+                  Approve & Execute
+                </Button>
+              </div>
+            )}
           </>
         )}
       </CardContent>

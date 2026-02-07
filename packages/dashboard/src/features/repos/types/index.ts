@@ -12,6 +12,8 @@ export type {
   AddPatternRequest,
   AddPatternResponse,
   DeletePatternResponse,
+  LocalRepository,
+  LocalReposResponse,
 } from '@dash-agent/shared';
 
 // Frontend-specific types

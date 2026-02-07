@@ -32,14 +32,3 @@ export function useSetupStatus() {
     githubAvatarUrl,
   }
 }
-
-/**
- * Hook to get current setup step
- */
-export function useCurrentSetupStep(): 'ai-provider' | 'github' | 'complete' {
-  const { hasAIProvider, hasGitHub } = useSetupStatus()
-
-  if (!hasAIProvider) return 'ai-provider'
-  if (!hasGitHub) return 'github'
-  return 'complete'
-}

@@ -110,12 +110,12 @@ export const CreateTaskSchema = z.object({
   repository_id: z.string().uuid('Repository is required'),
 
   // Required: user's idea/request
-  user_input: z.string().min(5, 'Please describe what you need (at least 5 characters)'),
+  user_input: z.string(),
 
   // Optional: legacy fields for backward compatibility
-  title: z.string().min(1).max(200).optional(),
-  description: z.string().min(10).optional(),
-  repo_url: z.string().url().regex(/github\.com/).optional(),
+  title: z.string().max(200).optional(),
+  description: z.string().optional(),
+  repo_url: z.string().optional(),
   target_branch: z.string().optional().default('main'),
   context_files: z.array(z.string()).optional().default([]),
   build_command: z.string().optional(),

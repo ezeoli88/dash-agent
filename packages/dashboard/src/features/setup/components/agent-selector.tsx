@@ -200,7 +200,7 @@ export function AgentSelector({ onAgentSelected, compact = false }: AgentSelecto
             >
               {/* Selected checkmark */}
               {isActive && (
-                <div className="absolute -top-2 -right-2 rounded-full bg-primary p-1">
+                <div className="absolute top-2 right-2 rounded-full bg-primary p-1">
                   <Check className="size-3.5 text-primary-foreground" />
                 </div>
               )}
@@ -242,37 +242,37 @@ export function AgentSelector({ onAgentSelected, compact = false }: AgentSelecto
         })}
       </div>
 
-      {/* Model selector dropdown */}
-      {showModelSelect && (
-        <div className="space-y-1.5">
-          <label className="text-sm font-medium text-muted-foreground">
-            Selecciona un modelo
-          </label>
-          <Select value={activeModel ?? undefined} onValueChange={handleSelectModel}>
-            <SelectTrigger className="w-full max-w-xs">
-              <SelectValue placeholder="Selecciona un modelo" />
-            </SelectTrigger>
-            <SelectContent>
-              {activeAgentData.models.map((model: AgentModel) => (
-                <SelectItem key={model.id} value={model.id}>
-                  <span>{model.name}</span>
-                  {model.description && (
-                    <span className="ml-2 text-muted-foreground">- {model.description}</span>
-                  )}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
+      {/* Model selector dropdown — always rendered to avoid layout shift */}
+      <div className={cn('space-y-1.5 transition-opacity', showModelSelect ? 'opacity-100' : 'pointer-events-none opacity-0 h-0 overflow-hidden')}>
+        {activeAgentData && activeAgentData.models.length > 1 && (
+          <>
+            <label className="text-sm font-medium text-muted-foreground">
+              Selecciona un modelo
+            </label>
+            <Select value={activeModel ?? undefined} onValueChange={handleSelectModel}>
+              <SelectTrigger className="w-full max-w-xs">
+                <SelectValue placeholder="Selecciona un modelo" />
+              </SelectTrigger>
+              <SelectContent>
+                {activeAgentData.models.map((model: AgentModel) => (
+                  <SelectItem key={model.id} value={model.id}>
+                    <span>{model.name}</span>
+                    {model.description && (
+                      <span className="ml-2 text-muted-foreground">- {model.description}</span>
+                    )}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </>
+        )}
+      </div>
 
-      {/* Saving indicator */}
-      {updateSettings.isPending && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="size-3 animate-spin" />
-          <span>Guardando...</span>
-        </div>
-      )}
+      {/* Saving indicator — uses opacity to avoid layout shift */}
+      <div className={cn('flex items-center gap-2 text-xs text-muted-foreground transition-opacity', updateSettings.isPending ? 'opacity-100' : 'opacity-0')}>
+        <Loader2 className="size-3 animate-spin" />
+        <span>Guardando...</span>
+      </div>
     </div>
   )
 }

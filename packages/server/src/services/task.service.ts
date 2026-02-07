@@ -210,9 +210,10 @@ export class TaskService {
       `INSERT INTO tasks (
         id, title, description, repo_url, target_branch, context_files, build_command,
         status, created_at, updated_at,
-        repository_id, user_input, was_spec_edited
+        repository_id, user_input, was_spec_edited,
+        agent_type, agent_model
       )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         title,
@@ -228,6 +229,9 @@ export class TaskService {
         input.repository_id ?? null,
         input.user_input ?? null,
         0, // was_spec_edited defaults to false
+        // CLI agent configuration overrides
+        input.agent_type ?? null,
+        input.agent_model ?? null,
       ]
     );
 

@@ -1,4 +1,4 @@
-export { useSetupStatus, useCurrentSetupStep } from './use-setup-status'
+export { useSetupStatus } from './use-setup-status'
 export { useValidateKey } from './use-validate-key'
 export { useValidateOpenRouter } from './use-validate-openrouter'
 export { useGitHubAuthUrl, useGitHubCallback, useGitHubConnect } from './use-github-oauth'

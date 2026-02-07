@@ -1,6 +1,5 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
 import { Loader2, MessageSquare, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime, truncateText } from '@/lib/formatters'
@@ -18,7 +17,7 @@ interface BoardCardProps {
  * Clicking the card navigates to the task detail page.
  */
 export function BoardCard({ task }: BoardCardProps) {
-  const router = useRouter()
+  const openDrawer = useTaskUIStore((state) => state.openDrawer)
   const hasUnreadComments = useTaskUIStore((state) => state.hasUnreadComments(task.id))
   const unreadCount = useTaskUIStore((state) => state.getUnreadCount(task.id))
 
@@ -29,7 +28,7 @@ export function BoardCard({ task }: BoardCardProps) {
   const isFailed = task.status === 'failed'
 
   const handleClick = () => {
-    router.push(`/tasks/${task.id}`)
+    openDrawer(task.id)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

@@ -48,7 +48,7 @@ export const BOARD_COLUMNS: BoardColumnConfig[] = [
   {
     id: 'todo',
     title: 'To Do',
-    statuses: ['draft', 'refining', 'backlog', 'planning', 'pending_approval'],
+    statuses: ['draft', 'backlog'],
     color: 'text-gray-600 dark:text-gray-400',
     bgColor: 'bg-gray-100 dark:bg-gray-800/50',
     borderColor: 'border-gray-300 dark:border-gray-700',
@@ -56,7 +56,7 @@ export const BOARD_COLUMNS: BoardColumnConfig[] = [
   {
     id: 'inProgress',
     title: 'In Progress',
-    statuses: ['approved', 'coding', 'in_progress'],
+    statuses: ['refining', 'pending_approval', 'approved', 'coding', 'planning', 'in_progress'],
     color: 'text-blue-600 dark:text-blue-400',
     bgColor: 'bg-blue-50 dark:bg-blue-900/20',
     borderColor: 'border-blue-300 dark:border-blue-700',
@@ -93,13 +93,13 @@ export const BOARD_COLUMNS: BoardColumnConfig[] = [
 export const STATUS_TO_COLUMN: Record<TaskStatus, BoardColumnId> = {
   // To Do column
   draft: 'todo',
-  refining: 'todo',
   backlog: 'todo',
-  planning: 'todo',
-  pending_approval: 'todo',
   // In Progress column
+  refining: 'inProgress',
+  pending_approval: 'inProgress',
   approved: 'inProgress',
   coding: 'inProgress',
+  planning: 'inProgress',
   in_progress: 'inProgress',
   // In Review column
   awaiting_review: 'inReview',

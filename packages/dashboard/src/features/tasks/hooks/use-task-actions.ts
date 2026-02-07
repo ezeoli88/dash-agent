@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { taskKeys } from './query-keys'
 import { tasksApi } from '@/lib/api-client'
 import { toast } from 'sonner'
+import { useTaskUIStore } from '../stores/task-ui-store'
 import type { ActionResponse, RequestChangesResponse, PRMergedResponse, PRClosedResponse, CleanupWorktreeResponse } from '@/types/api'
 
 export function useTaskActions(taskId: string) {
@@ -134,9 +135,12 @@ export function useTaskActions(taskId: string) {
   const deleteTask = useMutation({
     mutationFn: (): Promise<void> => tasksApi.delete(taskId),
     onSuccess: () => {
+      // Close drawer immediately before any query invalidation
+      useTaskUIStore.getState().closeDrawer()
       toast.success('Task deleted')
+      queryClient.removeQueries({ queryKey: taskKeys.detail(taskId) })
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() })
-      router.push('/tasks')
+      router.push('/board')
     },
     onError: (error: Error) => {
       toast.error(`Failed to delete task: ${error.message}`)

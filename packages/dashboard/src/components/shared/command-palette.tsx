@@ -47,7 +47,7 @@ export function CommandPalette() {
   const handleSearchTasks = useCallback(() => {
     if (search.trim()) {
       setSearchQuery(search.trim())
-      router.push('/tasks')
+      router.push('/board')
     }
   }, [search, setSearchQuery, router])
 
@@ -98,7 +98,7 @@ export function CommandPalette() {
 
             {/* Navigation */}
             <Command.Group heading="Navigation">
-              <CommandItem onSelect={() => runCommand(() => router.push('/tasks'))}>
+              <CommandItem onSelect={() => runCommand(() => router.push('/board'))}>
                 <ClipboardList className="mr-2 h-4 w-4" />
                 <span>Go to Tasks</span>
               </CommandItem>

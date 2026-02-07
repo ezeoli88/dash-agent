@@ -131,6 +131,8 @@ export {
   AddPatternRequestSchema,
   AddPatternResponseSchema,
   DeletePatternResponseSchema,
+  LocalRepositorySchema,
+  LocalReposResponseSchema,
   type DetectedStack,
   type LearnedPattern,
   type Repository,
@@ -143,6 +145,8 @@ export {
   type AddPatternRequest,
   type AddPatternResponse,
   type DeletePatternResponse,
+  type LocalRepository,
+  type LocalReposResponse,
 } from './repository.schema.js';
 
 // Agent schemas and types

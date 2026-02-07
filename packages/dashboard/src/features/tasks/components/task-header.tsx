@@ -6,7 +6,11 @@ import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/shared/status-badge'
 import { extractRepoName } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 import { getAgentDisplayInfo, getAgentLabel } from '../utils/agent-display'
+import { isTerminalStatus, isActiveStatus } from '../types'
+import { useUpdateTask } from '../hooks/use-update-task'
+import { InlineEdit } from './inline-edit'
 import type { Task } from '../types'
 
 interface TaskHeaderProps {
@@ -16,12 +20,30 @@ interface TaskHeaderProps {
 export function TaskHeader({ task }: TaskHeaderProps) {
   const repoName = extractRepoName(task.repo_url)
   const agentInfo = getAgentDisplayInfo(task.agent_type)
+  const updateTaskMutation = useUpdateTask(task.id)
+
+  // Title is editable only when the task is in an early/non-active state
+  // Disallow editing when the agent is actively running or the task is terminal
+  const isTitleEditable = !isTerminalStatus(task.status) && !isActiveStatus(task.status)
+
+  const handleSaveTitle = async (newTitle: string) => {
+    try {
+      await updateTaskMutation.mutateAsync({ title: newTitle })
+      toast.success('Title updated')
+    } catch (error) {
+      console.error('Failed to update title:', error)
+      toast.error('Failed to update title', {
+        description: error instanceof Error ? error.message : 'An unexpected error occurred',
+      })
+      throw error // re-throw so InlineEdit stays in edit mode
+    }
+  }
 
   return (
     <div className="space-y-4">
       {/* Back button */}
       <Button variant="ghost" size="sm" asChild>
-        <Link href="/tasks" className="gap-2">
+        <Link href="/board" className="gap-2">
           <ArrowLeft className="h-4 w-4" />
           Back to Tasks
         </Link>
@@ -29,10 +51,18 @@ export function TaskHeader({ task }: TaskHeaderProps) {
 
       {/* Title and status row */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-2">
-          <h1 className="text-2xl font-bold tracking-tight lg:text-3xl">
-            {task.title}
-          </h1>
+        <div className="space-y-2 flex-1 min-w-0">
+          <div className="text-2xl font-bold tracking-tight lg:text-3xl">
+            <InlineEdit
+              value={task.title}
+              onSave={handleSaveTitle}
+              isSaving={updateTaskMutation.isPending}
+              disabled={!isTitleEditable}
+              minLength={1}
+              placeholder="Enter task title..."
+              inputClassName="text-2xl lg:text-3xl font-bold tracking-tight h-auto py-1"
+            />
+          </div>
           <div className="flex items-center gap-3">
             <StatusBadge status={task.status} />
             <a

@@ -68,7 +68,7 @@ function Breadcrumb({ taskId, taskTitle }: { taskId: string; taskTitle?: string 
   return (
     <nav className="flex items-center space-x-1 text-sm text-muted-foreground">
       <Link
-        href="/tasks"
+        href="/board"
         className="hover:text-foreground transition-colors"
       >
         Tasks
@@ -91,7 +91,7 @@ function NotFoundState({ taskId }: { taskId: string }) {
           The task with ID &quot;{taskId}&quot; could not be found. It may have been deleted or the ID is incorrect.
         </p>
         <Button asChild>
-          <Link href="/tasks">Back to Tasks</Link>
+          <Link href="/board">Back to Tasks</Link>
         </Button>
       </CardContent>
     </Card>
@@ -115,7 +115,7 @@ function ErrorState({ error }: { error: Error }) {
             Try Again
           </Button>
           <Button asChild>
-            <Link href="/tasks">Back to Tasks</Link>
+            <Link href="/board">Back to Tasks</Link>
           </Button>
         </div>
       </CardContent>

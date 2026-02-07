@@ -11,7 +11,6 @@ export {
 // Hooks
 export {
   useSetupStatus,
-  useCurrentSetupStep,
   useValidateKey,
   useGitHubAuthUrl,
   useGitHubCallback,

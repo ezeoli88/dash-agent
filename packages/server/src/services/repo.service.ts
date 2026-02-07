@@ -180,6 +180,53 @@ export class RepoService {
   }
 
   /**
+   * Create a new repository with a pre-computed stack (no GitHub API call)
+   */
+  async createRepositoryWithStack(input: CreateRepositoryInput, detectedStack: DetectedStack): Promise<Repository> {
+    const db = getDatabase();
+    const id = uuidv4();
+    const now = new Date().toISOString();
+
+    logger.info('Creating repository with pre-computed stack', { name: input.name, url: input.url });
+
+    const sql = `
+      INSERT INTO repositories (id, name, url, default_branch, detected_stack, conventions, learned_patterns, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    db.run(sql, [
+      id,
+      input.name,
+      input.url,
+      input.default_branch,
+      JSON.stringify(detectedStack),
+      '',
+      '[]',
+      now,
+      now,
+    ]);
+
+    saveDatabase();
+
+    const repository: Repository = {
+      id,
+      name: input.name,
+      url: input.url,
+      default_branch: input.default_branch,
+      detected_stack: detectedStack,
+      conventions: '',
+      learned_patterns: [],
+      active_tasks_count: 0,
+      created_at: now,
+      updated_at: now,
+    };
+
+    logger.info('Repository created successfully with stack', { id, name: input.name });
+
+    return repository;
+  }
+
+  /**
    * Get all repositories
    */
   async getRepositories(): Promise<Repository[]> {

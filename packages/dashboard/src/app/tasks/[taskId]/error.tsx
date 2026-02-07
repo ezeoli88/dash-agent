@@ -33,7 +33,7 @@ export default function TaskDetailError({ error, reset }: ErrorProps) {
         aria-label="Breadcrumb"
       >
         <Link
-          href="/tasks"
+          href="/board"
           className="hover:text-foreground transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
         >
           Tasks
@@ -71,7 +71,7 @@ export default function TaskDetailError({ error, reset }: ErrorProps) {
               Try Again
             </Button>
             <Button variant="outline" asChild>
-              <Link href="/tasks">
+              <Link href="/board">
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Back to Tasks
               </Link>

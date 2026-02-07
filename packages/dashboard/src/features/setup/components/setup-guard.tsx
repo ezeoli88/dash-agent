@@ -45,21 +45,26 @@ export function SetupGuard({ children }: SetupGuardProps) {
     // Wait for server status to load
     if (isLoading) return
 
-    // Use server status if available, otherwise fall back to local
-    const isComplete = serverStatus?.isComplete ?? localIsComplete
+    // Server knows about AI keys stored server-side; local store also tracks
+    // CLI agent selection (which is client-only). Either is enough.
+    const isComplete = serverStatus?.isComplete || localIsComplete
 
     const isSetupPage = pathname?.startsWith('/setup')
+    const isReposPage = pathname?.startsWith('/repos')
     const isCallbackPage = pathname?.includes('/callback')
 
     // Don't redirect from callback pages - they need to complete their flow
     if (isCallbackPage) return
 
+    // Always allow /repos page
+    if (isReposPage) return
+
     if (!isComplete && !isSetupPage) {
       // User needs to complete setup
       router.replace('/setup')
     } else if (isComplete && isSetupPage) {
-      // Setup complete, redirect to dashboard
-      router.replace('/tasks')
+      // Setup complete, redirect to repos selection
+      router.replace('/repos')
     }
   }, [serverStatus, localIsComplete, pathname, router, isLoading])
 

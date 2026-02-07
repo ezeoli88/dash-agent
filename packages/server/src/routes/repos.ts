@@ -4,6 +4,8 @@ import { createLogger } from '../utils/logger.js';
 import { getRepoService } from '../services/repo.service.js';
 import { createGitHubService } from '../services/github.service.js';
 import { getGitHubCredentials } from '../services/secrets.service.js';
+import { getLocalScanService } from '../services/local-scan.service.js';
+import { createLocalStackDetector } from '../services/stack-detector.service.js';
 
 const logger = createLogger('repos-router');
 const router = Router();
@@ -136,6 +138,88 @@ router.post('/github/repos/validate', async (req: Request, res: Response) => {
     res.status(500).json({
       error: 'Internal Server Error',
       message: 'Failed to validate repository URL',
+    });
+  }
+});
+
+/**
+ * GET /repos/local/scan - Scan local filesystem for git repositories
+ */
+router.get('/local/scan', async (req: Request, res: Response) => {
+  try {
+    const scanPath = req.query['path'] as string | undefined;
+    const localScanService = getLocalScanService();
+    const result = await localScanService.scanForRepos(scanPath || undefined);
+
+    logger.info('Local repos scanned', { count: result.total, scanPath: result.scan_path });
+
+    res.json(result);
+  } catch (error) {
+    logger.errorWithStack('Failed to scan local repos', error as Error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to scan local repositories',
+    });
+  }
+});
+
+/**
+ * POST /repos/local/add - Add a local repository
+ */
+router.post('/local/add', async (req: Request, res: Response) => {
+  try {
+    const { name, path, default_branch, remote_url } = req.body as {
+      name?: string;
+      path?: string;
+      default_branch?: string;
+      remote_url?: string | null;
+    };
+
+    if (!name || !path) {
+      res.status(400).json({
+        error: 'Validation Error',
+        message: 'name and path are required',
+      });
+      return;
+    }
+
+    // Use remote URL or file:// URL
+    const url = remote_url || `file://${path}`;
+
+    const repoService = getRepoService();
+
+    // Check if repository already exists
+    const existing = await repoService.getRepositoryByUrl(url);
+    if (existing) {
+      res.status(409).json({
+        error: 'Conflict',
+        message: 'Repository already exists',
+        code: 'REPO_EXISTS',
+      });
+      return;
+    }
+
+    // Detect stack from local filesystem
+    const localDetector = createLocalStackDetector();
+    const stackResult = await localDetector.detectStack(path);
+
+    const repository = await repoService.createRepositoryWithStack(
+      {
+        name,
+        url,
+        default_branch: default_branch || 'main',
+      },
+      stackResult.detected_stack
+    );
+
+    logger.info('Local repository added', { id: repository.id, name, path });
+
+    res.status(201).json(repository);
+  } catch (error) {
+    logger.errorWithStack('Failed to add local repository', error as Error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to add local repository',
     });
   }
 });

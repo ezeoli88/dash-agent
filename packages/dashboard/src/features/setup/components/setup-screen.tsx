@@ -1,15 +1,21 @@
 'use client'
 
-import { Check } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { Separator } from '@/components/ui/separator'
+import { ArrowRight, Lightbulb } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
 import { AgentSelector } from './agent-selector'
-import { GitHubConnect } from './github-connect'
-import { useSetupStatus, useCurrentSetupStep } from '../hooks/use-setup-status'
+import { useSetupStatus } from '../hooks/use-setup-status'
+import { useSetupStore } from '../stores/setup-store'
 
 export function SetupScreen() {
-  const { hasAIProvider, hasGitHub } = useSetupStatus()
-  const currentStep = useCurrentSetupStep()
+  const { hasAIProvider } = useSetupStatus()
+  const router = useRouter()
+  const finishSetup = useSetupStore((state) => state.finishSetup)
+
+  const handleContinue = () => {
+    finishSetup()
+    router.replace('/repos')
+  }
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-background to-muted/20 p-4">
@@ -22,100 +28,57 @@ export function SetupScreen() {
           </p>
         </div>
 
-        {/* Progress indicator */}
-        <div className="mb-8 flex items-center justify-center gap-4">
-          <StepIndicator
-            step={1}
-            label="Agente CLI"
-            isComplete={hasAIProvider}
-            isCurrent={currentStep === 'ai-provider'}
-          />
-          <div className="h-px w-8 bg-border" />
-          <StepIndicator
-            step={2}
-            label="GitHub"
-            isComplete={hasGitHub}
-            isCurrent={currentStep === 'github'}
-          />
-        </div>
-
-        {/* Step 1: Agent Selection */}
+        {/* Agent Selection */}
         <div className="mb-8">
           <div className="mb-4">
             <h2 className="text-lg font-semibold">
-              Paso 1: Selecciona tu agente de coding
+              Selecciona tu agente de coding
             </h2>
           </div>
           <AgentSelector />
         </div>
 
-        <Separator className="mb-8" />
+        {/* GitHub recommendation callout */}
+        <div className="mb-8 border-l-4 border-amber-500 bg-amber-50 dark:bg-amber-950/30 rounded-r-lg p-4">
+          <div className="flex gap-3">
+            <Lightbulb className="size-5 text-amber-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-sm mb-1">Recomendacion</p>
+              <p className="text-sm text-muted-foreground">
+                Conecta tu cuenta de GitHub en Settings para poder crear Pull Requests automaticamente cuando el agente termine sus cambios.
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Podes hacerlo ahora o despues en Settings &gt; Conexiones.
+              </p>
+            </div>
+          </div>
+        </div>
 
-        {/* Step 2: GitHub */}
+        {/* Continue button */}
         <div className="mb-8">
-          <h2 className="mb-4 text-lg font-semibold">
-            Paso 2: Conecta GitHub (para crear PRs)
-          </h2>
-          <GitHubConnect disabled={!hasAIProvider} />
-          {!hasAIProvider && (
-            <p className="mt-2 text-sm text-muted-foreground">
-              Completa el paso 1 primero para habilitar la conexion con GitHub.
-            </p>
-          )}
+          <Button
+            disabled={!hasAIProvider}
+            onClick={handleContinue}
+          >
+            Continuar
+            <ArrowRight className="size-4 ml-2" />
+          </Button>
         </div>
 
         {/* Help text */}
         <div className="rounded-lg border bg-muted/50 p-4">
-          <h3 className="mb-2 font-medium">Por que necesitas conectar ambos?</h3>
+          <h3 className="mb-2 font-medium">Que necesitas para empezar?</h3>
           <ul className="space-y-1 text-sm text-muted-foreground">
             <li>
-              <strong>Agente de coding:</strong> Para ejecutar el agente que analiza
+              <strong>Agente de coding (requerido):</strong> Para ejecutar el agente que analiza
               y modifica tu codigo. Usa CLIs como Claude Code, Codex, Copilot o Gemini.
             </li>
             <li>
-              <strong>GitHub:</strong> Para crear Pull Requests automaticamente
-              con los cambios del agente.
+              <strong>GitHub (recomendado):</strong> Para crear PRs con los cambios del agente. Conectalo en Settings despues del setup.
             </li>
           </ul>
         </div>
       </div>
-    </div>
-  )
-}
-
-/**
- * Step indicator component for the progress bar
- */
-interface StepIndicatorProps {
-  step: number
-  label: string
-  isComplete: boolean
-  isCurrent: boolean
-}
-
-function StepIndicator({ step, label, isComplete, isCurrent }: StepIndicatorProps) {
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <div
-        className={cn(
-          'flex size-8 items-center justify-center rounded-full border-2 text-sm font-medium transition-colors',
-          isComplete
-            ? 'border-green-500 bg-green-500 text-white'
-            : isCurrent
-              ? 'border-primary bg-primary text-primary-foreground'
-              : 'border-muted-foreground/30 text-muted-foreground'
-        )}
-      >
-        {isComplete ? <Check className="size-4" /> : step}
-      </div>
-      <span
-        className={cn(
-          'text-xs',
-          isComplete || isCurrent ? 'font-medium' : 'text-muted-foreground'
-        )}
-      >
-        {label}
-      </span>
     </div>
   )
 }

@@ -52,7 +52,7 @@ function OpenAIIcon({ className }: { className?: string }) {
 /**
  * Connections section showing CLI Agent, AI and GitHub connection status
  */
-export function ConnectionsSection() {
+export function ConnectionsSection({ id }: { id?: string }) {
   const [selectedProvider, setSelectedProvider] = useState<AIProvider | null>(null)
   const [isApiKeyDialogOpen, setIsApiKeyDialogOpen] = useState(false)
   const [showAgentSelector, setShowAgentSelector] = useState(false)
@@ -92,7 +92,7 @@ export function ConnectionsSection() {
 
   return (
     <>
-      <Card>
+      <Card id={id}>
         <CardHeader>
           <CardTitle className="text-lg">Conexiones</CardTitle>
           <CardDescription>

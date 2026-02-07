@@ -124,6 +124,10 @@ export {
   type AddPatternRequest,
   type AddPatternResponse,
   type DeletePatternResponse,
+  LocalRepositorySchema,
+  LocalReposResponseSchema,
+  type LocalRepository,
+  type LocalReposResponse,
 } from './schemas/repository.schema.js';
 
 // ============================================================================

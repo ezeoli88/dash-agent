@@ -7,9 +7,9 @@ import { LanguageSelector } from './language-selector'
 /**
  * Preferences section with theme and language settings
  */
-export function PreferencesSection() {
+export function PreferencesSection({ id }: { id?: string }) {
   return (
-    <Card>
+    <Card id={id}>
       <CardHeader>
         <CardTitle className="text-lg">Preferencias</CardTitle>
         <CardDescription>

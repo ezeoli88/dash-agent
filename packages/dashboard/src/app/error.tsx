@@ -52,7 +52,7 @@ export default function GlobalError({ error, reset }: ErrorProps) {
                 Try Again
               </Button>
               <Button variant="outline" asChild className="w-full sm:w-auto">
-                <Link href="/tasks">
+                <Link href="/board">
                   <Home className="h-4 w-4 mr-2" />
                   Go to Tasks
                 </Link>

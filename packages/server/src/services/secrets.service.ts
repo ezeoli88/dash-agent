@@ -451,6 +451,6 @@ export function getAllSecretsStatus(): {
   return {
     ai,
     github,
-    isComplete: ai.connected && github.connected,
+    isComplete: ai.connected, // AI provider is enough - GitHub is optional
   };
 }

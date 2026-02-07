@@ -4,7 +4,7 @@ import type { PRComment } from '../schemas/pr-comment.schema.js';
 /**
  * Log levels for task execution logs
  */
-export type LogLevel = 'info' | 'warn' | 'error' | 'agent' | 'user';
+export type LogLevel = 'info' | 'warn' | 'error' | 'debug' | 'agent' | 'user';
 
 /**
  * Log entry representing a single log message

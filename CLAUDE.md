@@ -18,6 +18,13 @@ dash-agent/
 
 ## Agent Usage Rules
 
+### Process Cleanup (MANDATORY)
+Sub-agents MUST NOT leave background processes running (e.g., `npm run dev`, `npm run build`). After finishing work:
+- Do NOT start dev servers (`npm run dev`) unless explicitly asked by the user
+- If a dev server was started for testing, kill it before finishing
+- Use `npm run build` (not `npm run dev`) to verify compilation
+- The user should be the only one starting/stopping dev servers
+
 ### Frontend Development (MANDATORY)
 When working on ANY files inside the `packages/dashboard/` directory, you MUST use the `nextjs-eng` sub-agent via the Task tool. This includes:
 - Creating new components

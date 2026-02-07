@@ -1,5 +1,6 @@
 import type { TaskStatus } from '../services/task.service.js';
 import type { Task } from '../services/task.service.js';
+import type { Repository } from '../services/repo.service.js';
 
 /**
  * Result of running an agent.
@@ -35,6 +36,8 @@ export interface BaseRunnerOptions {
   reviewFeedback?: string;
   /** Whether the repository is empty */
   isEmptyRepo?: boolean;
+  /** Repository context (detected stack, conventions, patterns) */
+  repository?: Repository | null;
 }
 
 /**

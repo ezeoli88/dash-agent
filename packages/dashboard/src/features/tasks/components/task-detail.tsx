@@ -17,6 +17,7 @@ import { FeedbackSection } from './feedback-section'
 import { PRComments } from './pr-comments'
 import { SpecEditor } from './spec-editor'
 import { PatternSuggestion } from './pattern-suggestion'
+import { AgentModelSelector } from './agent-model-selector'
 import { useTaskUIStore } from '../stores/task-ui-store'
 
 interface TaskDetailProps {
@@ -59,7 +60,7 @@ export function TaskDetail({ task }: TaskDetailProps) {
 
   // Determine default tab based on task status
   // For spec phase, show overview. For coding phase, show logs.
-  const defaultTab = isActiveTask && !isRefiningSpec ? 'logs' : 'overview'
+  const defaultTab = isActiveTask ? 'logs' : 'overview'
 
   return (
     <div className="space-y-6">
@@ -121,10 +122,17 @@ export function TaskDetail({ task }: TaskDetailProps) {
                 <SpecEditor task={task} />
               )}
 
-              {/* Show regular description for other states */}
+              {/* Show description for non-refining states */}
+              {/* In pending_approval, show below the spec so user can edit and rebuild */}
               {!isRefiningSpec && !isInSpecPhase && (
-                <TaskDescription task={task} />
+                <TaskDescription task={task} showRebuildSpec />
               )}
+              {isInSpecPhase && (
+                <TaskDescription task={task} showRebuildSpec />
+              )}
+
+              {/* Agent / Model selector */}
+              <AgentModelSelector task={task} />
 
               {/* Show pattern suggestion when changes were requested */}
               {task.status === 'changes_requested' && task.repository_id && (

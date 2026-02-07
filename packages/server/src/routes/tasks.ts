@@ -9,7 +9,7 @@ import { CreateTaskSchema, UpdateTaskSchema, GenerateSpecRequestSchema, UpdateSp
 import { createLogger } from '../utils/logger.js';
 import { getErrorMessage } from '../utils/errors.js';
 import { getGitHubClient } from '../github/client.js';
-import { generateSpec, regenerateSpec } from '../services/pm-agent.service.js';
+import { generateSpec, regenerateSpec, cancelSpecGeneration } from '../services/pm-agent.service.js';
 import { executeSpec, cancelExecution } from '../services/dev-agent.service.js';
 import { getAICredentials } from '../services/secrets.service.js';
 
@@ -274,15 +274,22 @@ router.post('/:id/generate-spec', requireTaskId, loadTask, async (req: Request, 
       return;
     }
 
-    // Get AI config (can be null - generateSpec will try CLI agent first)
+    // Get AI config from stored credentials (fallback if task has no agent_type)
     const aiConfig = getAIConfig(req) ?? undefined;
 
     // Parse optional request body
     const bodyResult = GenerateSpecRequestSchema.safeParse(req.body || {});
     const additionalContext = bodyResult.success ? bodyResult.data.additional_context : undefined;
 
+    logger.info('Spec generation requested', {
+      taskId: id,
+      taskAgentType: task.agent_type,
+      taskAgentModel: task.agent_model,
+      fallbackProvider: aiConfig?.provider ?? 'none',
+    });
+
     // Generate spec asynchronously and return immediately
-    // The PM Agent will try CLI agent first, then fallback to API
+    // Priority: task agent_type/agent_model -> default CLI agent -> stored API credentials
     generateSpec(
       additionalContext
         ? { task_id: id!, additional_context: additionalContext }
@@ -290,7 +297,7 @@ router.post('/:id/generate-spec', requireTaskId, loadTask, async (req: Request, 
       aiConfig
     )
       .then((result) => {
-        logger.info('PM Agent completed', { taskId: id, tokens: result.tokens_used });
+        logger.info('PM Agent completed', { taskId: id, model: result.model_used, tokens: result.tokens_used });
       })
       .catch((error) => {
         logger.error('PM Agent failed', { taskId: id, error: getErrorMessage(error) });
@@ -325,17 +332,25 @@ router.post('/:id/regenerate-spec', requireTaskId, loadTask, async (req: Request
       return;
     }
 
-    // Get AI config (can be null - regenerateSpec will try CLI agent first)
+    // Get AI config from stored credentials (fallback if task has no agent_type)
     const aiConfig = getAIConfig(req) ?? undefined;
 
     // Parse optional request body for additional context
     const bodyResult = GenerateSpecRequestSchema.safeParse(req.body || {});
     const additionalContext = bodyResult.success ? bodyResult.data.additional_context : undefined;
 
-    // Regenerate spec asynchronously (tries CLI agent first, then API fallback)
+    logger.info('Spec regeneration requested', {
+      taskId: id,
+      taskAgentType: task.agent_type,
+      taskAgentModel: task.agent_model,
+      fallbackProvider: aiConfig?.provider ?? 'none',
+    });
+
+    // Regenerate spec asynchronously
+    // Priority: task agent_type/agent_model -> default CLI agent -> stored API credentials
     regenerateSpec(id!, aiConfig, additionalContext)
       .then((result) => {
-        logger.info('PM Agent regeneration completed', { taskId: id, tokens: result.tokens_used });
+        logger.info('PM Agent regeneration completed', { taskId: id, model: result.model_used, tokens: result.tokens_used });
       })
       .catch((error) => {
         logger.error('PM Agent regeneration failed', { taskId: id, error: getErrorMessage(error) });
@@ -645,7 +660,8 @@ router.post('/:id/cancel', requireTaskId, loadTask, (req: Request, res: Response
 
     // Handle cancellation for PM Agent (refining status)
     if (task.status === 'refining') {
-      // PM Agent doesn't run in a separate process, just update status
+      // Kill the PM Agent CLI process if running
+      cancelSpecGeneration(id!);
       taskService.update(id!, { status: 'draft', error: 'Spec generation cancelled' });
 
       const sseEmitter = getSSEEmitter();

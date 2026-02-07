@@ -1,4 +1,5 @@
 import { Octokit } from 'octokit';
+import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
 import { getErrorMessage } from '../utils/errors.js';
 
@@ -282,4 +283,115 @@ export class StackDetectorService {
  */
 export function createStackDetector(githubToken: string): StackDetectorService {
   return new StackDetectorService(githubToken);
+}
+
+/**
+ * Service for detecting the technology stack of a LOCAL repository (filesystem-based, no GitHub API)
+ */
+export class LocalStackDetectorService {
+  /**
+   * Detect the technology stack from a local repository path
+   */
+  async detectStack(repoPath: string): Promise<StackDetectionResponse> {
+    logger.info('Detecting stack for local repository', { repoPath });
+
+    try {
+      const packageJson = await this.getPackageJson(repoPath);
+      const rootFiles = await this.getRootFiles(repoPath);
+
+      // Reuse the same detection logic pattern
+      const [framework, frameworkConfidence] = this.detectCategory(packageJson, FRAMEWORK_PATTERNS);
+      const [stateManagement, stateConfidence] = this.detectCategory(packageJson, STATE_MANAGEMENT_PATTERNS);
+      let [styling, stylingConfidence] = this.detectCategory(packageJson, STYLING_PATTERNS);
+      const [testing, testingConfidence] = this.detectCategory(packageJson, TESTING_PATTERNS);
+
+      // Additional file-based detection
+      if (!styling && rootFiles.some(f => f === 'tailwind.config.js' || f === 'tailwind.config.ts')) {
+        styling = 'Tailwind CSS';
+        stylingConfidence = 0.9;
+      }
+
+      if (rootFiles.some(f => f === 'components.json')) {
+        if (styling) {
+          styling = `${styling}, shadcn/ui`;
+        } else {
+          styling = 'shadcn/ui';
+          stylingConfidence = 0.9;
+        }
+      }
+
+      const detectedStack: DetectedStack = {
+        framework,
+        state_management: stateManagement,
+        styling,
+        testing,
+      };
+
+      return {
+        detected_stack: detectedStack,
+        confidence: {
+          framework: frameworkConfidence,
+          state_management: stateConfidence,
+          styling: stylingConfidence,
+          testing: testingConfidence,
+        },
+      };
+    } catch (error) {
+      const errorMessage = getErrorMessage(error);
+      logger.error('Failed to detect local stack', { repoPath, error: errorMessage });
+      return {
+        detected_stack: DEFAULT_DETECTED_STACK,
+        confidence: { framework: 0, state_management: 0, styling: 0, testing: 0 },
+      };
+    }
+  }
+
+  private async getPackageJson(repoPath: string): Promise<PackageJson | null> {
+    try {
+      const { readFile } = await import('fs/promises');
+      const content = await readFile(join(repoPath, 'package.json'), 'utf-8');
+      return JSON.parse(content) as PackageJson;
+    } catch {
+      return null;
+    }
+  }
+
+  private async getRootFiles(repoPath: string): Promise<string[]> {
+    try {
+      const { readdir } = await import('fs/promises');
+      const entries = await readdir(repoPath);
+      return entries;
+    } catch {
+      return [];
+    }
+  }
+
+  private detectCategory(
+    packageJson: PackageJson | null,
+    patterns: Record<string, string[]>
+  ): [string | null, number] {
+    if (!packageJson) return [null, 0];
+
+    const allDeps = {
+      ...packageJson.dependencies,
+      ...packageJson.devDependencies,
+    };
+    const depNames = Object.keys(allDeps);
+
+    for (const [name, searchPatterns] of Object.entries(patterns)) {
+      if (searchPatterns.length === 0) continue;
+      for (const pattern of searchPatterns) {
+        const found = depNames.some(dep => dep === pattern || dep.startsWith(pattern));
+        if (found) {
+          const confidence = depNames.includes(pattern) ? 1.0 : 0.9;
+          return [name, confidence];
+        }
+      }
+    }
+    return [null, 0];
+  }
+}
+
+export function createLocalStackDetector(): LocalStackDetectorService {
+  return new LocalStackDetectorService();
 }

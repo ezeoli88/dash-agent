@@ -15,3 +15,4 @@ export {
   useDeletePattern,
 } from './use-pattern-mutations'
 export { useRepoContext } from './use-repo-context'
+export { useLocalRepos, useAddLocalRepo } from './use-local-repos'

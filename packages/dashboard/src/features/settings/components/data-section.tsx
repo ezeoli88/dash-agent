@@ -22,7 +22,7 @@ import { useExportData, useImportData, useDeleteData } from '../hooks'
 /**
  * Data section with export, import, and delete functionality
  */
-export function DataSection() {
+export function DataSection({ id }: { id?: string }) {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -92,7 +92,7 @@ export function DataSection() {
 
   return (
     <>
-      <Card>
+      <Card id={id}>
         <CardHeader>
           <CardTitle className="text-lg">Datos</CardTitle>
           <CardDescription>

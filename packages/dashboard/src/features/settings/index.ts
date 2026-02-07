@@ -5,6 +5,7 @@ export {
   DataSection,
   ThemeSelector,
   LanguageSelector,
+  SettingsTour,
 } from './components'
 
 // Hooks

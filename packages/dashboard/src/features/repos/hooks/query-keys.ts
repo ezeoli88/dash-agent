@@ -9,4 +9,5 @@ export const repoKeys = {
   detail: (id: string) => [...repoKeys.details(), id] as const,
   github: ['github-repos'] as const,
   githubList: (search?: string) => [...repoKeys.github, 'list', search ?? ''] as const,
+  localScan: () => [...repoKeys.all, 'local-scan'] as const,
 }

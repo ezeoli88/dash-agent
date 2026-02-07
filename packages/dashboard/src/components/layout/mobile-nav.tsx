@@ -28,12 +28,12 @@ interface NavItem {
 const navItems: NavItem[] = [
   {
     title: 'Dashboard',
-    href: '/tasks',
+    href: '/board',
     icon: LayoutDashboard,
   },
   {
     title: 'All Tasks',
-    href: '/tasks',
+    href: '/board',
     icon: ClipboardList,
   },
 ]

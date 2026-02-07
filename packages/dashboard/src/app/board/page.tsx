@@ -1,7 +1,7 @@
 'use client'
 
 import { BoardView } from '@/features/board'
-import { CreateTaskDialog } from '@/features/tasks/components'
+import { CreateTaskDialog, TaskDrawer } from '@/features/tasks/components'
 
 export default function BoardPage() {
   return (
@@ -10,6 +10,7 @@ export default function BoardPage() {
         <BoardView />
       </div>
       <CreateTaskDialog />
+      <TaskDrawer />
     </>
   )
 }
