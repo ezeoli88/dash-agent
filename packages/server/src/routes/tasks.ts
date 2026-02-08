@@ -655,10 +655,12 @@ router.post('/:id/execute', requireTaskId, loadTask, async (req: Request, res: R
 });
 
 /**
- * POST /tasks/:id/feedback - Send feedback to the agent during execution
+ * POST /tasks/:id/feedback - Send feedback to the agent during execution.
+ * If no agent is running, resumes the agent with the message as context.
  */
-router.post('/:id/feedback', requireTaskId, (req: Request, res: Response, next: NextFunction): void => {
+router.post('/:id/feedback', requireTaskId, loadTask, (req: Request, res: Response, next: NextFunction): void => {
   try {
+    const { task } = req as RequestWithTask;
     const { id } = req.params;
 
     const FeedbackSchema = z.object({
@@ -675,17 +677,46 @@ router.post('/:id/feedback', requireTaskId, (req: Request, res: Response, next: 
 
     const agentService = getAgentService();
 
-    if (!agentService.isAgentRunning(id!)) {
+    // If agent is running, send feedback directly
+    if (agentService.isAgentRunning(id!)) {
+      agentService.sendFeedback(id!, result.data.message);
+      res.json({ status: 'feedback_sent' });
+      return;
+    }
+
+    // Agent is NOT running — resume the agent with the user's message
+    // Only allow for non-terminal, non-draft statuses
+    const terminalStatuses = ['done', 'failed', 'draft'];
+    if (terminalStatuses.includes(task.status)) {
       res.status(400).json({
-        error: 'No active agent',
-        message: 'No agent is currently running for this task',
+        error: 'Cannot send feedback',
+        message: `Task is in ${task.status} status. Cannot resume the agent.`,
       });
       return;
     }
 
-    agentService.sendFeedback(id!, result.data.message);
+    logger.info('No active agent, resuming with user message', { id, status: task.status });
 
-    res.json({ status: 'feedback_sent' });
+    // Store the message as review feedback and resume the agent
+    agentService.storeFeedbackForResume(id!, result.data.message);
+
+    // Update status to planning so startAgent accepts it
+    taskService.update(id!, { status: 'planning' });
+    const sseEmitter = getSSEEmitter();
+    sseEmitter.emitStatus(id!, 'planning');
+
+    // Start agent asynchronously with resume=true
+    agentService.startAgent(id!, true).catch((error) => {
+      logger.error('Failed to resume agent from feedback', { taskId: id, error: getErrorMessage(error) });
+      const currentTask = taskService.getById(id!);
+      if (currentTask && currentTask.status !== 'failed') {
+        taskService.update(id!, { status: 'failed', error: getErrorMessage(error) });
+        sseEmitter.emitStatus(id!, 'failed');
+        sseEmitter.emitError(id!, getErrorMessage(error));
+      }
+    });
+
+    res.json({ status: 'agent_resumed', message: 'Agent resumed with your message' });
   } catch (error) {
     next(error);
   }
@@ -1041,8 +1072,8 @@ router.get('/:id/logs', requireTaskId, loadTask, (req: Request, res: Response, n
     }
 
     // If task is in a terminal state, send appropriate event and close connection
-    if (task.status === 'done' && task.pr_url) {
-      const completeEvent = `event: complete\ndata: ${JSON.stringify({ pr_url: task.pr_url })}\n\n`;
+    if (task.status === 'done') {
+      const completeEvent = `event: complete\ndata: ${JSON.stringify({ pr_url: task.pr_url ?? '' })}\n\n`;
       res.write(completeEvent);
       res.end();
       return;
@@ -1088,7 +1119,8 @@ router.get('/:id/logs', requireTaskId, loadTask, (req: Request, res: Response, n
 });
 
 /**
- * GET /tasks/:id/changes - Get files modified by the agent
+ * GET /tasks/:id/changes - Get files modified by the agent.
+ * First tries the live worktree, then falls back to persisted changes_data in DB.
  */
 router.get('/:id/changes', requireTaskId, loadTask, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -1096,34 +1128,44 @@ router.get('/:id/changes', requireTaskId, loadTask, async (req: Request, res: Re
     const { id } = req.params;
     logger.debug('GET /tasks/:id/changes', { id, targetBranch: task.target_branch });
 
-    // Check if task has a worktree
+    // Try live worktree first
     const gitService = getGitService();
     const workspacePath = gitService.getWorktreePath(id!);
 
-    if (!workspacePath) {
-      res.status(400).json({
-        error: 'No worktree',
-        message: 'No worktree exists for this task. The agent may not have started yet.',
+    if (workspacePath) {
+      const [files, diff] = await Promise.all([
+        gitService.getChangedFiles(workspacePath, task.target_branch),
+        gitService.getDiff(workspacePath),
+      ]);
+
+      res.json({
+        files: files.map((f) => ({
+          path: f.path,
+          status: f.status,
+          additions: f.additions,
+          deletions: f.deletions,
+          oldContent: f.oldContent,
+          newContent: f.newContent,
+        })),
+        diff,
       });
       return;
     }
 
-    // Get changed files and diff, comparing against the task's target branch
-    const [files, diff] = await Promise.all([
-      gitService.getChangedFiles(workspacePath, task.target_branch),
-      gitService.getDiff(workspacePath),
-    ]);
+    // Fallback to persisted changes data in DB
+    if (task.changes_data) {
+      try {
+        const parsed = JSON.parse(task.changes_data);
+        res.json(parsed);
+        return;
+      } catch {
+        logger.warn('Failed to parse persisted changes_data', { id });
+      }
+    }
 
-    res.json({
-      files: files.map((f) => ({
-        path: f.path,
-        status: f.status,
-        additions: f.additions,
-        deletions: f.deletions,
-        oldContent: f.oldContent,
-        newContent: f.newContent,
-      })),
-      diff,
+    res.status(400).json({
+      error: 'No changes available',
+      message: 'No worktree or persisted changes found for this task.',
     });
   } catch (error) {
     next(error);

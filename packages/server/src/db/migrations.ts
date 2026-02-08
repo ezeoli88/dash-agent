@@ -158,6 +158,13 @@ export function runMigrations(): void {
         ALTER TABLE tasks ADD COLUMN agent_model TEXT;
       `,
     },
+    {
+      version: 8,
+      description: 'Add changes_data column to tasks table for persisted diffs',
+      sql: `
+        ALTER TABLE tasks ADD COLUMN changes_data TEXT;
+      `,
+    },
   ];
 
   // Apply pending migrations

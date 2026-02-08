@@ -113,7 +113,11 @@ ${branchSection}${repoSection}${contextSection}${buildSection}
 
 1. **Explore** the codebase structure to understand the project layout and conventions
 2. **Read** relevant files to understand existing patterns before making changes
-3. **Plan** your implementation approach — identify files to create or modify
+3. **Create an implementation plan** — Write a detailed step-by-step plan that includes:
+   - Which files need to be created or modified
+   - The order of changes and dependencies between them
+   - Key design decisions and their rationale
+   - Print the plan so the user can review it before you start coding
 4. **Implement** the changes step by step, following existing code style and conventions
 5. **Verify** your work by running tests or the build command if available
 6. **Commit** your changes with a clear, descriptive commit message

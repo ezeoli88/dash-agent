@@ -424,6 +424,9 @@ export class AgentService {
           }
         }
 
+        // Persist diff data to DB so it survives worktree cleanup
+        await this.persistChangesData(taskId, task);
+
         // Emit awaiting review event
         const reviewMessage = isResume
           ? 'Agent completed addressing review feedback. Review changes and approve or request more changes.'
@@ -813,6 +816,42 @@ ${filesDescription || 'No file changes detected.'}
   }
 
   /**
+   * Persists the current diff/changes data to the task record in the DB.
+   * This ensures diffs are available even after the worktree is removed.
+   */
+  private async persistChangesData(taskId: string, task: Task): Promise<void> {
+    try {
+      const workspacePath = this.gitService.getWorktreePath(taskId);
+      if (!workspacePath) {
+        this.log(taskId, 'warn', 'No worktree found, skipping changes persistence');
+        return;
+      }
+
+      const [files, diff] = await Promise.all([
+        this.gitService.getChangedFiles(workspacePath, task.target_branch),
+        this.gitService.getDiff(workspacePath),
+      ]);
+
+      const changesData = JSON.stringify({
+        files: files.map((f) => ({
+          path: f.path,
+          status: f.status,
+          additions: f.additions,
+          deletions: f.deletions,
+          oldContent: f.oldContent,
+          newContent: f.newContent,
+        })),
+        diff,
+      });
+
+      taskService.update(taskId, { changes_data: changesData });
+      this.log(taskId, 'info', `Persisted changes data (${files.length} files)`);
+    } catch (error) {
+      this.log(taskId, 'warn', `Failed to persist changes data: ${getErrorMessage(error)}`);
+    }
+  }
+
+  /**
    * Cleans up resources for a task (worktree, logs).
    *
    * @param taskId - The task ID
@@ -969,7 +1008,7 @@ ${filesDescription || 'No file changes detected.'}
    * @param taskId - The task ID
    * @param feedback - The feedback message
    */
-  private storeFeedbackForResume(taskId: string, feedback: string): void {
+  storeFeedbackForResume(taskId: string, feedback: string): void {
     // Initialize logs for this task if not present
     if (!this.agentLogs.has(taskId)) {
       this.agentLogs.set(taskId, []);

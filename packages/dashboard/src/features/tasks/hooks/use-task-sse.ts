@@ -53,6 +53,7 @@ function createSSEConnectionManager() {
   let eventSource: EventSource | null = null;
   let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   let status: ConnectionStatus = 'disconnected';
+  let receivedTerminalEvent = false;
   const listeners = new Set<() => void>();
 
   function setStatus(newStatus: ConnectionStatus) {
@@ -80,6 +81,7 @@ function createSSEConnectionManager() {
     // Close existing connection
     disconnect();
 
+    receivedTerminalEvent = false;
     setStatus('connecting');
 
     const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
@@ -151,6 +153,7 @@ function createSSEConnectionManager() {
       es.addEventListener('complete', (event) => {
         try {
           const parsed = JSON.parse(event.data) as SSECompleteEvent['data'];
+          receivedTerminalEvent = true;
           onComplete?.(parsed.pr_url ?? '');
           invalidateQueries();
           es.close();
@@ -164,6 +167,7 @@ function createSSEConnectionManager() {
       es.addEventListener('error', (event) => {
         try {
           const parsed = JSON.parse((event as MessageEvent).data) as SSEErrorEvent['data'];
+          receivedTerminalEvent = true;
           // Don't trigger onError for cancelled tasks - the cancel action already shows a toast
           if (parsed.code !== 'CANCELLED') {
             onError?.(parsed.message);
@@ -200,8 +204,14 @@ function createSSEConnectionManager() {
       });
 
       es.onerror = () => {
-        setStatus('error');
         es.close();
+        // Don't reconnect if we received a terminal event (complete/error data)
+        // — the server closed the connection intentionally after sending final data
+        if (receivedTerminalEvent) {
+          setStatus('disconnected');
+          return;
+        }
+        setStatus('error');
         // Auto-reconnect after 3 seconds
         reconnectTimeout = setTimeout(() => {
           if (enabled) connect(options);

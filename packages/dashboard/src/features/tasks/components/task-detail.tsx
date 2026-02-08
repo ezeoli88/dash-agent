@@ -38,8 +38,8 @@ export function TaskDetail({ task }: TaskDetailProps) {
   // Chat tab is enabled for non-draft statuses
   const showChatTab = task.status !== 'draft'
 
-  // Chat is read-only for terminal/review statuses
-  const isChatReadOnly = ['done', 'failed', 'review', 'awaiting_review', 'pr_created'].includes(task.status)
+  // Chat is read-only only for terminal statuses
+  const isChatReadOnly = ['done', 'failed'].includes(task.status)
 
   // Determine if changes tab should be enabled
   const showChangesTab =

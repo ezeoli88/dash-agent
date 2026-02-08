@@ -4,8 +4,6 @@ import { useState } from 'react'
 import {
   Play,
   XCircle,
-  Plus,
-  ThumbsUp,
   ExternalLink,
   RefreshCw,
   Loader2,
@@ -124,12 +122,6 @@ function getActionsForStatus(task: Task): ActionConfig[] {
     approved: [], // Processing state, no actions
     coding: [
       {
-        type: 'extend',
-        label: 'Extend Timeout',
-        icon: <Plus className="h-4 w-4" />,
-        variant: 'outline',
-      },
-      {
         type: 'cancel',
         label: 'Cancel',
         icon: <XCircle className="h-4 w-4" />,
@@ -192,12 +184,6 @@ function getActionsForStatus(task: Task): ActionConfig[] {
     ],
     in_progress: [
       {
-        type: 'extend',
-        label: 'Extend Timeout',
-        icon: <Plus className="h-4 w-4" />,
-        variant: 'outline',
-      },
-      {
         type: 'cancel',
         label: 'Cancel',
         icon: <XCircle className="h-4 w-4" />,
@@ -206,12 +192,6 @@ function getActionsForStatus(task: Task): ActionConfig[] {
       },
     ],
     awaiting_review: [
-      {
-        type: 'approve',
-        label: 'Approve',
-        icon: <ThumbsUp className="h-4 w-4" />,
-        variant: 'default',
-      },
       {
         type: 'delete',
         label: 'Delete Task',

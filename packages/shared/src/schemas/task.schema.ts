@@ -153,6 +153,7 @@ export const UpdateTaskSchema = z.object({
   repository_id: z.string().uuid().nullable().optional(),
   agent_type: AgentTypeSchema.nullable().optional(),
   agent_model: z.string().nullable().optional(),
+  changes_data: z.string().nullable().optional(),
 });
 
 /**

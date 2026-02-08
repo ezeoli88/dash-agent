@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react'
 import Link from 'next/link'
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink, GitCompareArrows } from 'lucide-react'
 import { VisuallyHidden } from 'radix-ui'
 import {
   Sheet,
@@ -71,15 +71,26 @@ export function TaskDrawer() {
             <SheetHeader className="px-4 pt-4 pb-3 border-b space-y-3 flex-shrink-0">
               <div className="flex items-center justify-between pr-8">
                 <StatusBadge status={task.status} />
-                <Button variant="ghost" size="sm" asChild>
-                  <Link
-                    href={`/tasks/${task.id}`}
-                    onClick={closeDrawer}
-                  >
-                    View Full Detail
-                    <ExternalLink className="ml-1 h-3 w-3" />
-                  </Link>
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="sm" asChild>
+                    <Link
+                      href={`/diff/${task.id}`}
+                      onClick={closeDrawer}
+                    >
+                      <GitCompareArrows className="mr-1 h-3 w-3" />
+                      Diff
+                    </Link>
+                  </Button>
+                  <Button variant="ghost" size="sm" asChild>
+                    <Link
+                      href={`/tasks/${task.id}`}
+                      onClick={closeDrawer}
+                    >
+                      Detail
+                      <ExternalLink className="ml-1 h-3 w-3" />
+                    </Link>
+                  </Button>
+                </div>
               </div>
               <VisuallyHidden.Root>
                 <SheetTitle>{task.title}</SheetTitle>
@@ -107,7 +118,7 @@ export function TaskDrawer() {
               ) : (
                 <TaskChat
                   task={task}
-                  readOnly={['done', 'failed', 'review', 'awaiting_review', 'pr_created'].includes(task.status)}
+                  readOnly={['done', 'failed'].includes(task.status)}
                   className="h-full"
                 />
               )}

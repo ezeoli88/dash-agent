@@ -49,6 +49,8 @@ export interface Task {
   agent_type: string | null;
   /** CLI agent model override for this task */
   agent_model: string | null;
+  /** Persisted changes/diff data (JSON) so diffs survive worktree cleanup */
+  changes_data: string | null;
 
   /** Current status of the task */
   status: TaskStatus;
@@ -93,6 +95,7 @@ const TASK_COLUMNS = [
   'pr_number',
   'agent_type',
   'agent_model',
+  'changes_data',
 ] as const;
 
 /**
@@ -120,6 +123,7 @@ const ALLOWED_UPDATE_COLUMNS = new Set([
   'pr_number',
   'agent_type',
   'agent_model',
+  'changes_data',
 ]);
 
 /**
@@ -165,6 +169,7 @@ function rowToTask(values: (string | number | null | Uint8Array)[]): Task {
     pr_number: (values[20] as number | null) ?? null,
     agent_type: (values[21] as string | null) ?? null,
     agent_model: (values[22] as string | null) ?? null,
+    changes_data: (values[23] as string | null) ?? null,
   };
 }
 

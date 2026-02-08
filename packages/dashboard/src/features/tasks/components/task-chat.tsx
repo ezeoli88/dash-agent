@@ -213,14 +213,16 @@ function CompletionCard({ taskId }: { taskId: string }) {
 // TaskChat (main component)
 // ============================================================================
 
-const ACTIVE_STATUSES = ['coding', 'in_progress', 'planning', 'approved']
+const TERMINAL_STATUSES = ['done', 'failed']
 
 export function TaskChat({ task, readOnly = false, className }: TaskChatProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  const isActive = ACTIVE_STATUSES.includes(task.status)
-  const hasHistory = task.status !== 'draft'
+  const isTerminal = TERMINAL_STATUSES.includes(task.status)
+  const isDraft = task.status === 'draft'
+  const hasHistory = !isDraft
+  const canChat = !isDraft && !isTerminal
 
   const { entries, isConnected, status } = useTaskChat({
     taskId: task.id,
@@ -272,7 +274,7 @@ export function TaskChat({ task, readOnly = false, className }: TaskChatProps) {
             <div className="flex flex-col items-center justify-center h-48 text-zinc-400 dark:text-zinc-500">
               <MessageSquare className="size-8 mb-3 opacity-40" />
               <p className="text-sm">
-                {isActive
+                {canChat
                   ? 'Waiting for agent output...'
                   : 'Click Start to begin chatting with the agent'}
               </p>
@@ -289,7 +291,7 @@ export function TaskChat({ task, readOnly = false, className }: TaskChatProps) {
 
       {/* Chat input */}
       {!readOnly && (
-        <ChatInput taskId={task.id} disabled={!isActive} />
+        <ChatInput taskId={task.id} disabled={!canChat} />
       )}
     </div>
   )

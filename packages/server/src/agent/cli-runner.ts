@@ -47,14 +47,15 @@ function buildCLICommand(agentType: string, prompt: string, model?: string): CLI
       };
 
     case 'codex':
+      // NOTE: --full-auto is a shortcut for --sandbox workspace-write, which conflicts
+      // with --sandbox danger-full-access. The exec subcommand only accepts
+      // --json, --sandbox, and the prompt. Use danger-full-access for full write access.
       return {
         command: 'codex',
         args: [
           'exec',
           '--json',
-          '--full-auto',
           '--sandbox', 'danger-full-access',
-          '--skip-git-repo-check',
           ...(model ? ['-m', model] : []),
           prompt,
         ],
@@ -267,7 +268,7 @@ export class CLIAgentRunner implements IAgentRunner {
             // Pipe prompt via stdin instead of passing as argument to avoid
             // PowerShell splitting special characters (curly braces, backticks, etc.)
             const modelArg = this.options.agentModel ? `-m '${this.options.agentModel}' ` : '';
-            innerCmd = `$p | & codex exec --json --full-auto --sandbox danger-full-access --skip-git-repo-check ${modelArg}-`;
+            innerCmd = `$p | & codex exec --json --sandbox danger-full-access ${modelArg}-`;
             break;
           }
           case 'copilot':
