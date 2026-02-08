@@ -1,6 +1,6 @@
 'use client'
 
-import { FileText, ScrollText, GitPullRequest, MessageSquarePlus, MessageSquare, Loader2, Sparkles } from 'lucide-react'
+import { FileText, ScrollText, GitPullRequest, MessageSquarePlus, MessageSquare, MessageCircle } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
@@ -12,10 +12,10 @@ import { TaskMetadata } from './task-metadata'
 import { TaskDescription } from './task-description'
 import { TaskActions } from './task-actions'
 import { TaskLogs } from './task-logs'
+import { TaskChat } from './task-chat'
 import { TaskDiff } from './task-diff'
 import { FeedbackSection } from './feedback-section'
 import { PRComments } from './pr-comments'
-import { SpecEditor } from './spec-editor'
 import { PatternSuggestion } from './pattern-suggestion'
 import { AgentModelSelector } from './agent-model-selector'
 import { useTaskUIStore } from '../stores/task-ui-store'
@@ -27,22 +27,21 @@ interface TaskDetailProps {
 export function TaskDetail({ task }: TaskDetailProps) {
   const agentInfo = getAgentDisplayInfo(task.agent_type)
 
-  // Two-agent workflow: Check if we're in spec phase
-  const isInSpecPhase = task.status === 'pending_approval'
-  const isRefiningSpec = task.status === 'refining'
   const isDraft = task.status === 'draft'
 
-  // Determine if logs should be shown (active tasks)
-  // Updated for two-agent workflow: includes coding phase and legacy statuses
+  // Determine if the task is actively running
   const isActiveTask =
     task.status === 'planning' ||
     task.status === 'in_progress' ||
-    task.status === 'coding' ||
-    task.status === 'refining'
+    task.status === 'coding'
+
+  // Chat tab is enabled for non-draft statuses
+  const showChatTab = task.status !== 'draft'
+
+  // Chat is read-only for terminal/review statuses
+  const isChatReadOnly = ['done', 'failed', 'review', 'awaiting_review', 'pr_created'].includes(task.status)
 
   // Determine if changes tab should be enabled
-  // Changes are available for tasks that have progressed past the coding phase
-  // Updated for two-agent workflow
   const showChangesTab =
     task.status === 'awaiting_review' ||
     task.status === 'approved' ||
@@ -59,8 +58,7 @@ export function TaskDetail({ task }: TaskDetailProps) {
   const unreadCount = useTaskUIStore((state) => state.getUnreadCount(task.id))
 
   // Determine default tab based on task status
-  // For spec phase, show overview. For coding phase, show logs.
-  const defaultTab = isActiveTask ? 'logs' : 'overview'
+  const defaultTab = isActiveTask ? 'chat' : 'overview'
 
   return (
     <div className="space-y-6">
@@ -77,12 +75,16 @@ export function TaskDetail({ task }: TaskDetailProps) {
                 <FileText className="size-4" />
                 Overview
               </TabsTrigger>
-              <TabsTrigger value="logs" className="gap-1.5">
-                <ScrollText className="size-4" />
-                Logs
+              <TabsTrigger value="chat" className="gap-1.5" disabled={!showChatTab}>
+                <MessageCircle className="size-4" />
+                Chat
                 {isActiveTask && (
                   <span className="ml-1 size-2 rounded-full bg-green-500 animate-pulse" />
                 )}
+              </TabsTrigger>
+              <TabsTrigger value="logs" className="gap-1.5">
+                <ScrollText className="size-4" />
+                Logs
               </TabsTrigger>
               <TabsTrigger value="changes" className="gap-1.5" disabled={!showChangesTab}>
                 <GitPullRequest className="size-4" />
@@ -100,36 +102,7 @@ export function TaskDetail({ task }: TaskDetailProps) {
             </TabsList>
 
             <TabsContent value="overview" className="space-y-6 mt-0">
-              {/* Show refining state with spinner */}
-              {isRefiningSpec && (
-                <Card>
-                  <CardContent className="flex flex-col items-center justify-center py-12">
-                    <div className="flex items-center gap-3 mb-4">
-                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                      <Sparkles className="h-6 w-6 text-primary animate-pulse" />
-                    </div>
-                    <h3 className="text-lg font-semibold mb-2">PM Agent is working...</h3>
-                    <p className="text-muted-foreground text-center max-w-md">
-                      Analyzing the repository and generating a detailed specification for your request.
-                      This usually takes 30-60 seconds.
-                    </p>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Show SpecEditor when spec is ready for review */}
-              {isInSpecPhase && (
-                <SpecEditor task={task} />
-              )}
-
-              {/* Show description for non-refining states */}
-              {/* In pending_approval, show below the spec so user can edit and rebuild */}
-              {!isRefiningSpec && !isInSpecPhase && (
-                <TaskDescription task={task} showRebuildSpec />
-              )}
-              {isInSpecPhase && (
-                <TaskDescription task={task} showRebuildSpec />
-              )}
+              <TaskDescription task={task} showRebuildSpec />
 
               {/* Agent / Model selector */}
               <AgentModelSelector task={task} />
@@ -140,11 +113,19 @@ export function TaskDetail({ task }: TaskDetailProps) {
               )}
 
               <TaskMetadata task={task} />
+            </TabsContent>
 
-              {/* Show Feedback Section in Overview for active coding tasks */}
-              {isActiveTask && !isRefiningSpec && (
-                <FeedbackSection task={task} />
-              )}
+            <TabsContent value="chat" className="mt-0">
+              <Card className="overflow-hidden">
+                <CardContent className="p-0">
+                  <div className="h-[500px]">
+                    <TaskChat
+                      task={task}
+                      readOnly={isChatReadOnly}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
             </TabsContent>
 
             <TabsContent value="logs" className="mt-0">
@@ -162,12 +143,6 @@ export function TaskDetail({ task }: TaskDetailProps) {
                         {agentInfo?.icon} {agentInfo?.name ?? task.agent_type}
                       </span>
                     )}
-                    {isActiveTask && (
-                      <span className="flex items-center gap-1 text-xs font-normal text-emerald-500">
-                        <MessageSquarePlus className="size-3.5" />
-                        Feedback enabled
-                      </span>
-                    )}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
@@ -175,7 +150,7 @@ export function TaskDetail({ task }: TaskDetailProps) {
                     <TaskLogs
                       task={task}
                       enabled={true}
-                      showFeedbackForm={true}
+                      showFeedbackForm={false}
                     />
                   </div>
                 </CardContent>

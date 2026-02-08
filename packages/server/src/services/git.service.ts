@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import { existsSync } from 'fs';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { getConfig } from '../config.js';
@@ -805,7 +806,16 @@ export class GitService {
    */
   getWorktreePath(taskId: string): string | undefined {
     validateTaskId(taskId);
-    return activeWorktrees.get(taskId)?.worktreePath;
+    // Check in-memory map first
+    const tracked = activeWorktrees.get(taskId)?.worktreePath;
+    if (tracked) return tracked;
+
+    // Fallback: check if worktree exists on disk (survives server restarts)
+    const diskPath = path.join(this.worktreesDir, `task-${taskId}`);
+    if (existsSync(diskPath)) {
+      return diskPath;
+    }
+    return undefined;
   }
 
   /**

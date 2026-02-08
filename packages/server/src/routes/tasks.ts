@@ -221,19 +221,17 @@ router.delete('/:id', requireTaskId, async (req: Request, res: Response, next: N
       agentService.cancelAgent(id!);
     }
 
-    // Clean up the worktree (if it exists)
-    // Don't fail deletion if worktree cleanup fails - just log the error
-    try {
-      await agentService.cleanupTaskWorktree(id!, 'task deleted');
-    } catch (cleanupError) {
-      logger.warn('Failed to cleanup worktree during task deletion, continuing with deletion', {
+    // Delete the task first (fast, synchronous DB operation)
+    const deleted = taskService.delete(id!);
+
+    // Clean up the worktree in background (can be slow on Windows)
+    // Don't block the HTTP response — fire and forget
+    agentService.cleanupTaskWorktree(id!, 'task deleted').catch((cleanupError) => {
+      logger.warn('Failed to cleanup worktree during task deletion', {
         id,
         error: getErrorMessage(cleanupError),
       });
-    }
-
-    // Delete the task
-    const deleted = taskService.delete(id!);
+    });
     if (!deleted) {
       // This shouldn't happen since we checked above, but handle it anyway
       res.status(404).json({ error: 'Task not found', id });
@@ -466,6 +464,81 @@ router.post('/:id/approve-spec', requireTaskId, loadTask, async (req: Request, r
 // =============================================================================
 
 /**
+ * POST /tasks/:id/start - Start task execution directly (chat mode)
+ * Replaces the old generate-spec -> approve-spec -> execute flow.
+ * Creates a branch and starts the agent in one step.
+ */
+router.post('/:id/start', requireTaskId, loadTask, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { task } = req as RequestWithTask;
+    const { id } = req.params;
+    logger.info('POST /tasks/:id/start', { id, status: task.status });
+
+    // Validate status
+    if (!['draft', 'failed'].includes(task.status)) {
+      res.status(400).json({
+        error: 'Invalid status',
+        message: `Cannot start task with status: ${task.status}. Expected: draft or failed`,
+      });
+      return;
+    }
+
+    // Check for conflicting tasks on same repo
+    const agentService = getAgentService();
+    const activeAgents = agentService.getActiveAgents();
+    const conflictingTask = activeAgents.find((a) => {
+      const t = taskService.getById(a.taskId);
+      return t && t.repo_url === task.repo_url && t.id !== id;
+    });
+
+    if (conflictingTask) {
+      res.status(409).json({
+        error: 'Another task is already in progress for this repository',
+        conflicting_task_id: conflictingTask.taskId,
+      });
+      return;
+    }
+
+    // Generate branch name
+    const titleSlug = task.title.toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .substring(0, 40);
+    const taskSuffix = id!.substring(0, 8);
+    const branchName = `feature/${titleSlug}-${taskSuffix}`;
+
+    // Clear error on retry from failed
+    const isRetry = task.status === 'failed';
+
+    // Update task with branch and set to planning
+    taskService.update(id!, {
+      branch_name: branchName,
+      status: 'planning',
+      error: isRetry ? null : undefined,
+    });
+
+    // Emit status change
+    const sseEmitter = getSSEEmitter();
+    sseEmitter.emitStatus(id!, 'planning');
+
+    // Start agent execution asynchronously
+    agentService.startAgent(id!, false).catch((error) => {
+      logger.error('Failed to start agent', { taskId: id, error: getErrorMessage(error) });
+      const currentTask = taskService.getById(id!);
+      if (currentTask && currentTask.status !== 'failed') {
+        taskService.update(id!, { status: 'failed', error: getErrorMessage(error) });
+        sseEmitter.emitStatus(id!, 'failed');
+        sseEmitter.emitError(id!, getErrorMessage(error));
+      }
+    });
+
+    res.json({ status: 'started', message: 'Agent execution started' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * POST /tasks/:id/execute - Start the agent for a task
  *
  * Accepts tasks with status:
@@ -674,6 +747,17 @@ router.post('/:id/cancel', requireTaskId, loadTask, (req: Request, res: Response
 
     // For Dev Agent / legacy agent
     if (!agentService.isAgentRunning(id!)) {
+      // Agent process already exited but task is stuck in an active status.
+      // Reset to failed so the user can retry.
+      const activeStatuses = ['planning', 'in_progress'];
+      if (activeStatuses.includes(task.status)) {
+        logger.info('No active agent but task is stuck in active status, resetting', { id, status: task.status });
+        taskService.update(id!, { status: 'failed', error: 'Agent process exited unexpectedly' });
+        const sseEmitter = getSSEEmitter();
+        sseEmitter.emitStatus(id!, 'failed');
+        res.json({ status: 'cancelled' });
+        return;
+      }
       res.status(400).json({
         error: 'No active agent',
         message: 'No agent is currently running for this task',
@@ -930,6 +1014,14 @@ router.get('/:id/logs', requireTaskId, loadTask, (req: Request, res: Response, n
 
     for (const log of historicalLogs) {
       const eventString = `event: log\ndata: ${JSON.stringify(log)}\n\n`;
+      res.write(eventString);
+    }
+
+    // Send chat history for replay
+    const chatHistory = agentService.getChatHistory(id!);
+    for (const event of chatHistory) {
+      const eventType = 'role' in event ? 'chat_message' : 'tool_activity';
+      const eventString = `event: ${eventType}\ndata: ${JSON.stringify(event)}\n\n`;
       res.write(eventString);
     }
 

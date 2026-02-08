@@ -81,7 +81,7 @@ export const ValidateAIKeyResponseSchema = z.object({
 export type ValidateAIKeyResponse = z.infer<typeof ValidateAIKeyResponseSchema>;
 
 // ============================================================================
-// GitHub OAuth Schemas
+// GitHub OAuth Schemas (used by server - frontend uses PAT flow only)
 // ============================================================================
 
 /**

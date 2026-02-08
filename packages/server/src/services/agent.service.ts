@@ -1,3 +1,4 @@
+import type { ChatMessageEvent, ToolActivityEvent } from '@dash-agent/shared';
 import { createLogger } from '../utils/logger.js';
 import { getErrorMessage } from '../utils/errors.js';
 import { taskService, type Task, type TaskStatus } from './task.service.js';
@@ -68,6 +69,9 @@ export class AgentService {
   /** Map of agent logs by task ID */
   private agentLogs: Map<string, AgentLogEntry[]> = new Map();
 
+  /** Map of chat history by task ID */
+  private chatHistory: Map<string, Array<ChatMessageEvent | ToolActivityEvent>> = new Map();
+
   /** Git service for worktree management */
   private gitService = getGitService();
 
@@ -98,7 +102,7 @@ export class AgentService {
     // Validate task status
     // Note: 'planning' is now accepted because the route updates status to 'planning'
     // BEFORE calling startAgent() to ensure the frontend can connect to SSE immediately
-    const validStatuses = isResume ? ['changes_requested', 'planning'] : ['backlog', 'failed', 'planning'];
+    const validStatuses = isResume ? ['changes_requested', 'planning'] : ['draft', 'backlog', 'failed', 'planning'];
     if (!validStatuses.includes(task.status)) {
       throw new Error(`Cannot start agent for task with status: ${task.status}. Expected: ${validStatuses.join(' or ')}`);
     }
@@ -163,6 +167,14 @@ export class AgentService {
         task,
         onLog: (level, message, data) => this.log(taskId, level, message, data),
         onStatusChange: (status) => this.handleStatusChange(taskId, status),
+        onChatEvent: (event) => {
+          if ('role' in event) {
+            this.sseEmitter.emitChatMessage(taskId, event as ChatMessageEvent);
+          } else {
+            this.sseEmitter.emitToolActivity(taskId, event as ToolActivityEvent);
+          }
+          this.storeChatEvent(taskId, event);
+        },
         isResume,
         isEmptyRepo: worktreeResult.isEmptyRepo,
         repository,
@@ -664,6 +676,34 @@ ${filesDescription || 'No file changes detected.'}
   }
 
   /**
+   * Stores a chat event in the history for a task.
+   *
+   * @param taskId - The task ID
+   * @param event - The chat or tool activity event
+   */
+  private storeChatEvent(taskId: string, event: ChatMessageEvent | ToolActivityEvent): void {
+    if (!this.chatHistory.has(taskId)) {
+      this.chatHistory.set(taskId, []);
+    }
+    const history = this.chatHistory.get(taskId)!;
+    history.push(event);
+    // Limit to 500 events to prevent memory leaks
+    if (history.length > 500) {
+      history.splice(0, history.length - 500);
+    }
+  }
+
+  /**
+   * Gets the chat history for a task.
+   *
+   * @param taskId - The task ID
+   * @returns Array of chat and tool activity events
+   */
+  getChatHistory(taskId: string): Array<ChatMessageEvent | ToolActivityEvent> {
+    return this.chatHistory.get(taskId) ?? [];
+  }
+
+  /**
    * Gets information about active agents.
    */
   getActiveAgents(): Array<{ taskId: string; startedAt: Date; timeoutAt: Date }> {
@@ -784,6 +824,9 @@ ${filesDescription || 'No file changes detected.'}
 
     // Remove logs
     this.agentLogs.delete(taskId);
+
+    // Remove chat history
+    this.chatHistory.delete(taskId);
 
     // Optionally remove worktree
     if (removeWorktree) {

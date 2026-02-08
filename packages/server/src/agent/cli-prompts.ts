@@ -123,7 +123,8 @@ ${branchSection}${repoSection}${contextSection}${buildSection}
 - Follow existing patterns: match the coding style, naming conventions, and architecture
 - Make minimal changes: only modify what is necessary for the task
 - Test your changes: run tests or builds if available to verify your work
-- Write clean commits: use clear, descriptive commit messages`.trim();
+- Write clean commits: use clear, descriptive commit messages
+- Process cleanup: BEFORE starting any dev server or process that listens on a port, check which ports are already in use (e.g., via \`netstat\` or \`lsof\`). When you are done testing, ONLY kill processes that YOU started during this session — NEVER kill pre-existing processes. To do this safely: note the PID of any process you start, and kill only that specific PID when done. If a port is already occupied, choose a different port instead of killing the existing process`.trim();
 }
 
 /**
@@ -159,7 +160,8 @@ ${feedback}
 - Focus specifically on addressing the reviewer's feedback
 - Make minimal additional changes beyond what is requested
 - Test your changes before completing
-- Write a clear commit message describing what you changed to address the feedback`.trim();
+- Write a clear commit message describing what you changed to address the feedback
+- Process cleanup: BEFORE starting any dev server or process that listens on a port, check which ports are already in use (e.g., via \`netstat\` or \`lsof\`). When you are done testing, ONLY kill processes that YOU started during this session — NEVER kill pre-existing processes. To do this safely: note the PID of any process you start, and kill only that specific PID when done. If a port is already occupied, choose a different port instead of killing the existing process`.trim();
 }
 
 /**
@@ -205,7 +207,8 @@ ${repoSection}${buildSection}
 - Create directories before creating files within them
 - All files should have proper content, not just placeholders
 - The project should be ready to run after you complete your work
-- Follow best practices for the chosen technology stack`.trim();
+- Follow best practices for the chosen technology stack
+- Process cleanup: BEFORE starting any dev server or process that listens on a port, check which ports are already in use (e.g., via \`netstat\` or \`lsof\`). When you are done testing, ONLY kill processes that YOU started during this session — NEVER kill pre-existing processes. To do this safely: note the PID of any process you start, and kill only that specific PID when done. If a port is already occupied, choose a different port instead of killing the existing process`.trim();
 }
 
 export default {

@@ -5,6 +5,7 @@ export {
   AIProviderCard,
   ApiKeyDialog,
   GitHubConnect,
+  GitLabConnect,
   SetupGuard,
 } from './components'
 
@@ -12,9 +13,6 @@ export {
 export {
   useSetupStatus,
   useValidateKey,
-  useGitHubAuthUrl,
-  useGitHubCallback,
-  useGitHubConnect,
 } from './hooks'
 
 // Store
@@ -25,9 +23,6 @@ export type {
   AIProvider,
   ValidateAIKeyRequest,
   ValidateAIKeyResponse,
-  GitHubAuthUrlResponse,
-  GitHubCallbackRequest,
-  GitHubCallbackResponse,
   SetupStatus,
   DisconnectResponse,
   SetupConfig,

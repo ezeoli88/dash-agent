@@ -1,0 +1,59 @@
+'use client'
+
+import { useState, useCallback } from 'react'
+import type { ChatMessageEvent, ToolActivityEvent } from '@dash-agent/shared'
+import { useTaskSSE } from './use-task-sse'
+import type { TaskStatus } from '../types'
+
+export interface ChatEntry {
+  type: 'message' | 'tool'
+  data: ChatMessageEvent | ToolActivityEvent
+}
+
+interface UseTaskChatOptions {
+  taskId: string
+  enabled: boolean
+  onStatusChange?: (status: TaskStatus) => void
+  onComplete?: (prUrl?: string) => void
+  onError?: (message: string) => void
+}
+
+export function useTaskChat(options: UseTaskChatOptions) {
+  const [entries, setEntries] = useState<ChatEntry[]>([])
+
+  const handleChatMessage = useCallback((event: ChatMessageEvent) => {
+    setEntries(prev => [...prev, { type: 'message', data: event }])
+  }, [])
+
+  const handleToolActivity = useCallback((event: ToolActivityEvent) => {
+    setEntries(prev => {
+      // If an entry with this tool id already exists, update its status
+      const existingIndex = prev.findIndex(
+        e => e.type === 'tool' && (e.data as ToolActivityEvent).id === event.id && event.id !== ''
+      )
+      if (existingIndex >= 0) {
+        const updated = [...prev]
+        updated[existingIndex] = { type: 'tool', data: event }
+        return updated
+      }
+      return [...prev, { type: 'tool', data: event }]
+    })
+  }, [])
+
+  const sse = useTaskSSE({
+    taskId: options.taskId,
+    enabled: options.enabled,
+    onChatMessage: handleChatMessage,
+    onToolActivity: handleToolActivity,
+    onStatusChange: options.onStatusChange,
+    onComplete: options.onComplete,
+    onError: options.onError,
+  })
+
+  return {
+    entries,
+    isConnected: sse.connectionStatus === 'connected',
+    status: sse.connectionStatus,
+    clearEntries: () => setEntries([]),
+  }
+}

@@ -3,9 +3,6 @@ export type {
   AIProvider,
   ValidateAIKeyRequest,
   ValidateAIKeyResponse,
-  GitHubAuthUrlResponse,
-  GitHubCallbackRequest,
-  GitHubCallbackResponse,
   SetupStatus,
   DisconnectResponse,
   SetupConfig,
@@ -24,6 +21,12 @@ export type {
   GitHubSecretStatus,
   ValidateGitHubPATRequest,
   ValidateGitHubPATResponse,
+  // GitLab types
+  ValidateGitLabPATRequest,
+  ValidateGitLabPATResponse,
+  SaveGitLabSecretRequest,
+  SaveGitLabSecretResponse,
+  GitLabSecretStatus,
   AllSecretsStatus,
   DeleteSecretResponse,
 } from '@dash-agent/shared'

@@ -77,3 +77,38 @@ export const ApiErrorSchema = z.object({
  * API error type
  */
 export type ApiError = z.infer<typeof ApiErrorSchema>;
+
+// ============================================================================
+// Chat Event Schemas (for CLI chat interface)
+// ============================================================================
+
+/**
+ * Schema for a chat message event (assistant, user, or system message)
+ */
+export const ChatMessageEventSchema = z.object({
+  id: z.string(),
+  role: z.enum(['assistant', 'user', 'system']),
+  content: z.string(),
+  timestamp: z.string(),
+});
+
+/**
+ * Chat message event type
+ */
+export type ChatMessageEvent = z.infer<typeof ChatMessageEventSchema>;
+
+/**
+ * Schema for a tool activity event (tool call badge)
+ */
+export const ToolActivityEventSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  summary: z.string(),
+  status: z.enum(['running', 'completed', 'error']),
+  timestamp: z.string(),
+});
+
+/**
+ * Tool activity event type
+ */
+export type ToolActivityEvent = z.infer<typeof ToolActivityEventSchema>;

@@ -45,7 +45,7 @@ export function SetupScreen() {
             <div>
               <p className="font-bold text-sm mb-1">Recomendacion</p>
               <p className="text-sm text-muted-foreground">
-                Conecta tu cuenta de GitHub en Settings para poder crear Pull Requests automaticamente cuando el agente termine sus cambios.
+                Conecta tu cuenta de GitHub o GitLab en Settings para poder crear Pull Requests o Merge Requests automaticamente cuando el agente termine sus cambios.
               </p>
               <p className="text-sm text-muted-foreground mt-1">
                 Podes hacerlo ahora o despues en Settings &gt; Conexiones.
@@ -74,7 +74,7 @@ export function SetupScreen() {
               y modifica tu codigo. Usa CLIs como Claude Code, Codex, Copilot o Gemini.
             </li>
             <li>
-              <strong>GitHub (recomendado):</strong> Para crear PRs con los cambios del agente. Conectalo en Settings despues del setup.
+              <strong>GitHub / GitLab (recomendado):</strong> Para crear PRs/MRs con los cambios del agente. Conectalo en Settings despues del setup.
             </li>
           </ul>
         </div>

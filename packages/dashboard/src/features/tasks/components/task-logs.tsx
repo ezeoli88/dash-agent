@@ -36,8 +36,9 @@ export function TaskLogs({
   const agentLabel = getAgentLabel(task.agent_type, task.agent_model)
 
   // Determine if logs should be active
-  const isActiveTask = task.status === 'planning' || task.status === 'in_progress' || task.status === 'refining'
-  const shouldConnect = enabled && isActiveTask
+  const isActiveTask = task.status === 'planning' || task.status === 'in_progress' || task.status === 'refining' || task.status === 'coding'
+  const hasHistory = task.status !== 'draft'
+  const shouldConnect = enabled && hasHistory
 
   // Use real SSE connection
   const sse = useTaskSSE({

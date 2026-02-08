@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, Github, Loader2, X, Key, ExternalLink, Eye, EyeOff } from 'lucide-react'
+import { Check, Loader2, X, Key, ExternalLink, Eye, EyeOff } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -15,30 +15,43 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { useValidateGitHubPAT } from '../hooks/use-validate-github-pat'
-import { useSaveGitHubSecret, useDeleteGitHubSecret } from '../hooks/use-save-github-secret'
+import { useValidateGitLabPAT } from '../hooks/use-validate-gitlab-pat'
+import { useSaveGitLabSecret, useDeleteGitLabSecret } from '../hooks/use-save-gitlab-secret'
 import { useSetupStore } from '../stores/setup-store'
 
-interface GitHubConnectProps {
+/**
+ * GitLab icon component
+ */
+function GitLabIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={cn('size-6', className)}
+    >
+      <path d="M22.65 14.39L12 22.13 1.35 14.39a.84.84 0 0 1-.3-.94l1.22-3.78 2.44-7.51A.42.42 0 0 1 4.82 2a.43.43 0 0 1 .58 0 .42.42 0 0 1 .11.18l2.44 7.49h8.1l2.44-7.51A.42.42 0 0 1 18.6 2a.43.43 0 0 1 .58 0 .42.42 0 0 1 .11.18l2.44 7.51L23 13.45a.84.84 0 0 1-.35.94z" />
+    </svg>
+  )
+}
+
+interface GitLabConnectProps {
   disabled?: boolean
 }
 
-export function GitHubConnect({ disabled = false }: GitHubConnectProps) {
+export function GitLabConnect({ disabled = false }: GitLabConnectProps) {
   const [showConnectDialog, setShowConnectDialog] = useState(false)
 
-  const githubConnected = useSetupStore((state) => state.githubConnected)
-  const githubUsername = useSetupStore((state) => state.githubUsername)
-  const githubAvatarUrl = useSetupStore((state) => state.githubAvatarUrl)
-  const githubConnectionState = useSetupStore((state) => state.githubConnectionState)
-  const githubError = useSetupStore((state) => state.githubError)
-  const clearGitHub = useSetupStore((state) => state.clearGitHub)
+  const gitlabConnected = useSetupStore((state) => state.gitlabConnected)
+  const gitlabUsername = useSetupStore((state) => state.gitlabUsername)
+  const gitlabAvatarUrl = useSetupStore((state) => state.gitlabAvatarUrl)
+  const clearGitLab = useSetupStore((state) => state.clearGitLab)
 
-  const { mutate: deleteGitHubSecret } = useDeleteGitHubSecret()
+  const { mutate: deleteGitLabSecret } = useDeleteGitLabSecret()
 
   const handleDisconnect = () => {
-    deleteGitHubSecret(undefined, {
+    deleteGitLabSecret(undefined, {
       onSuccess: () => {
-        clearGitHub()
+        clearGitLab()
       },
     })
   }
@@ -48,7 +61,7 @@ export function GitHubConnect({ disabled = false }: GitHubConnectProps) {
       <Card
         className={cn(
           'transition-all',
-          githubConnected && 'border-green-500 bg-green-50 dark:bg-green-950/20'
+          gitlabConnected && 'border-green-500 bg-green-50 dark:bg-green-950/20'
         )}
       >
         <CardContent className="flex items-center justify-between gap-4 pt-6">
@@ -56,25 +69,25 @@ export function GitHubConnect({ disabled = false }: GitHubConnectProps) {
             <div
               className={cn(
                 'rounded-full p-3',
-                githubConnected
-                  ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'
+                gitlabConnected
+                  ? 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400'
                   : 'bg-muted text-muted-foreground'
               )}
             >
-              <Github className="size-6" />
+              <GitLabIcon />
             </div>
             <div>
-              <h3 className="font-semibold">GitHub</h3>
-              {githubConnected && githubUsername ? (
+              <h3 className="font-semibold">GitLab</h3>
+              {gitlabConnected && gitlabUsername ? (
                 <div className="flex items-center gap-2">
                   <Avatar className="size-5">
-                    <AvatarImage src={githubAvatarUrl || undefined} />
+                    <AvatarImage src={gitlabAvatarUrl || undefined} />
                     <AvatarFallback>
-                      {githubUsername.slice(0, 2).toUpperCase()}
+                      {gitlabUsername.slice(0, 2).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <span className="text-sm text-muted-foreground">
-                    @{githubUsername}
+                    @{gitlabUsername}
                   </span>
                   <span className="text-xs text-muted-foreground px-1.5 py-0.5 bg-muted rounded">
                     Token
@@ -82,16 +95,13 @@ export function GitHubConnect({ disabled = false }: GitHubConnectProps) {
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  Conecta tu cuenta para crear PRs
+                  Conecta tu cuenta para crear MRs
                 </p>
-              )}
-              {githubConnectionState === 'error' && githubError && (
-                <p className="text-sm text-destructive">{githubError}</p>
               )}
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {githubConnected ? (
+            {gitlabConnected ? (
               <>
                 <div className="flex items-center gap-1 text-green-600 dark:text-green-400">
                   <Check className="size-4" />
@@ -104,7 +114,7 @@ export function GitHubConnect({ disabled = false }: GitHubConnectProps) {
                   className="text-muted-foreground hover:text-destructive"
                 >
                   <X className="size-4" />
-                  <span className="sr-only">Desconectar GitHub</span>
+                  <span className="sr-only">Desconectar GitLab</span>
                 </Button>
               </>
             ) : (
@@ -119,7 +129,7 @@ export function GitHubConnect({ disabled = false }: GitHubConnectProps) {
         </CardContent>
       </Card>
 
-      <GitHubTokenDialog
+      <GitLabTokenDialog
         open={showConnectDialog}
         onOpenChange={setShowConnectDialog}
       />
@@ -128,15 +138,15 @@ export function GitHubConnect({ disabled = false }: GitHubConnectProps) {
 }
 
 // =============================================================================
-// GitHub Token Dialog (PAT only)
+// GitLab Token Dialog
 // =============================================================================
 
-interface GitHubTokenDialogProps {
+interface GitLabTokenDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
-function GitHubTokenDialog({ open, onOpenChange }: GitHubTokenDialogProps) {
+function GitLabTokenDialog({ open, onOpenChange }: GitLabTokenDialogProps) {
   const [patToken, setPatToken] = useState('')
   const [showToken, setShowToken] = useState(false)
   const [patValidated, setPatValidated] = useState<{
@@ -144,9 +154,9 @@ function GitHubTokenDialog({ open, onOpenChange }: GitHubTokenDialogProps) {
     avatarUrl?: string
   } | null>(null)
 
-  const { mutate: validatePAT, isPending: isValidatingPAT, reset: resetPATValidation } = useValidateGitHubPAT()
-  const { mutate: saveGitHubSecret, isPending: isSavingPAT } = useSaveGitHubSecret()
-  const setGitHubConnected = useSetupStore((state) => state.setGitHubConnected)
+  const { mutate: validatePAT, isPending: isValidatingPAT, reset: resetPATValidation } = useValidateGitLabPAT()
+  const { mutate: saveGitLabSecret, isPending: isSavingPAT } = useSaveGitLabSecret()
+  const setGitLabConnected = useSetupStore((state) => state.setGitLabConnected)
 
   const [patError, setPatError] = useState<string | null>(null)
 
@@ -179,17 +189,16 @@ function GitHubTokenDialog({ open, onOpenChange }: GitHubTokenDialogProps) {
   const handleSavePAT = () => {
     if (!patValidated) return
 
-    saveGitHubSecret(
+    saveGitLabSecret(
       {
         token: patToken.trim(),
-        connectionMethod: 'pat',
         username: patValidated.username,
         avatarUrl: patValidated.avatarUrl,
       },
       {
         onSuccess: (result) => {
           if (result.success && result.username) {
-            setGitHubConnected(result.username, result.avatarUrl ?? null, 'pat')
+            setGitLabConnected(result.username, result.avatarUrl ?? null)
             handleClose()
           } else {
             setPatError(result.error || 'Error guardando token')
@@ -217,7 +226,7 @@ function GitHubTokenDialog({ open, onOpenChange }: GitHubTokenDialogProps) {
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Conectar GitHub</DialogTitle>
+          <DialogTitle>Conectar GitLab</DialogTitle>
           <DialogDescription>
             Ingresa un Personal Access Token para conectar tu cuenta
           </DialogDescription>
@@ -233,29 +242,29 @@ function GitHubTokenDialog({ open, onOpenChange }: GitHubTokenDialogProps) {
               <p className="text-sm text-muted-foreground mt-1">
                 Crea un token en{' '}
                 <a
-                  href="https://github.com/settings/tokens/new?scopes=repo,read:user&description=dash-agent"
+                  href="https://gitlab.com/-/user_settings/personal_access_tokens"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-primary hover:underline inline-flex items-center gap-1"
                 >
-                  github.com/settings/tokens
+                  gitlab.com/...personal_access_tokens
                   <ExternalLink className="size-3" />
                 </a>
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                Permisos requeridos: <code className="bg-muted px-1 rounded">repo</code>,{' '}
-                <code className="bg-muted px-1 rounded">read:user</code>
+                Permisos requeridos: <code className="bg-muted px-1 rounded">api</code>,{' '}
+                <code className="bg-muted px-1 rounded">read_user</code>
               </p>
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="github-pat-token">Token</Label>
+            <Label htmlFor="gitlab-pat-token">Token</Label>
             <div className="relative">
               <Input
-                id="github-pat-token"
+                id="gitlab-pat-token"
                 type={showToken ? 'text' : 'password'}
-                placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                placeholder="glpat-xxxxxxxxxxxxxxxxxxxx"
                 value={patToken}
                 onChange={(e) => {
                   setPatToken(e.target.value)

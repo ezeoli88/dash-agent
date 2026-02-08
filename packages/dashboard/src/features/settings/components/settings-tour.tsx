@@ -10,17 +10,12 @@ const TOUR_STEPS = [
   {
     targetId: 'settings-connections',
     title: 'Conexiones',
-    description: 'Configura tu agente de coding CLI, un proveedor de IA (para generar specs) y tu cuenta de GitHub (para crear PRs). El agente CLI es lo mas importante — es quien modifica tu codigo.',
+    description: 'Configura tu agente de coding CLI, un proveedor de IA (para generar specs) y tu cuenta de GitHub o GitLab (para crear PRs/MRs). El agente CLI es lo mas importante — es quien modifica tu codigo.',
   },
   {
     targetId: 'settings-preferences',
     title: 'Preferencias',
     description: 'Personaliza el tema (claro/oscuro) y el idioma de las especificaciones generadas.',
-  },
-  {
-    targetId: 'settings-data',
-    title: 'Datos',
-    description: 'Exporta tus tareas y repos como JSON para backup, importa datos previos, o borra todo para empezar de cero.',
   },
 ]
 

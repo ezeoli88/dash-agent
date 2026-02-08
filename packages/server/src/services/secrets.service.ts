@@ -443,6 +443,7 @@ export function getGitHubStatus(): {
 export function getAllSecretsStatus(): {
   ai: ReturnType<typeof getAIStatus>;
   github: ReturnType<typeof getGitHubStatus>;
+  gitlab: { connected: boolean; username: string | null; avatarUrl: string | null };
   isComplete: boolean;
 } {
   const ai = getAIStatus();
@@ -451,6 +452,7 @@ export function getAllSecretsStatus(): {
   return {
     ai,
     github,
-    isComplete: ai.connected, // AI provider is enough - GitHub is optional
+    gitlab: { connected: false, username: null, avatarUrl: null }, // TODO: implement GitLab secrets
+    isComplete: ai.connected, // AI provider is enough - GitHub/GitLab are optional
   };
 }

@@ -42,6 +42,11 @@ interface SetupState {
   githubAvatarUrl: string | null
   githubConnectionMethod: GitHubConnectionMethod | null
 
+  // GitLab Connection State (no token stored)
+  gitlabConnected: boolean
+  gitlabUsername: string | null
+  gitlabAvatarUrl: string | null
+
   // UI state
   validationState: ValidationState
   validationError: string | null
@@ -65,6 +70,11 @@ interface SetupState {
       avatarUrl: string | null
       connectionMethod: GitHubConnectionMethod | null
     }
+    gitlab: {
+      connected: boolean
+      username: string | null
+      avatarUrl: string | null
+    }
   }) => void
 
   // CLI Agent actions
@@ -76,6 +86,8 @@ interface SetupState {
   clearAI: () => void
   setGitHubConnected: (username: string, avatarUrl: string | null, connectionMethod: GitHubConnectionMethod) => void
   clearGitHub: () => void
+  setGitLabConnected: (username: string, avatarUrl: string | null) => void
+  clearGitLab: () => void
 
   // UI state actions
   setValidationState: (state: ValidationState, error?: string | null) => void
@@ -116,6 +128,11 @@ const DEFAULT_STATE = {
   githubAvatarUrl: null as string | null,
   githubConnectionMethod: null as GitHubConnectionMethod | null,
 
+  // GitLab
+  gitlabConnected: false,
+  gitlabUsername: null as string | null,
+  gitlabAvatarUrl: null as string | null,
+
   // UI
   validationState: 'idle' as ValidationState,
   validationError: null as string | null,
@@ -140,6 +157,9 @@ interface PersistedState {
   githubUsername: string | null
   githubAvatarUrl: string | null
   githubConnectionMethod: GitHubConnectionMethod | null
+  gitlabConnected: boolean
+  gitlabUsername: string | null
+  gitlabAvatarUrl: string | null
 }
 
 export const useSetupStore = create<SetupState>()(
@@ -158,6 +178,9 @@ export const useSetupStore = create<SetupState>()(
         githubUsername: serverState.github.username,
         githubAvatarUrl: serverState.github.avatarUrl,
         githubConnectionMethod: serverState.github.connectionMethod,
+        gitlabConnected: serverState.gitlab.connected,
+        gitlabUsername: serverState.gitlab.username,
+        gitlabAvatarUrl: serverState.gitlab.avatarUrl,
         // Update connection states based on server
         githubConnectionState: serverState.github.connected ? 'connected' : 'disconnected',
         validationState: serverState.ai.connected ? 'valid' : 'idle',
@@ -217,6 +240,20 @@ export const useSetupStore = create<SetupState>()(
         githubError: null,
       }),
 
+      // Set GitLab connected after successful server save
+      setGitLabConnected: (username, avatarUrl) => set({
+        gitlabConnected: true,
+        gitlabUsername: username,
+        gitlabAvatarUrl: avatarUrl,
+      }),
+
+      // Clear GitLab connection
+      clearGitLab: () => set({
+        gitlabConnected: false,
+        gitlabUsername: null,
+        gitlabAvatarUrl: null,
+      }),
+
       // UI state actions
       setValidationState: (validationState, error = null) => set({
         validationState,
@@ -259,6 +296,9 @@ export const useSetupStore = create<SetupState>()(
         githubUsername: state.githubUsername,
         githubAvatarUrl: state.githubAvatarUrl,
         githubConnectionMethod: state.githubConnectionMethod,
+        gitlabConnected: state.gitlabConnected,
+        gitlabUsername: state.gitlabUsername,
+        gitlabAvatarUrl: state.gitlabAvatarUrl,
       }),
     }
   )

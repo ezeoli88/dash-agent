@@ -51,6 +51,11 @@ export {
   TaskChangesResponseSchema,
   ApiErrorDetailSchema,
   ApiErrorSchema,
+  // Chat event schemas
+  ChatMessageEventSchema,
+  ToolActivityEventSchema,
+  type ChatMessageEvent,
+  type ToolActivityEvent,
 } from './schemas/api.schema.js';
 
 // PR Comment schemas
@@ -228,6 +233,12 @@ export {
   ValidateGitHubPATResponseSchema,
   AllSecretsStatusSchema,
   DeleteSecretResponseSchema,
+  // GitLab schemas
+  ValidateGitLabPATRequestSchema,
+  ValidateGitLabPATResponseSchema,
+  SaveGitLabSecretRequestSchema,
+  SaveGitLabSecretResponseSchema,
+  GitLabSecretStatusSchema,
   type GitHubConnectionMethod,
   type SaveAISecretRequest,
   type SaveAISecretResponse,
@@ -239,4 +250,10 @@ export {
   type ValidateGitHubPATResponse,
   type AllSecretsStatus,
   type DeleteSecretResponse,
+  // GitLab types
+  type ValidateGitLabPATRequest,
+  type ValidateGitLabPATResponse,
+  type SaveGitLabSecretRequest,
+  type SaveGitLabSecretResponse,
+  type GitLabSecretStatus,
 } from './schemas/secrets.schema.js';

@@ -1,3 +1,4 @@
+import type { ChatMessageEvent, ToolActivityEvent } from '@dash-agent/shared';
 import type { TaskStatus } from '../services/task.service.js';
 import type { Task } from '../services/task.service.js';
 import type { Repository } from '../services/repo.service.js';
@@ -38,6 +39,8 @@ export interface BaseRunnerOptions {
   isEmptyRepo?: boolean;
   /** Repository context (detected stack, conventions, patterns) */
   repository?: Repository | null;
+  /** Callback for structured chat events (messages and tool activity) */
+  onChatEvent?: (event: ChatMessageEvent | ToolActivityEvent) => void;
 }
 
 /**

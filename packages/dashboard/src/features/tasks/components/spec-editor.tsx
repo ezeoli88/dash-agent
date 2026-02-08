@@ -1,11 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { FileText, RefreshCw, Play, Pencil, Check, X, Loader2 } from 'lucide-react'
+import { RefreshCw, Play, Pencil, Check, X, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
-import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import type { Task } from '../types'
 import { useUpdateSpec } from '../hooks/use-update-spec'
@@ -90,39 +88,22 @@ export function SpecEditor({ task, hideActions }: SpecEditorProps) {
   const isLoading = updateSpecMutation.isPending || regenerateSpecMutation.isPending || approveSpecMutation.isPending
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <div className="space-y-1">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <FileText className="h-5 w-5" />
-              Generated Specification
-              {task.was_spec_edited && (
-                <Badge variant="secondary" className="text-xs">
-                  Edited
-                </Badge>
-              )}
-            </CardTitle>
-            <CardDescription>
-              Review the specification and edit if needed before executing.
-            </CardDescription>
-          </div>
+    <div className="space-y-3">
+      <div className="flex items-center justify-end">
+        {!isEditing && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsEditing(true)}
+            disabled={isLoading}
+          >
+            <Pencil className="h-4 w-4 mr-1" />
+            Edit
+          </Button>
+        )}
+      </div>
 
-          {!isEditing && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsEditing(true)}
-              disabled={isLoading}
-            >
-              <Pencil className="h-4 w-4 mr-1" />
-              Edit
-            </Button>
-          )}
-        </div>
-      </CardHeader>
-
-      <CardContent className="space-y-4">
+      <div className="space-y-4">
         {isEditing ? (
           <>
             <Textarea
@@ -193,7 +174,7 @@ export function SpecEditor({ task, hideActions }: SpecEditorProps) {
             )}
           </>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 }

@@ -1,8 +1,8 @@
 'use client'
 
-import { useMemo, useEffect } from 'react'
+import { useEffect } from 'react'
 import Link from 'next/link'
-import { ExternalLink, Loader2, Sparkles } from 'lucide-react'
+import { ExternalLink } from 'lucide-react'
 import { VisuallyHidden } from 'radix-ui'
 import {
   Sheet,
@@ -11,38 +11,26 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatusBadge } from '@/components/shared/status-badge'
-import { truncateText } from '@/lib/formatters'
+import { toast } from 'sonner'
 import { useTask } from '../hooks/use-task'
+import { useUpdateTask } from '../hooks/use-update-task'
 import { useTaskUIStore } from '../stores/task-ui-store'
 import { TaskActions } from './task-actions'
 import { AgentModelSelector } from './agent-model-selector'
-import { TaskLogs } from './task-logs'
-import { TaskDiff } from './task-diff'
-import { SpecEditor } from './spec-editor'
-import type { TaskStatus } from '../types'
-
-/**
- * Statuses where the Logs tab should be the default.
- * These are "active" statuses where the agent is currently working.
- */
-const ACTIVE_STATUSES: TaskStatus[] = [
-  'refining',
-  'coding',
-  'in_progress',
-  'planning',
-  'approved',
-]
+import { InlineEdit } from './inline-edit'
+import { TaskChat } from './task-chat'
+import { isTerminalStatus, isActiveStatus } from '../types'
+import type { Task } from '../types'
 
 /**
  * TaskDrawer - A right-side Sheet that shows a quick preview of a task
  * when clicking a card in the Board (Kanban) view.
  *
  * Displays task status, title, description, action buttons, and
- * tabbed content for Logs and Changes.
+ * a single chat view with inline diff when the agent completes.
  */
 export function TaskDrawer() {
   const drawerTaskId = useTaskUIStore((state) => state.drawerTaskId)
@@ -57,14 +45,6 @@ export function TaskDrawer() {
       closeDrawer()
     }
   }, [isOpen, isLoading, task, closeDrawer])
-
-  // Determine default tab based on task status
-  const defaultTab = useMemo(() => {
-    if (!task) return 'logs'
-    if (task.status === 'pending_approval') return 'changes'
-    if (ACTIVE_STATUSES.includes(task.status)) return 'logs'
-    return 'changes'
-  }, [task])
 
   const handleOpenChange = (open: boolean) => {
     if (!open) {
@@ -103,10 +83,9 @@ export function TaskDrawer() {
               </div>
               <VisuallyHidden.Root>
                 <SheetTitle>{task.title}</SheetTitle>
+                <SheetDescription>Task details</SheetDescription>
               </VisuallyHidden.Root>
-              <SheetDescription className="text-sm text-foreground line-clamp-4">
-                {truncateText(task.description || task.title, 250)}
-              </SheetDescription>
+              <DrawerDescription task={task} />
             </SheetHeader>
 
             {/* Actions */}
@@ -119,65 +98,63 @@ export function TaskDrawer() {
               <AgentModelSelector task={task} variant="compact" />
             </div>
 
-            {/* Tabbed content — forceMount keeps SSE/state alive on tab switch */}
-            <Tabs
-              defaultValue={defaultTab}
-              className="flex flex-col flex-1 min-h-0"
-            >
-              <TabsList className="mx-4 mt-3 flex-shrink-0">
-                <TabsTrigger value="logs">Logs</TabsTrigger>
-                <TabsTrigger value="changes">Changes</TabsTrigger>
-              </TabsList>
-
-              <TabsContent
-                value="logs"
-                forceMount
-                className="flex-1 min-h-0 overflow-hidden mt-0 px-0 data-[state=inactive]:hidden"
-              >
-                {task.status === 'draft' ? (
-                  <div className="flex items-center justify-center h-48 text-muted-foreground">
-                    <p className="text-sm">Generate a spec to start seeing logs.</p>
-                  </div>
-                ) : (
-                  <TaskLogs
-                    task={task}
-                    showFeedbackForm={false}
-                    className="h-full"
-                  />
-                )}
-              </TabsContent>
-
-              <TabsContent
-                value="changes"
-                forceMount
-                className="flex-1 min-h-0 overflow-y-auto mt-0 px-4 pb-4 data-[state=inactive]:hidden"
-              >
-                {task.status === 'draft' ? (
-                  <div className="flex items-center justify-center h-48 text-muted-foreground">
-                    <p className="text-sm">Generate a spec to start seeing changes.</p>
-                  </div>
-                ) : task.status === 'refining' ? (
-                  <div className="flex flex-col items-center justify-center py-12">
-                    <div className="flex items-center gap-3 mb-4">
-                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                      <Sparkles className="h-6 w-6 text-primary animate-pulse" />
-                    </div>
-                    <h3 className="text-base font-semibold mb-2">PM Agent is working...</h3>
-                    <p className="text-sm text-muted-foreground text-center">
-                      Generating a detailed specification. This usually takes 30-60 seconds.
-                    </p>
-                  </div>
-                ) : task.status === 'pending_approval' ? (
-                  <SpecEditor task={task} hideActions />
-                ) : (
-                  <TaskDiff taskId={task.id} />
-                )}
-              </TabsContent>
-            </Tabs>
+            {/* Chat content */}
+            <div className="flex flex-col flex-1 min-h-0">
+              {task.status === 'draft' ? (
+                <div className="flex items-center justify-center h-48 text-muted-foreground">
+                  <p className="text-sm">Click Start to begin chatting with the agent.</p>
+                </div>
+              ) : (
+                <TaskChat
+                  task={task}
+                  readOnly={['done', 'failed', 'review', 'awaiting_review', 'pr_created'].includes(task.status)}
+                  className="h-full"
+                />
+              )}
+            </div>
           </>
         )}
       </SheetContent>
     </Sheet>
+  )
+}
+
+/**
+ * Editable description inside the drawer header.
+ * Allows the user to edit the description and rebuild the spec.
+ */
+function DrawerDescription({ task }: { task: Task }) {
+  const updateTaskMutation = useUpdateTask(task.id)
+
+  const isEditable = !isTerminalStatus(task.status) && !isActiveStatus(task.status)
+
+  const handleSaveDescription = async (newDescription: string) => {
+    try {
+      await updateTaskMutation.mutateAsync({
+        description: newDescription,
+        user_input: newDescription,
+      })
+      toast.success('Descripcion actualizada')
+    } catch (error) {
+      toast.error('Error al actualizar', {
+        description: error instanceof Error ? error.message : 'Error inesperado',
+      })
+      throw error
+    }
+  }
+
+  return (
+    <InlineEdit
+      value={task.description}
+      onSave={handleSaveDescription}
+      isSaving={updateTaskMutation.isPending}
+      disabled={!isEditable}
+      multiline
+      minLength={1}
+      placeholder="Click para agregar descripcion..."
+      displayClassName="text-sm leading-relaxed text-foreground whitespace-pre-wrap line-clamp-4"
+      inputClassName="text-sm"
+    />
   )
 }
 

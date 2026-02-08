@@ -1,6 +1,5 @@
 export { ConnectionsSection } from './connections-section'
 export { PreferencesSection } from './preferences-section'
-export { DataSection } from './data-section'
 export { ThemeSelector } from './theme-selector'
 export { LanguageSelector } from './language-selector'
 export { SettingsTour } from './settings-tour'

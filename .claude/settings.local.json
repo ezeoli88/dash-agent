@@ -61,7 +61,10 @@
       "WebFetch(domain:ai.google.dev)",
       "Bash(gh api:*)",
       "Bash(claude config list:*)",
-      "Bash(claude:*)"
+      "Bash(claude:*)",
+      "Bash(wmic process:*)",
+      "Bash(powershell.exe:*)",
+      "Bash(xargs:*)"
     ]
   }
 }

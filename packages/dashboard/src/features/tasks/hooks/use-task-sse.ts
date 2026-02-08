@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useCallback, useMemo, useSyncExternalStore } from 'react'
+import { useEffect, useCallback, useMemo, useRef, useSyncExternalStore } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { taskKeys } from './query-keys'
 import { useTaskUIStore } from '../stores/task-ui-store'
@@ -17,6 +17,7 @@ import type {
   SSEPRCommentEvent,
   PRComment,
 } from '../types'
+import type { ChatMessageEvent, ToolActivityEvent } from '@dash-agent/shared'
 
 // Re-export SSEConnectionStatus as ConnectionStatus for backwards compatibility
 export type ConnectionStatus = SSEConnectionStatus;
@@ -29,6 +30,8 @@ interface UseTaskSSEOptions {
   onError?: (message: string) => void;
   onTimeoutWarning?: (message: string, expiresAt: string) => void;
   onPRComment?: (comment: PRComment) => void;
+  onChatMessage?: (event: ChatMessageEvent) => void;
+  onToolActivity?: (event: ToolActivityEvent) => void;
 }
 
 interface ConnectOptions {
@@ -40,6 +43,8 @@ interface ConnectOptions {
   onError?: (message: string) => void;
   onTimeoutWarning?: (message: string, expiresAt: string) => void;
   onPRComment?: (comment: PRComment) => void;
+  onChatMessage?: (event: ChatMessageEvent) => void;
+  onToolActivity?: (event: ToolActivityEvent) => void;
   invalidateQueries: () => void;
 }
 
@@ -68,7 +73,7 @@ function createSSEConnectionManager() {
   }
 
   function connect(options: ConnectOptions) {
-    const { taskId, enabled, onLog, onStatusChange, onComplete, onError, onTimeoutWarning, onPRComment, invalidateQueries } = options;
+    const { taskId, enabled, onLog, onStatusChange, onComplete, onError, onTimeoutWarning, onPRComment, onChatMessage, onToolActivity, invalidateQueries } = options;
 
     if (!enabled || !taskId) return;
 
@@ -178,6 +183,22 @@ function createSSEConnectionManager() {
         }
       });
 
+      // Handle 'chat_message' event - chat message from agent or user
+      es.addEventListener('chat_message', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data) as ChatMessageEvent;
+          onChatMessage?.(data);
+        } catch { /* ignore */ }
+      });
+
+      // Handle 'tool_activity' event - tool call badge
+      es.addEventListener('tool_activity', (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data) as ToolActivityEvent;
+          onToolActivity?.(data);
+        } catch { /* ignore */ }
+      });
+
       es.onerror = () => {
         setStatus('error');
         es.close();
@@ -204,12 +225,17 @@ function createSSEConnectionManager() {
 }
 
 export function useTaskSSE(options: UseTaskSSEOptions) {
-  const { taskId, enabled = true, onStatusChange, onComplete, onError, onTimeoutWarning, onPRComment } = options;
+  const { taskId, enabled = true, onStatusChange, onComplete, onError, onTimeoutWarning, onPRComment, onChatMessage, onToolActivity } = options;
   const queryClient = useQueryClient();
 
   // Use Zustand store for logs persistence across tab switches
   const { taskLogs, addTaskLog, clearTaskLogs } = useTaskUIStore();
   const logs = taskLogs[taskId] || [];
+
+  // Store callbacks in a ref so SSE event handlers always call the latest version
+  // without causing the connectOptions memo (and thus the effect) to re-run.
+  const callbacksRef = useRef({ onStatusChange, onComplete, onError, onTimeoutWarning, onPRComment, onChatMessage, onToolActivity });
+  callbacksRef.current = { onStatusChange, onComplete, onError, onTimeoutWarning, onPRComment, onChatMessage, onToolActivity };
 
   // Create stable manager instance using useMemo
   const manager = useMemo(() => createSSEConnectionManager(), []);
@@ -221,21 +247,29 @@ export function useTaskSSE(options: UseTaskSSEOptions) {
     () => 'disconnected' as ConnectionStatus
   );
 
-  // Memoize connect options to use latest callbacks
+  // Memoize connect options — only depends on stable values (taskId, enabled,
+  // queryClient, addTaskLog). Callbacks are accessed via callbacksRef so they
+  // never trigger a reconnection when callers pass new arrow functions.
   const connectOptions = useMemo((): ConnectOptions => ({
     taskId,
     enabled,
     onLog: (log) => addTaskLog(taskId, log),
-    onStatusChange,
-    onComplete,
-    onError,
-    onTimeoutWarning,
-    onPRComment,
+    onStatusChange: (status) => callbacksRef.current.onStatusChange?.(status),
+    onComplete: (prUrl) => callbacksRef.current.onComplete?.(prUrl),
+    onError: (message) => callbacksRef.current.onError?.(message),
+    onTimeoutWarning: (message, expiresAt) => callbacksRef.current.onTimeoutWarning?.(message, expiresAt),
+    onPRComment: (comment) => callbacksRef.current.onPRComment?.(comment),
+    onChatMessage: (event) => callbacksRef.current.onChatMessage?.(event),
+    onToolActivity: (event) => callbacksRef.current.onToolActivity?.(event),
     invalidateQueries: () => {
       queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskId) });
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
     },
-  }), [taskId, enabled, onStatusChange, onComplete, onError, onTimeoutWarning, onPRComment, queryClient, addTaskLog]);
+  }), [taskId, enabled, queryClient, addTaskLog]);
+
+  // Keep a ref to connectOptions so reconnect() always uses the latest value
+  const connectOptionsRef = useRef(connectOptions);
+  connectOptionsRef.current = connectOptions;
 
   // Connect/disconnect effect
   useEffect(() => {
@@ -263,8 +297,8 @@ export function useTaskSSE(options: UseTaskSSEOptions) {
   }, [taskId, addTaskLog]);
 
   const reconnect = useCallback(() => {
-    manager.connect(connectOptions);
-  }, [manager, connectOptions]);
+    manager.connect(connectOptionsRef.current);
+  }, [manager]);
 
   const disconnect = useCallback(() => {
     manager.disconnect();

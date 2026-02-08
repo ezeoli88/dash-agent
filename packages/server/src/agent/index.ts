@@ -73,6 +73,7 @@ export function createRunner(options: RunnerOptions): IAgentRunner {
       onStatusChange: options.onStatusChange,
       agentType: options.agentType,
     };
+    if (options.onChatEvent) cliOptions.onChatEvent = options.onChatEvent;
     if (options.isResume !== undefined) cliOptions.isResume = options.isResume;
     if (options.reviewFeedback !== undefined) cliOptions.reviewFeedback = options.reviewFeedback;
     if (options.isEmptyRepo !== undefined) cliOptions.isEmptyRepo = options.isEmptyRepo;

@@ -13,7 +13,6 @@ import {
   MessageSquareWarning,
   Ban,
   Trash2,
-  Sparkles,
   Pencil,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -42,8 +41,7 @@ import {
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
 import { useTaskActions } from '../hooks/use-task-actions'
-import { useGenerateSpec, useRegenerateSpec } from '../hooks/use-generate-spec'
-import { useApproveSpec } from '../hooks/use-approve-spec'
+import { useStartTask } from '../hooks/use-start-task'
 import { FeedbackForm } from './feedback-form'
 import { EditTaskDialog } from './edit-task-dialog'
 import type { Task, TaskStatus } from '../types'
@@ -65,7 +63,7 @@ type ActionType =
   | 'request_changes'
   | 'mark_merged'
   | 'mark_closed'
-  | 'generate_spec'
+  | 'start'
   | 'edit'
 
 type ActionConfig = {
@@ -92,9 +90,9 @@ function getActionsForStatus(task: Task): ActionConfig[] {
         variant: 'outline',
       },
       {
-        type: 'generate_spec',
-        label: 'Generate Spec',
-        icon: <Sparkles className="h-4 w-4" />,
+        type: 'start',
+        label: 'Start',
+        icon: <Play className="h-4 w-4" />,
         variant: 'default',
       },
       {
@@ -391,9 +389,7 @@ export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
   const actions = getActionsForStatus(task)
   const { execute, approve, cancel, extend, requestChanges, markPRMerged, markPRClosed, retry, cleanupWorktree, deleteTask } =
     useTaskActions(task.id)
-  const generateSpecMutation = useGenerateSpec()
-  const regenerateSpecMutation = useRegenerateSpec()
-  const approveSpecMutation = useApproveSpec()
+  const startTaskMutation = useStartTask()
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
 
   // Helper to check if any action is pending
@@ -408,9 +404,7 @@ export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
     markPRClosed.isPending ||
     retry.isPending ||
     cleanupWorktree.isPending ||
-    generateSpecMutation.isPending ||
-    regenerateSpecMutation.isPending ||
-    approveSpecMutation.isPending
+    startTaskMutation.isPending
 
   // Handler for start_fresh: cleanup worktree then execute
   const handleStartFresh = () => {
@@ -443,10 +437,10 @@ export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
         return { handler: () => markPRMerged.mutate(), isPending: markPRMerged.isPending }
       case 'mark_closed':
         return { handler: () => markPRClosed.mutate(), isPending: markPRClosed.isPending }
-      case 'generate_spec':
+      case 'start':
         return {
-          handler: () => generateSpecMutation.mutate({ taskId: task.id }),
-          isPending: generateSpecMutation.isPending,
+          handler: () => startTaskMutation.mutate(task.id),
+          isPending: startTaskMutation.isPending,
         }
       default:
         return { handler: () => {}, isPending: false }
@@ -476,183 +470,14 @@ export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
     )
   }
 
-  // Show message for pending_approval (actions in SpecEditor) with delete option
+  // Show delete option for pending_approval (legacy status)
   if (task.status === 'pending_approval') {
-    const handleRegenerate = async () => {
-      try {
-        await regenerateSpecMutation.mutateAsync({ taskId: task.id })
-        toast.info('Regenerating spec...', {
-          description: 'PM Agent is generating a new specification.',
-        })
-      } catch (error) {
-        toast.error('Failed to regenerate spec', {
-          description: error instanceof Error ? error.message : 'Unknown error',
-        })
-      }
-    }
-
-    const handleApproveSpec = async () => {
-      try {
-        await approveSpecMutation.mutateAsync({ taskId: task.id })
-        toast.success('Spec approved!', {
-          description: 'Dev Agent will start working on the implementation.',
-        })
-      } catch (error) {
-        toast.error('Failed to approve spec', {
-          description: error instanceof Error ? error.message : 'Unknown error',
-        })
-      }
-    }
-
-    const deleteButton = (
-      <AlertDialog>
-        <AlertDialogTrigger asChild>
-          <Button
-            variant="destructive"
-            size={btnSize}
-            className={btnClass}
-            disabled={isAnyActionPending}
-          >
-            {deleteTask.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-            {deleteTask.isPending ? 'Deleting...' : 'Delete Task'}
-          </Button>
-        </AlertDialogTrigger>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Task</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this task? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => deleteTask.mutate()}
-              disabled={deleteTask.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete Task
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    )
-
-    if (isCompact) {
-      return (
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRegenerate}
-            disabled={isAnyActionPending}
-          >
-            {regenerateSpecMutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
-            {regenerateSpecMutation.isPending ? 'Regenerating...' : 'Regenerate'}
-          </Button>
-          <Button
-            variant="default"
-            size="sm"
-            onClick={handleApproveSpec}
-            disabled={isAnyActionPending}
-          >
-            {approveSpecMutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Play className="h-4 w-4" />
-            )}
-            {approveSpecMutation.isPending ? 'Approving...' : 'Approve & Execute'}
-          </Button>
-          {deleteButton}
-        </div>
-      )
-    }
-
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Actions</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Review the generated specification in the Overview tab. You can edit it and then approve to start development.
-          </p>
-          {deleteButton}
-        </CardContent>
-      </Card>
-    )
+    // Actions are handled by the standard rendering below
   }
 
-  // Show message for refining state
+  // Legacy refining state — just show cancel
   if (task.status === 'refining') {
-    const statusMessage = (
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        <span className="text-sm">PM Agent is generating the spec...</span>
-      </div>
-    )
-    const actionButtons = actions.map((action) => {
-      const { handler, isPending } = getActionHandler(action.type)
-      if (action.isDestructive) {
-        return (
-          <AlertDialog key={action.label}>
-            <AlertDialogTrigger asChild>
-              <Button
-                variant={action.variant}
-                size={btnSize}
-                className={btnClass}
-                disabled={isAnyActionPending}
-              >
-                {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : action.icon}
-                {isPending ? 'Cancelling...' : action.label}
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Cancel Task</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Are you sure you want to cancel this task? The spec generation will be stopped.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Keep Task</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={handler}
-                  disabled={isPending}
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                >
-                  Cancel Task
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        )
-      }
-      return null
-    })
-    if (isCompact) {
-      return (
-        <div className="flex flex-wrap items-center gap-2">
-          {statusMessage}
-          {actionButtons}
-        </div>
-      )
-    }
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Actions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-3">{statusMessage}</div>
-          {actionButtons}
-        </CardContent>
-      </Card>
-    )
+    // Falls through to standard action rendering below
   }
 
   // If no actions available

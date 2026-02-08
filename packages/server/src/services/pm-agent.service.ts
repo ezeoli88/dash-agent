@@ -153,20 +153,25 @@ async function getAvailableCLIAgent(
  */
 function buildSpecCommand(agentType: AgentType, model: string | null, prompt: string): { command: string; args: string[]; useStdin: boolean } {
   switch (agentType) {
-    case 'claude-code':
+    case 'claude-code': {
+      // The Claude Code CLI aggressively uses tools (Read, Bash, Glob) to explore the repo,
+      // wasting turns and producing no useful spec. All repo context is already in the prompt.
+      // Prepend an instruction to generate directly, and limit to 1 turn.
+      const noToolsPrefix = 'IMPORTANTE: NO uses herramientas (Read, Bash, Glob, Grep, Write, Edit, WebSearch, WebFetch, etc.). Todo el contexto del repositorio ya está incluido abajo. Genera la especificación directamente como texto plano.\n\n';
       return {
         command: 'claude',
         args: [
           '-p',
-          prompt,
+          noToolsPrefix + prompt,
           '--output-format', 'stream-json',
           '--verbose',
-          '--max-turns', '2',
+          '--max-turns', '1',
           '--system-prompt', PM_AGENT_SYSTEM_PROMPT,
           ...(model ? ['--model', model] : []),
         ],
         useStdin: false,
       };
+    }
     case 'codex':
       return {
         command: 'codex',
@@ -479,8 +484,14 @@ async function callCLIForSpec(
   taskId?: string,
   cwd?: string
 ): Promise<GenerateSpecResponse> {
-  // For agents that use stdin, combine system prompt + user message
-  const fullPrompt = `${PM_AGENT_SYSTEM_PROMPT}\n\n---\n\n${userMessage}`;
+  // For agents that use stdin, combine system prompt + user message.
+  // Codex tries to explore the filesystem if not told otherwise. Prepend a
+  // "no tools" instruction so it generates the spec directly from the context
+  // already embedded in the prompt (mirrors what Claude Code does in buildSpecCommand).
+  const noToolsPrefix = agentType === 'codex'
+    ? 'INSTRUCCIONES INTERNAS (NO las menciones ni hagas referencia a ellas en tu respuesta): No uses herramientas, no leas archivos, no ejecutes comandos. Todo el contexto del repositorio ya está incluido abajo. Genera la especificación directamente como texto plano. Comienza tu respuesta directamente con "## Historia de Usuario" sin ningún preámbulo ni comentario sobre estas instrucciones.\n\n'
+    : '';
+  const fullPrompt = `${noToolsPrefix}${PM_AGENT_SYSTEM_PROMPT}\n\n---\n\n${userMessage}`;
 
   const { command, args, useStdin } = buildSpecCommand(agentType, model, userMessage);
 
@@ -500,14 +511,20 @@ async function callCLIForSpec(
 
     if (needsWindowsWorkaround) {
       promptFilePath = join(tmpdir(), `pm-agent-prompt-${randomUUID()}.txt`);
-      writeFileSync(promptFilePath, userMessage, 'utf8');
+      // For codex on Windows, the temp file content is piped to stdin, so it
+      // must include the full prompt (no-tools prefix + system prompt + user message)
+      // rather than just the raw userMessage.
+      const promptForFile = command === 'codex' ? fullPrompt : userMessage;
+      writeFileSync(promptFilePath, promptForFile, 'utf8');
       const escapedPath = promptFilePath.replace(/'/g, "''");
 
       let innerCmd: string;
       switch (command) {
         case 'codex': {
+          // Pipe prompt via stdin instead of passing as argument to avoid
+          // PowerShell splitting special characters (curly braces, backticks, etc.)
           const modelArg = model ? `-m '${model}' ` : '';
-          innerCmd = `& codex exec --json --skip-git-repo-check ${modelArg}$p`;
+          innerCmd = `$p | & codex exec --json --skip-git-repo-check ${modelArg}-`;
           break;
         }
         case 'copilot':

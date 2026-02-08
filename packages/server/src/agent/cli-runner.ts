@@ -53,6 +53,7 @@ function buildCLICommand(agentType: string, prompt: string, model?: string): CLI
           'exec',
           '--json',
           '--full-auto',
+          '--sandbox', 'danger-full-access',
           '--skip-git-repo-check',
           ...(model ? ['-m', model] : []),
           prompt,
@@ -190,6 +191,14 @@ export class CLIAgentRunner implements IAgentRunner {
    * If the process is not running or stdin is not writable, queues the feedback.
    */
   addFeedback(message: string): void {
+    // Emit user chat message
+    this.options.onChatEvent?.({
+      id: randomUUID(),
+      role: 'user',
+      content: message,
+      timestamp: new Date().toISOString(),
+    });
+
     if (this.process?.stdin?.writable) {
       this.process.stdin.write(message + '\n');
       this.options.onLog('info', `Feedback sent to CLI: ${message}`);
@@ -255,8 +264,10 @@ export class CLIAgentRunner implements IAgentRunner {
         let innerCmd: string;
         switch (cliCommand.command) {
           case 'codex': {
+            // Pipe prompt via stdin instead of passing as argument to avoid
+            // PowerShell splitting special characters (curly braces, backticks, etc.)
             const modelArg = this.options.agentModel ? `-m '${this.options.agentModel}' ` : '';
-            innerCmd = `& codex exec --json --full-auto --skip-git-repo-check ${modelArg}$p`;
+            innerCmd = `$p | & codex exec --json --full-auto --sandbox danger-full-access --skip-git-repo-check ${modelArg}-`;
             break;
           }
           case 'copilot':
@@ -505,13 +516,37 @@ export class CLIAgentRunner implements IAgentRunner {
             const b = block as Record<string, unknown>;
             if (b.type === 'text' && typeof b.text === 'string') {
               this.options.onLog('info', `Agent: ${b.text.substring(0, 1000)}`);
+              // Emit chat message
+              this.options.onChatEvent?.({
+                id: randomUUID(),
+                role: 'assistant',
+                content: b.text,
+                timestamp: new Date().toISOString(),
+              });
             } else if (b.type === 'tool_use') {
               this.logToolUse(b);
+              // Emit tool activity
+              const toolName = (b.name as string) ?? 'unknown';
+              const input = b.input as Record<string, unknown> | undefined;
+              const key = input?.file_path ?? input?.command ?? input?.pattern ?? input?.query ?? input?.path;
+              this.options.onChatEvent?.({
+                id: (b.id as string) ?? randomUUID(),
+                name: toolName,
+                summary: typeof key === 'string' ? key.substring(0, 200) : '',
+                status: 'running',
+                timestamp: new Date().toISOString(),
+              });
             }
           }
         } else if (typeof contentBlocks === 'string') {
           // Fallback for plain string content
           this.options.onLog('info', `Agent: ${contentBlocks.substring(0, 1000)}`);
+          this.options.onChatEvent?.({
+            id: randomUUID(),
+            role: 'assistant',
+            content: contentBlocks,
+            timestamp: new Date().toISOString(),
+          });
         }
         break;
       }
@@ -521,11 +556,23 @@ export class CLIAgentRunner implements IAgentRunner {
         if (Array.isArray(contentBlocks)) {
           for (const block of contentBlocks) {
             const b = block as Record<string, unknown>;
-            if (b.type === 'tool_result' && b.is_error) {
-              const errorContent = typeof b.content === 'string'
-                ? b.content.substring(0, 500)
-                : 'tool execution failed';
-              this.options.onLog('warn', `Tool error: ${errorContent}`);
+            if (b.type === 'tool_result') {
+              const toolUseId = (b.tool_use_id as string) ?? '';
+              const isError = (b.is_error as boolean) ?? false;
+              // Emit tool completed/error
+              this.options.onChatEvent?.({
+                id: toolUseId,
+                name: '',
+                summary: isError ? (typeof b.content === 'string' ? b.content.substring(0, 200) : 'error') : 'done',
+                status: isError ? 'error' : 'completed',
+                timestamp: new Date().toISOString(),
+              });
+              if (isError) {
+                const errorContent = typeof b.content === 'string'
+                  ? b.content.substring(0, 500)
+                  : 'tool execution failed';
+                this.options.onLog('warn', `Tool error: ${errorContent}`);
+              }
             }
           }
         }
@@ -543,6 +590,13 @@ export class CLIAgentRunner implements IAgentRunner {
         if (tools?.length) parts.push(`tools=${tools.length}`);
         if (parts.length > 0) {
           this.options.onLog('info', `System: ${parts.join(', ')}`);
+          // Emit system chat message
+          this.options.onChatEvent?.({
+            id: randomUUID(),
+            role: 'system',
+            content: `System initialized with ${parts.join(', ')}`,
+            timestamp: new Date().toISOString(),
+          });
         }
         break;
       }
@@ -568,11 +622,18 @@ export class CLIAgentRunner implements IAgentRunner {
         const costUsd = parsed.cost_usd as number | undefined;
         const durationMs = parsed.duration_ms as number | undefined;
         let msg = result ? `Result: ${result.substring(0, 1000)}` : 'Result: completed';
-        const meta: string[] = [];
-        if (costUsd !== undefined) meta.push(`$${costUsd.toFixed(4)}`);
-        if (durationMs !== undefined) meta.push(`${(durationMs / 1000).toFixed(1)}s`);
-        if (meta.length > 0) msg += ` (${meta.join(', ')})`;
+        const resultMeta: string[] = [];
+        if (costUsd !== undefined) resultMeta.push(`$${costUsd.toFixed(4)}`);
+        if (durationMs !== undefined) resultMeta.push(`${(durationMs / 1000).toFixed(1)}s`);
+        if (resultMeta.length > 0) msg += ` (${resultMeta.join(', ')})`;
         this.options.onLog('info', msg);
+        // Emit completion message
+        this.options.onChatEvent?.({
+          id: randomUUID(),
+          role: 'system',
+          content: `Completed${resultMeta.length > 0 ? ` (${resultMeta.join(', ')})` : ''}`,
+          timestamp: new Date().toISOString(),
+        });
         break;
       }
 
@@ -606,6 +667,11 @@ export class CLIAgentRunner implements IAgentRunner {
 
   /**
    * Parses Codex JSONL output.
+   *
+   * Codex `exec --json` emits NDJSON events with a `type` field:
+   *   - item.started / item.completed: wraps an `item` with type, name, text, content, arguments, output
+   *   - turn.completed: milestone indicating a full turn is done
+   *   - Top-level message/content/text fields (legacy/simple format)
    */
   private parseCodexOutput(line: string): void {
     const parsed = tryParseJSON(line);
@@ -616,12 +682,151 @@ export class CLIAgentRunner implements IAgentRunner {
     }
 
     const type = parsed.type as string | undefined;
-    const message = (parsed.message ?? parsed.content ?? parsed.text) as string | undefined;
 
+    // Handle item.started / item.completed events (actual Codex --json format)
+    if ((type === 'item.completed' || type === 'item.started') && parsed.item) {
+      const item = parsed.item as {
+        type?: string;
+        name?: string;
+        role?: string;
+        text?: string;
+        output?: string;
+        content?: Array<{ type?: string; text?: string }>;
+        arguments?: string;
+      };
+      const itemType = item.type;
+
+      // Agent messages — show text content
+      if (itemType === 'agent_message' || itemType === 'message') {
+        const text = item.text
+          ?? item.content?.filter(c => c.text).map(c => c.text).join('');
+        if (text) {
+          this.options.onLog('info', `Agent: ${text.substring(0, 1000)}`);
+          // Emit chat message
+          this.options.onChatEvent?.({
+            id: randomUUID(),
+            role: 'assistant',
+            content: text,
+            timestamp: new Date().toISOString(),
+          });
+        } else if (type === 'item.started') {
+          this.options.onLog('info', 'Agent is thinking...');
+        }
+        return;
+      }
+
+      // Reasoning — show internal chain-of-thought
+      if (itemType === 'reasoning') {
+        if (item.text) {
+          this.options.onLog('info', `reasoning: ${item.text.substring(0, 1000)}`);
+          this.options.onChatEvent?.({
+            id: randomUUID(),
+            role: 'system',
+            content: item.text,
+            timestamp: new Date().toISOString(),
+          });
+        }
+        return;
+      }
+
+      // Command execution — shell commands run by Codex
+      if (itemType === 'command_execution') {
+        const command = (item as Record<string, unknown>).command as string ?? 'unknown command';
+        const summary = command.length > 100 ? command.substring(0, 100) + '...' : command;
+
+        if (type === 'item.started') {
+          this.options.onLog('info', `Tool: ${command.substring(0, 200)}`);
+          this.options.onChatEvent?.({
+            id: (item as Record<string, unknown>).id as string ?? randomUUID(),
+            name: 'Bash',
+            summary: summary,
+            status: 'running',
+            timestamp: new Date().toISOString(),
+          });
+        } else {
+          // item.completed
+          const exitCode = (item as Record<string, unknown>).exit_code as number | undefined;
+          const itemStatus = (item as Record<string, unknown>).status as string | undefined;
+          const status = (itemStatus === 'completed' && exitCode === 0) ? 'completed' : 'error';
+          this.options.onLog('info', `Tool: ${command.substring(0, 200)} (exit ${exitCode ?? '?'})`);
+          this.options.onChatEvent?.({
+            id: (item as Record<string, unknown>).id as string ?? randomUUID(),
+            name: 'Bash',
+            summary: summary,
+            status: status,
+            timestamp: new Date().toISOString(),
+          });
+        }
+        return;
+      }
+
+      // Function/tool calls — show tool name and key argument
+      if (itemType === 'function_call' || itemType === 'tool_use') {
+        const toolName = item.name ?? 'unknown';
+        let detail = '';
+        if (item.arguments) {
+          try {
+            const args = JSON.parse(item.arguments) as Record<string, unknown>;
+            const key = args.file_path ?? args.command ?? args.path
+              ?? args.pattern ?? args.query ?? args.file;
+            if (typeof key === 'string') {
+              detail = `: ${key.substring(0, 200)}`;
+            }
+          } catch { /* not JSON args */ }
+        }
+        this.options.onLog('info', `Tool: ${toolName}${detail}`);
+        // Emit tool activity on item.started
+        if (type === 'item.started') {
+          this.options.onChatEvent?.({
+            id: randomUUID(),
+            name: toolName,
+            summary: detail.replace(/^:\s*/, ''),
+            status: 'running',
+            timestamp: new Date().toISOString(),
+          });
+        }
+        return;
+      }
+
+      // Function/tool outputs
+      if (itemType === 'function_call_output') {
+        const output = item.output ?? item.text;
+        if (output) {
+          this.options.onLog('debug', `Tool result (${output.length} chars)`);
+        }
+        // Emit tool completed
+        this.options.onChatEvent?.({
+          id: randomUUID(),
+          name: '',
+          summary: output ? `${output.length} chars` : 'done',
+          status: 'completed',
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      // Other item types with text
+      if (item.text) {
+        this.options.onLog('info', `${itemType ?? 'Output'}: ${item.text.substring(0, 500)}`);
+        return;
+      }
+
+      // Skip noisy events without useful content
+      return;
+    }
+
+    // turn.completed — useful milestone
+    if (type === 'turn.completed') {
+      this.options.onLog('info', 'Turn completed');
+      return;
+    }
+
+    // Top-level message/content/text (legacy/simple format)
+    const message = (parsed.message ?? parsed.content ?? parsed.text) as string | undefined;
     if (message) {
       this.options.onLog('info', `Agent: ${message.substring(0, 1000)}`);
     } else if (type) {
-      this.options.onLog('info', `CLI event (${type}): ${line.substring(0, 200)}`);
+      this.options.onLog('debug', `CLI event (${type}): ${line.substring(0, 200)}`);
     }
   }
 

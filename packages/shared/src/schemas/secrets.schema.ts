@@ -8,7 +8,7 @@ import { AIProviderSchema } from './setup.schema.js';
 /**
  * Method used to connect GitHub account
  */
-export const GitHubConnectionMethodSchema = z.enum(['oauth', 'pat']);
+export const GitHubConnectionMethodSchema = z.enum(['pat']);
 export type GitHubConnectionMethod = z.infer<typeof GitHubConnectionMethodSchema>;
 
 // ============================================================================
@@ -111,6 +111,60 @@ export const ValidateGitHubPATResponseSchema = z.object({
 export type ValidateGitHubPATResponse = z.infer<typeof ValidateGitHubPATResponseSchema>;
 
 // ============================================================================
+// GitLab Secret Schemas
+// ============================================================================
+
+/**
+ * Request to validate a GitLab Personal Access Token
+ */
+export const ValidateGitLabPATRequestSchema = z.object({
+  token: z.string().min(1, 'Token is required'),
+});
+export type ValidateGitLabPATRequest = z.infer<typeof ValidateGitLabPATRequestSchema>;
+
+/**
+ * Response from validating a GitLab PAT
+ */
+export const ValidateGitLabPATResponseSchema = z.object({
+  valid: z.boolean(),
+  username: z.string().optional(),
+  avatarUrl: z.string().optional(),
+  error: z.string().optional(),
+});
+export type ValidateGitLabPATResponse = z.infer<typeof ValidateGitLabPATResponseSchema>;
+
+/**
+ * Request to save a GitLab token
+ */
+export const SaveGitLabSecretRequestSchema = z.object({
+  token: z.string().min(1, 'Token is required'),
+  username: z.string().optional(),
+  avatarUrl: z.string().optional(),
+});
+export type SaveGitLabSecretRequest = z.infer<typeof SaveGitLabSecretRequestSchema>;
+
+/**
+ * Response from saving a GitLab secret
+ */
+export const SaveGitLabSecretResponseSchema = z.object({
+  success: z.boolean(),
+  username: z.string().optional(),
+  avatarUrl: z.string().optional(),
+  error: z.string().optional(),
+});
+export type SaveGitLabSecretResponse = z.infer<typeof SaveGitLabSecretResponseSchema>;
+
+/**
+ * GitLab connection status (without exposing the token)
+ */
+export const GitLabSecretStatusSchema = z.object({
+  connected: z.boolean(),
+  username: z.string().nullable(),
+  avatarUrl: z.string().nullable(),
+});
+export type GitLabSecretStatus = z.infer<typeof GitLabSecretStatusSchema>;
+
+// ============================================================================
 // Combined Status Schemas
 // ============================================================================
 
@@ -120,7 +174,8 @@ export type ValidateGitHubPATResponse = z.infer<typeof ValidateGitHubPATResponse
 export const AllSecretsStatusSchema = z.object({
   ai: AISecretStatusSchema,
   github: GitHubSecretStatusSchema,
-  isComplete: z.boolean(), // True if AI is connected (GitHub is optional)
+  gitlab: GitLabSecretStatusSchema,
+  isComplete: z.boolean(), // True if AI is connected (GitHub/GitLab are optional)
 });
 export type AllSecretsStatus = z.infer<typeof AllSecretsStatusSchema>;
 

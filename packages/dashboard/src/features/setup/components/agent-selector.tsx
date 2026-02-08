@@ -137,8 +137,18 @@ export function AgentSelector({ onAgentSelected, compact = false }: AgentSelecto
     )
   }
 
-  // Build a lookup with server data merged with display metadata
-  const agentList: DetectedAgent[] = agents ?? []
+  // Only show agents that are installed on the user's machine
+  const agentList: DetectedAgent[] = (agents ?? []).filter((a) => a.installed)
+
+  // No installed agents
+  if (agentList.length === 0) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20 p-4 text-sm text-muted-foreground">
+        <AlertCircle className="size-4 shrink-0 text-yellow-500" />
+        <span>No se detectaron agentes CLI instalados. Instala Claude Code, Codex o Gemini CLI para continuar.</span>
+      </div>
+    )
+  }
 
   // Determine which agent is currently selected (from store or server settings)
   const activeAgentId = selectedAgent ?? settings?.default_agent_type ?? null

@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import type { Response } from 'express';
+import type { ChatMessageEvent, ToolActivityEvent } from '@dash-agent/shared';
 import { createLogger } from './logger.js';
 import { getErrorMessage } from './errors.js';
 
@@ -15,7 +16,9 @@ export type SSEEventType =
   | 'awaiting_review'
   | 'complete'
   | 'error'
-  | 'pr_comment';
+  | 'pr_comment'
+  | 'chat_message'
+  | 'tool_activity';
 
 /**
  * PR comment data for SSE events.
@@ -67,6 +70,8 @@ export interface SSEEventData {
     comment: PRCommentData;
     taskId: string;
   };
+  chat_message: ChatMessageEvent;
+  tool_activity: ToolActivityEvent;
 }
 
 /**
@@ -348,6 +353,26 @@ export class SSEEmitter extends EventEmitter {
    */
   emitPRComment(taskId: string, comment: PRCommentData): void {
     this.emit(taskId, 'pr_comment', { comment, taskId });
+  }
+
+  /**
+   * Emits a chat message event for a task.
+   *
+   * @param taskId - The task ID
+   * @param event - The chat message event data
+   */
+  emitChatMessage(taskId: string, event: ChatMessageEvent): void {
+    this.emit(taskId, 'chat_message', event);
+  }
+
+  /**
+   * Emits a tool activity event for a task.
+   *
+   * @param taskId - The task ID
+   * @param event - The tool activity event data
+   */
+  emitToolActivity(taskId: string, event: ToolActivityEvent): void {
+    this.emit(taskId, 'tool_activity', event);
   }
 
   /**
