@@ -85,7 +85,7 @@ function createSSEConnectionManager() {
     setStatus('connecting');
 
     const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
-    const url = `${baseUrl}/tasks/${taskId}/logs`;
+    const url = `${baseUrl}/api/tasks/${taskId}/logs`;
 
     try {
       const es = new EventSource(url);

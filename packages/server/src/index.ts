@@ -1,4 +1,6 @@
 import { createServer } from 'net';
+import { resolve, join } from 'path';
+import { existsSync } from 'fs';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { getConfig } from './config.js';
@@ -52,7 +54,7 @@ function createApp(): express.Application {
   });
 
   // Health check endpoint
-  app.get('/health', (_req: Request, res: Response) => {
+  app.get('/api/health', (_req: Request, res: Response) => {
     res.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
@@ -60,11 +62,30 @@ function createApp(): express.Application {
   });
 
   // Mount routes
-  app.use('/tasks', tasksRouter);
-  app.use('/setup', setupRouter);
-  app.use('/repos', reposRouter);
-  app.use('/data', dataRouter);
-  app.use('/secrets', secretsRouter);
+  app.use('/api/tasks', tasksRouter);
+  app.use('/api/setup', setupRouter);
+  app.use('/api/repos', reposRouter);
+  app.use('/api/data', dataRouter);
+  app.use('/api/secrets', secretsRouter);
+
+  // Serve frontend static files (for production/binary mode)
+  const staticDir = resolve(process.cwd(), 'public');
+  if (existsSync(staticDir)) {
+    app.use(express.static(staticDir));
+
+    // SPA fallback - any non-API route serves index.html
+    app.get('*', (req: Request, res: Response, next: NextFunction) => {
+      if (req.path.startsWith('/api/')) {
+        return next(); // Let API 404 handler deal with it
+      }
+      const indexPath = join(staticDir, 'index.html');
+      if (existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        next();
+      }
+    });
+  }
 
   // 404 handler
   app.use((_req: Request, res: Response) => {
@@ -126,7 +147,7 @@ async function findAvailablePort(startPort: number, maxAttempts = 10): Promise<n
 /**
  * Starts the HTTP server.
  */
-async function main(): Promise<void> {
+export async function main(): Promise<number> {
   logger.info('Starting Agent Board API');
 
   // Load configuration
@@ -151,9 +172,9 @@ async function main(): Promise<void> {
 
   const server = app.listen(actualPort, () => {
     logger.info(`Server listening on port ${actualPort}`);
-    logger.info(`Health check: http://localhost:${actualPort}/health`);
-    logger.info(`Tasks API: http://localhost:${actualPort}/tasks`);
-    logger.info(`Repos API: http://localhost:${actualPort}/repos`);
+    logger.info(`Health check: http://localhost:${actualPort}/api/health`);
+    logger.info(`Tasks API: http://localhost:${actualPort}/api/tasks`);
+    logger.info(`Repos API: http://localhost:${actualPort}/api/repos`);
   });
 
   // Start PR comments polling service
@@ -183,10 +204,14 @@ async function main(): Promise<void> {
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
+
+  return actualPort;
 }
 
-// Start the application
-main().catch((error: Error) => {
-  logger.errorWithStack('Failed to start application', error);
-  process.exit(1);
-});
+// Start the application (unless imported by bin.ts)
+if (!process.env['__BIN_MODE__']) {
+  main().catch((error: Error) => {
+    logger.errorWithStack('Failed to start application', error);
+    process.exit(1);
+  });
+}

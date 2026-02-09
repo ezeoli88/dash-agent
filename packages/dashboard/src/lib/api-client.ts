@@ -46,7 +46,7 @@ interface RequestOptions extends Omit<RequestInit, 'body'> {
 
 // Build URL with query parameters
 function buildUrl(endpoint: string, params?: Record<string, string | number | boolean | undefined>): string {
-  const url = new URL(endpoint, API_BASE_URL);
+  const url = new URL(`/api${endpoint}`, API_BASE_URL);
 
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
