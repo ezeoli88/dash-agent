@@ -1,7 +1,6 @@
 'use client'
 
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 import type { Repository } from '../types'
 
 /**
@@ -27,62 +26,44 @@ interface RepoState {
   reset: () => void
 }
 
-/**
- * Persisted state shape
- */
-interface PersistedState {
-  selectedRepoId: string | null
-}
+export const useRepoStore = create<RepoState>((set) => ({
+  // Initial state
+  selectedRepoId: null,
+  selectedRepo: null,
+  isAddDialogOpen: false,
+  isConfigDialogOpen: false,
+  configRepoId: null,
 
-export const useRepoStore = create<RepoState>()(
-  persist(
-    (set) => ({
-      // Initial state
-      selectedRepoId: null,
-      selectedRepo: null,
-      isAddDialogOpen: false,
-      isConfigDialogOpen: false,
-      configRepoId: null,
+  // Actions
+  setSelectedRepo: (repo) => set({
+    selectedRepo: repo,
+    selectedRepoId: repo?.id ?? null,
+  }),
 
-      // Actions
-      setSelectedRepo: (repo) => set({
-        selectedRepo: repo,
-        selectedRepoId: repo?.id ?? null,
-      }),
+  setSelectedRepoId: (id) => set({
+    selectedRepoId: id,
+    selectedRepo: null, // Will be populated by the component
+  }),
 
-      setSelectedRepoId: (id) => set({
-        selectedRepoId: id,
-        selectedRepo: null, // Will be populated by the component
-      }),
+  openAddDialog: () => set({ isAddDialogOpen: true }),
 
-      openAddDialog: () => set({ isAddDialogOpen: true }),
+  closeAddDialog: () => set({ isAddDialogOpen: false }),
 
-      closeAddDialog: () => set({ isAddDialogOpen: false }),
+  openConfigDialog: (repoId) => set({
+    isConfigDialogOpen: true,
+    configRepoId: repoId,
+  }),
 
-      openConfigDialog: (repoId) => set({
-        isConfigDialogOpen: true,
-        configRepoId: repoId,
-      }),
+  closeConfigDialog: () => set({
+    isConfigDialogOpen: false,
+    configRepoId: null,
+  }),
 
-      closeConfigDialog: () => set({
-        isConfigDialogOpen: false,
-        configRepoId: null,
-      }),
-
-      reset: () => set({
-        selectedRepoId: null,
-        selectedRepo: null,
-        isAddDialogOpen: false,
-        isConfigDialogOpen: false,
-        configRepoId: null,
-      }),
-    }),
-    {
-      name: 'dash-agent-repos',
-      // Only persist selected repo ID
-      partialize: (state): PersistedState => ({
-        selectedRepoId: state.selectedRepoId,
-      }),
-    }
-  )
-)
+  reset: () => set({
+    selectedRepoId: null,
+    selectedRepo: null,
+    isAddDialogOpen: false,
+    isConfigDialogOpen: false,
+    configRepoId: null,
+  }),
+}))

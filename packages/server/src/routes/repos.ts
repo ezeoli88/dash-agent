@@ -282,8 +282,9 @@ router.post('/local/add', async (req: Request, res: Response) => {
       return;
     }
 
-    // Use remote URL or file:// URL
-    const url = remote_url || `file://${path}`;
+    // Always use file:// for local repos - clone from local filesystem.
+    // Push/PR operations read the actual remote from the worktree's git config.
+    const url = `file://${path}`;
 
     const repoService = getRepoService();
 

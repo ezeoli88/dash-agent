@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { SqlValue } from 'sql.js';
 import { getDatabase, withTransaction } from '../db/database.js';
 import { createLogger } from '../utils/logger.js';
+import { getRepoService } from '../services/repo.service.js';
 
 const logger = createLogger('routes:data');
 const router = Router();
@@ -119,16 +120,20 @@ function insertIntoTable(tableName: string, rows: Record<string, unknown>[]): nu
  *
  * Response: ExportData
  */
-router.get('/export', (_req: Request, res: Response, next: NextFunction): void => {
+router.get('/export', async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     logger.info('GET /data/export');
+
+    // Repositories are in-memory, so export them from the service
+    const repoService = getRepoService();
+    const inMemoryRepos = await repoService.getRepositories();
 
     const exportData: ExportData = {
       version: 1,
       exportedAt: new Date().toISOString(),
       tasks: getAllFromTable('tasks'),
       task_logs: getAllFromTable('task_logs'),
-      repositories: getAllFromTable('repositories'),
+      repositories: inMemoryRepos as unknown as Record<string, unknown>[],
     };
 
     logger.info('Export completed', {
@@ -155,7 +160,7 @@ router.get('/export', (_req: Request, res: Response, next: NextFunction): void =
  * - success: boolean
  * - imported: { tasks: number, task_logs: number, repositories: number }
  */
-router.post('/import', (req: Request, res: Response, next: NextFunction): void => {
+router.post('/import', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     logger.info('POST /data/import');
 
@@ -175,25 +180,59 @@ router.post('/import', (req: Request, res: Response, next: NextFunction): void =
     const importData: ImportData = result.data;
     const merge = req.query.merge === 'true';
 
-    const imported = withTransaction(() => {
-      // Clear existing data if not merging
+    // Handle in-memory repos: clear existing if not merging, then import
+    const repoService = getRepoService();
+
+    if (!merge) {
+      const existingRepos = await repoService.getRepositories();
+      for (const repo of existingRepos) {
+        await repoService.deleteRepository(repo.id);
+      }
+    }
+
+    // Import repositories into memory
+    let repositoriesInserted = 0;
+    for (const repoData of importData.repositories) {
+      try {
+        const name = (repoData.name as string) || '';
+        const url = (repoData.url as string) || '';
+        const defaultBranch = (repoData.default_branch as string) || 'main';
+
+        // Skip if URL already exists (when merging)
+        const existing = await repoService.getRepositoryByUrl(url);
+        if (existing) continue;
+
+        await repoService.createRepository({
+          name,
+          url,
+          default_branch: defaultBranch,
+        });
+        repositoriesInserted++;
+      } catch (error) {
+        logger.warn('Failed to import repository into memory', { error, repoData });
+      }
+    }
+
+    // Import tasks and task_logs into DB
+    const dbImported = withTransaction(() => {
       if (!merge) {
-        clearTable('task_logs'); // Clear first due to foreign key
+        clearTable('task_logs');
         clearTable('tasks');
-        clearTable('repositories');
       }
 
-      // Import data
-      const repositoriesInserted = insertIntoTable('repositories', importData.repositories);
       const tasksInserted = insertIntoTable('tasks', importData.tasks);
       const taskLogsInserted = insertIntoTable('task_logs', importData.task_logs);
 
       return {
         tasks: tasksInserted,
         task_logs: taskLogsInserted,
-        repositories: repositoriesInserted,
       };
     });
+
+    const imported = {
+      ...dbImported,
+      repositories: repositoriesInserted,
+    };
 
     logger.info('Import completed', imported);
 
@@ -217,7 +256,7 @@ router.post('/import', (req: Request, res: Response, next: NextFunction): void =
  * - success: boolean
  * - deleted: { tasks: number, task_logs: number, repositories: number }
  */
-router.delete('/', (req: Request, res: Response, next: NextFunction): void => {
+router.delete('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     logger.info('DELETE /data');
 
@@ -236,12 +275,22 @@ router.delete('/', (req: Request, res: Response, next: NextFunction): void => {
     // Get counts before deletion
     const countTasks = db.exec('SELECT COUNT(*) FROM tasks')[0]?.values[0]?.[0] as number || 0;
     const countTaskLogs = db.exec('SELECT COUNT(*) FROM task_logs')[0]?.values[0]?.[0] as number || 0;
-    const countRepositories = db.exec('SELECT COUNT(*) FROM repositories')[0]?.values[0]?.[0] as number || 0;
+
+    // Repositories are in-memory; count them from the service
+    const repoService = getRepoService();
+    const inMemoryRepos = await repoService.getRepositories();
+    const countRepositories = inMemoryRepos.length;
+
+    // Delete each in-memory repo
+    for (const repo of inMemoryRepos) {
+      await repoService.deleteRepository(repo.id);
+    }
 
     withTransaction(() => {
-      // Clear all data (order matters due to foreign keys)
+      // Clear DB-persisted data (order matters due to foreign keys)
       clearTable('task_logs');
       clearTable('tasks');
+      // Also clear stale rows from the repositories DB table
       clearTable('repositories');
     });
 

@@ -135,12 +135,6 @@ function getActionsForStatus(task: Task): ActionConfig[] {
     ],
     plan_review: [
       {
-        type: 'approve_plan',
-        label: 'Approve Plan',
-        icon: <CheckCircle className="h-4 w-4" />,
-        variant: 'default',
-      },
-      {
         type: 'cancel',
         label: 'Cancel',
         icon: <XCircle className="h-4 w-4" />,

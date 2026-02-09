@@ -1,6 +1,8 @@
 import { createLogger } from '../utils/logger.js';
 import { getErrorMessage } from '../utils/errors.js';
 import { getGitHubClient, type PRCommentInfo } from '../github/client.js';
+import { isGitLabUrl } from '../utils/gitlab-url.js';
+import { getGitLabClient, hasGitLabToken } from '../gitlab/client.js';
 import { getSSEEmitter, type PRCommentData } from '../utils/sse-emitter.js';
 import { taskService, type Task, type TaskStatus } from './task.service.js';
 import { getAgentService } from './agent.service.js';
@@ -211,41 +213,77 @@ export class PRCommentsService {
   }
 
   /**
-   * Fetch comments for a PR and process new ones.
+   * Fetch comments for a PR/MR and process new ones.
+   * Supports both GitHub PRs and GitLab MRs.
    */
   private async fetchAndProcessComments(trackedPR: TrackedPR, isInitialFetch: boolean): Promise<void> {
-    const githubClient = getGitHubClient();
+    const isGitLab = isGitLabUrl(trackedPR.repoUrl);
 
-    // Check PR state first (only on regular polling, not initial fetch)
+    // Check PR/MR state first (only on regular polling, not initial fetch)
     if (!isInitialFetch) {
       try {
-        const prInfo = await githubClient.getPullRequest(trackedPR.repoUrl, trackedPR.prNumber);
+        if (isGitLab) {
+          if (!hasGitLabToken()) {
+            logger.warn('GitLab token not available, skipping MR state check', {
+              taskId: trackedPR.taskId,
+              prNumber: trackedPR.prNumber,
+            });
+          } else {
+            const gitlabClient = getGitLabClient();
+            const mrInfo = await gitlabClient.getMergeRequest(trackedPR.repoUrl, trackedPR.prNumber);
 
-        if (prInfo.state === 'merged') {
-          logger.info('PR was merged on GitHub, auto-updating task status', {
-            taskId: trackedPR.taskId,
-            prNumber: trackedPR.prNumber,
-          });
-          const agentService = getAgentService();
-          await agentService.markPRMerged(trackedPR.taskId);
-          this.untrackPR(trackedPR.taskId);
-          return; // No need to process comments
-        }
+            if (mrInfo.state === 'merged') {
+              logger.info('MR was merged on GitLab, auto-updating task status', {
+                taskId: trackedPR.taskId,
+                prNumber: trackedPR.prNumber,
+              });
+              const agentService = getAgentService();
+              await agentService.markPRMerged(trackedPR.taskId);
+              this.untrackPR(trackedPR.taskId);
+              return;
+            }
 
-        if (prInfo.state === 'closed') {
-          logger.info('PR was closed on GitHub, auto-updating task status', {
-            taskId: trackedPR.taskId,
-            prNumber: trackedPR.prNumber,
-          });
-          const agentService = getAgentService();
-          await agentService.markPRClosed(trackedPR.taskId);
-          this.untrackPR(trackedPR.taskId);
-          return; // No need to process comments
+            if (mrInfo.state === 'closed') {
+              logger.info('MR was closed on GitLab, auto-updating task status', {
+                taskId: trackedPR.taskId,
+                prNumber: trackedPR.prNumber,
+              });
+              const agentService = getAgentService();
+              await agentService.markPRClosed(trackedPR.taskId);
+              this.untrackPR(trackedPR.taskId);
+              return;
+            }
+          }
+        } else {
+          const githubClient = getGitHubClient();
+          const prInfo = await githubClient.getPullRequest(trackedPR.repoUrl, trackedPR.prNumber);
+
+          if (prInfo.state === 'merged') {
+            logger.info('PR was merged on GitHub, auto-updating task status', {
+              taskId: trackedPR.taskId,
+              prNumber: trackedPR.prNumber,
+            });
+            const agentService = getAgentService();
+            await agentService.markPRMerged(trackedPR.taskId);
+            this.untrackPR(trackedPR.taskId);
+            return;
+          }
+
+          if (prInfo.state === 'closed') {
+            logger.info('PR was closed on GitHub, auto-updating task status', {
+              taskId: trackedPR.taskId,
+              prNumber: trackedPR.prNumber,
+            });
+            const agentService = getAgentService();
+            await agentService.markPRClosed(trackedPR.taskId);
+            this.untrackPR(trackedPR.taskId);
+            return;
+          }
         }
       } catch (error) {
         // Log the error but continue with comment fetching
-        // The PR might still be accessible for comments even if state check fails
-        logger.warn('Failed to check PR state, continuing with comment fetch', {
+        // The PR/MR might still be accessible for comments even if state check fails
+        logger.warn('Failed to check PR/MR state, continuing with comment fetch', {
           taskId: trackedPR.taskId,
           prNumber: trackedPR.prNumber,
           error: getErrorMessage(error),
@@ -255,11 +293,30 @@ export class PRCommentsService {
 
     // Fetch comments (only new ones if we have a lastPollTime and not initial)
     const since = isInitialFetch ? undefined : trackedPR.lastPollTime;
-    const comments = await githubClient.getPullRequestComments(
-      trackedPR.repoUrl,
-      trackedPR.prNumber,
-      since
-    );
+    let comments: PRCommentInfo[];
+
+    if (isGitLab) {
+      if (!hasGitLabToken()) {
+        logger.warn('GitLab token not available, skipping MR comment fetch', {
+          taskId: trackedPR.taskId,
+          prNumber: trackedPR.prNumber,
+        });
+        return;
+      }
+      const gitlabClient = getGitLabClient();
+      comments = await gitlabClient.getMergeRequestNotes(
+        trackedPR.repoUrl,
+        trackedPR.prNumber,
+        since
+      );
+    } else {
+      const githubClient = getGitHubClient();
+      comments = await githubClient.getPullRequestComments(
+        trackedPR.repoUrl,
+        trackedPR.prNumber,
+        since
+      );
+    }
 
     // Update last poll time
     trackedPR.lastPollTime = new Date().toISOString();
@@ -317,14 +374,24 @@ export class PRCommentsService {
   }
 
   /**
-   * Extract PR number from a GitHub PR URL.
-   * Example: https://github.com/owner/repo/pull/123 -> 123
+   * Extract PR/MR number from a GitHub PR URL or GitLab MR URL.
+   * Examples:
+   *   https://github.com/owner/repo/pull/123 -> 123
+   *   https://gitlab.com/owner/repo/-/merge_requests/456 -> 456
    */
   private extractPRNumber(prUrl: string): number | null {
-    const match = prUrl.match(/\/pull\/(\d+)/);
-    if (match && match[1]) {
-      return parseInt(match[1], 10);
+    // Try GitHub format: /pull/123
+    const ghMatch = prUrl.match(/\/pull\/(\d+)/);
+    if (ghMatch && ghMatch[1]) {
+      return parseInt(ghMatch[1], 10);
     }
+
+    // Try GitLab format: /merge_requests/456
+    const glMatch = prUrl.match(/\/merge_requests\/(\d+)/);
+    if (glMatch && glMatch[1]) {
+      return parseInt(glMatch[1], 10);
+    }
+
     return null;
   }
 
@@ -347,7 +414,7 @@ export class PRCommentsService {
   }
 
   /**
-   * Force an immediate poll for a specific task's PR.
+   * Force an immediate poll for a specific task's PR/MR.
    * Useful when the user wants to refresh comments.
    */
   async pollPRNow(taskId: string): Promise<PRCommentInfo[]> {
@@ -356,13 +423,23 @@ export class PRCommentsService {
       throw new Error(`Task ${taskId} is not being tracked for PR comments`);
     }
 
+    if (isGitLabUrl(trackedPR.repoUrl)) {
+      if (!hasGitLabToken()) {
+        logger.warn('GitLab token not available, cannot poll MR comments', { taskId });
+        return [];
+      }
+      const gitlabClient = getGitLabClient();
+      return gitlabClient.getMergeRequestNotes(
+        trackedPR.repoUrl,
+        trackedPR.prNumber
+      );
+    }
+
     const githubClient = getGitHubClient();
-    const comments = await githubClient.getPullRequestComments(
+    return githubClient.getPullRequestComments(
       trackedPR.repoUrl,
       trackedPR.prNumber
     );
-
-    return comments;
   }
 }
 

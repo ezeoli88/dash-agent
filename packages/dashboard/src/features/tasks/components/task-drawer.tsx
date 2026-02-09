@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { Link } from '@tanstack/react-router'
 import { ExternalLink } from 'lucide-react'
 import { VisuallyHidden } from 'radix-ui'
@@ -32,12 +32,40 @@ import type { Task } from '../types'
  * Displays task status, title, description, action buttons, and
  * a single chat view with inline diff when the agent completes.
  */
+const MIN_WIDTH_PX = 512
+const MAX_WIDTH_VW = 0.5
+
 export function TaskDrawer() {
   const drawerTaskId = useTaskUIStore((state) => state.drawerTaskId)
   const closeDrawer = useTaskUIStore((state) => state.closeDrawer)
 
   const isOpen = !!drawerTaskId
   const { data: task, isLoading } = useTask(drawerTaskId ?? '')
+
+  // Resizable drawer width
+  const [widthPx, setWidthPx] = useState(MIN_WIDTH_PX)
+  const isDraggingRef = useRef(false)
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    isDraggingRef.current = true
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!isDraggingRef.current) return
+      const newWidth = window.innerWidth - ev.clientX
+      const maxPx = window.innerWidth * MAX_WIDTH_VW
+      setWidthPx(Math.min(Math.max(newWidth, MIN_WIDTH_PX), maxPx))
+    }
+
+    const onMouseUp = () => {
+      isDraggingRef.current = false
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+  }, [])
 
   // Close drawer when task is deleted (task disappears while drawer is open)
   useEffect(() => {
@@ -56,8 +84,16 @@ export function TaskDrawer() {
     <Sheet open={isOpen} onOpenChange={handleOpenChange}>
       <SheetContent
         side="right"
-        className="sm:max-w-lg w-full flex flex-col p-0 gap-0"
+        className="sm:!max-w-none w-full flex flex-col p-0 gap-0"
+        style={{ width: widthPx }}
       >
+        {/* Resize handle on the left edge */}
+        <div
+          onMouseDown={handleResizeStart}
+          className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-50 group"
+        >
+          <div className="h-full w-full transition-colors bg-transparent group-hover:bg-border/60 group-active:bg-border" />
+        </div>
         {isLoading || !task ? (
           <>
             <VisuallyHidden.Root>

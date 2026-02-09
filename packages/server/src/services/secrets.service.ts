@@ -12,7 +12,7 @@ const logger = createLogger('services:secrets');
 /**
  * Key types for stored secrets
  */
-export type SecretKeyType = 'ai_api_key' | 'github_token';
+export type SecretKeyType = 'ai_api_key' | 'github_token' | 'gitlab_token';
 
 /**
  * Provider types for AI keys
@@ -25,9 +25,14 @@ export type AIProviderType = 'claude' | 'openai' | 'openrouter';
 export type GitHubProviderType = 'github';
 
 /**
+ * Provider types for GitLab
+ */
+export type GitLabProviderType = 'gitlab';
+
+/**
  * All provider types
  */
-export type ProviderType = AIProviderType | GitHubProviderType;
+export type ProviderType = AIProviderType | GitHubProviderType | GitLabProviderType;
 
 /**
  * Metadata stored with AI secrets
@@ -45,6 +50,14 @@ export interface GitHubSecretMetadata {
   username: string;
   avatarUrl?: string;
   connectionMethod: 'oauth' | 'pat';
+}
+
+/**
+ * Metadata stored with GitLab secrets
+ */
+export interface GitLabSecretMetadata {
+  username: string;
+  avatarUrl?: string;
 }
 
 /**
@@ -376,6 +389,34 @@ export function getGitHubCredentials(): { token: string; metadata: GitHubSecretM
 }
 
 /**
+ * Gets the stored GitLab token.
+ * Returns null if not configured.
+ */
+export function getGitLabCredentials(): { token: string; metadata: GitLabSecretMetadata } | null {
+  const secret = getSecret('gitlab_token', 'gitlab');
+  if (!secret || !secret.metadata) return null;
+
+  const metadata = secret.metadata as Record<string, unknown>;
+
+  if (typeof metadata['username'] !== 'string') {
+    return null;
+  }
+
+  const result: { token: string; metadata: GitLabSecretMetadata } = {
+    token: secret.decryptedValue,
+    metadata: {
+      username: metadata['username'] as string,
+    },
+  };
+
+  if (typeof metadata['avatarUrl'] === 'string') {
+    result.metadata.avatarUrl = metadata['avatarUrl'];
+  }
+
+  return result;
+}
+
+/**
  * Gets the AI connection status without exposing the key.
  */
 export function getAIStatus(): {
@@ -438,6 +479,33 @@ export function getGitHubStatus(): {
 }
 
 /**
+ * Gets the GitLab connection status without exposing the token.
+ */
+export function getGitLabStatus(): {
+  connected: boolean;
+  username: string | null;
+  avatarUrl: string | null;
+} {
+  const metadata = getSecretMetadata('gitlab_token', 'gitlab');
+
+  if (!metadata) {
+    return {
+      connected: false,
+      username: null,
+      avatarUrl: null,
+    };
+  }
+
+  const meta = metadata.metadata as GitLabSecretMetadata | null;
+
+  return {
+    connected: true,
+    username: meta?.username ?? null,
+    avatarUrl: meta?.avatarUrl ?? null,
+  };
+}
+
+/**
  * Gets the status of all secrets.
  */
 export function getAllSecretsStatus(): {
@@ -452,7 +520,7 @@ export function getAllSecretsStatus(): {
   return {
     ai,
     github,
-    gitlab: { connected: false, username: null, avatarUrl: null }, // TODO: implement GitLab secrets
+    gitlab: getGitLabStatus(),
     isComplete: ai.connected, // AI provider is enough - GitHub/GitLab are optional
   };
 }

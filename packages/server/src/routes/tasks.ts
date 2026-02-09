@@ -580,9 +580,8 @@ router.post('/:id/start', requireTaskId, loadTask, async (req: Request, res: Res
     const sseEmitter = getSSEEmitter();
     sseEmitter.emitStatus(id!, 'planning');
 
-    // Start agent execution asynchronously in plan-only mode
-    // The agent will explore the codebase and create a plan without making changes
-    agentService.startAgent(id!, false, true).catch((error) => {
+    // Start agent execution asynchronously
+    agentService.startAgent(id!, false).catch((error) => {
       logger.error('Failed to start agent', { taskId: id, error: getErrorMessage(error) });
       const currentTask = taskService.getById(id!);
       if (currentTask && currentTask.status !== 'failed') {
@@ -592,7 +591,7 @@ router.post('/:id/start', requireTaskId, loadTask, async (req: Request, res: Res
       }
     });
 
-    res.json({ status: 'started', message: 'Agent started in plan-only mode' });
+    res.json({ status: 'started', message: 'Agent started' });
   } catch (error) {
     next(error);
   }
@@ -752,6 +751,29 @@ router.post('/:id/feedback', requireTaskId, loadTask, (req: Request, res: Respon
         error: 'Cannot send feedback',
         message: `Task is in ${task.status} status. Cannot resume the agent.`,
       });
+      return;
+    }
+
+    // plan_review: user is approving the plan via chat message
+    if (task.status === 'plan_review') {
+      logger.info('Plan review chat approval', { id, message: result.data.message });
+
+      // Store the user message in chat history
+      agentService.addUserMessageToHistory(id!, result.data.message);
+
+      // Approve plan and start implementation
+      agentService.approvePlan(id!).catch((error) => {
+        logger.error('Failed to approve plan from chat', { taskId: id, error: getErrorMessage(error) });
+        const currentTask = taskService.getById(id!);
+        if (currentTask && currentTask.status !== 'failed') {
+          taskService.update(id!, { status: 'failed', error: getErrorMessage(error) });
+          const sseEmitter = getSSEEmitter();
+          sseEmitter.emitStatus(id!, 'failed');
+          sseEmitter.emitError(id!, getErrorMessage(error));
+        }
+      });
+
+      res.json({ status: 'plan_approved', message: 'Plan approved. Agent is implementing...' });
       return;
     }
 
@@ -1204,8 +1226,15 @@ router.get('/:id/changes', requireTaskId, loadTask, async (req: Request, res: Re
     if (workspacePath) {
       const [files, diff] = await Promise.all([
         gitService.getChangedFiles(workspacePath, task.target_branch),
-        gitService.getDiff(workspacePath),
+        gitService.getDiff(workspacePath, task.target_branch),
       ]);
+
+      logger.info('Serving changes from live worktree', {
+        taskId: id,
+        fileCount: files.length,
+        filesWithContent: files.filter(f => f.oldContent !== undefined || f.newContent !== undefined).length,
+        diffLength: diff.length,
+      });
 
       res.json({
         files: files.map((f) => ({
@@ -1224,6 +1253,10 @@ router.get('/:id/changes', requireTaskId, loadTask, async (req: Request, res: Re
     // Fallback to persisted changes data in DB
     if (task.changes_data) {
       try {
+        logger.info('Serving changes from persisted data', {
+          taskId: id,
+          dataSize: task.changes_data.length,
+        });
         const parsed = JSON.parse(task.changes_data);
         res.json(parsed);
         return;
@@ -1231,6 +1264,12 @@ router.get('/:id/changes', requireTaskId, loadTask, async (req: Request, res: Re
         logger.warn('Failed to parse persisted changes_data', { id });
       }
     }
+
+    logger.warn('No changes data available', {
+      taskId: id,
+      hasWorktree: !!workspacePath,
+      hasPersistedData: !!task.changes_data,
+    });
 
     res.status(400).json({
       error: 'No changes available',

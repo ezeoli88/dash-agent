@@ -172,6 +172,8 @@ function createSSEConnectionManager() {
           if (parsed.code !== 'CANCELLED') {
             onError?.(parsed.message);
           }
+          // Invalidate queries so task.error is fetched and displayed in the UI
+          invalidateQueries();
         } catch {
           // Connection error, not a data error - handled by onerror
         }
@@ -274,6 +276,7 @@ export function useTaskSSE(options: UseTaskSSEOptions) {
     invalidateQueries: () => {
       queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskId) });
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: taskKeys.changes(taskId) });
     },
   }), [taskId, enabled, queryClient, addTaskLog]);
 
