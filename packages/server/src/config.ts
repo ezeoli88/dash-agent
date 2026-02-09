@@ -1,13 +1,3 @@
-import dotenv from 'dotenv';
-import { existsSync } from 'fs';
-import { resolve } from 'path';
-
-// Load environment variables from .env file
-const envPath = resolve(process.cwd(), '.env');
-if (existsSync(envPath)) {
-  dotenv.config({ path: envPath });
-}
-
 /**
  * Application configuration loaded from environment variables.
  * All required variables are validated at startup.

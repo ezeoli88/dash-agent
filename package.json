@@ -34,13 +34,10 @@
     "build:dashboard": "npm run build -w @dash-agent/dashboard",
     "dev:dashboard": "npm run dev -w @dash-agent/dashboard",
     "dev:server": "npm run dev -w @dash-agent/server",
-    "dev": "npm run build:shared && concurrently \"npm run dev:server\" \"npm run dev:dashboard\"",
+    "dev": "npm run build:shared && npm run dev:server & npm run dev:dashboard",
     "build": "npm run build:shared && npm run build:server && npm run build:dashboard",
     "lint": "npm run lint --workspaces --if-present",
     "clean": "npm run clean -w @dash-agent/shared"
-  },
-  "devDependencies": {
-    "concurrently": "^8.2.2"
   },
   "engines": {
     "node": ">=18.0.0"
