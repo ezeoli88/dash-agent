@@ -21,7 +21,7 @@ interface ApiErrorResponse {
 }
 
 // Base URL from environment variables
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 
 // Custom error class for API errors
 export class ApiClientError extends Error {
@@ -46,7 +46,7 @@ interface RequestOptions extends Omit<RequestInit, 'body'> {
 
 // Build URL with query parameters
 function buildUrl(endpoint: string, params?: Record<string, string | number | boolean | undefined>): string {
-  const url = new URL(endpoint, API_BASE_URL);
+  const url = new URL(`/api${endpoint}`, API_BASE_URL);
 
   if (params) {
     Object.entries(params).forEach(([key, value]) => {

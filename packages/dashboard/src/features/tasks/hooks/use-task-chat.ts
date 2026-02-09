@@ -33,7 +33,18 @@ export function useTaskChat(options: UseTaskChatOptions) {
       )
       if (existingIndex >= 0) {
         const updated = [...prev]
-        updated[existingIndex] = { type: 'tool', data: event }
+        const existing = prev[existingIndex].data as ToolActivityEvent
+        // Merge: preserve name and summary from the original tool_use event
+        // tool_result events come with name='' and summary='done', which would wipe useful info
+        updated[existingIndex] = {
+          type: 'tool',
+          data: {
+            ...existing,
+            status: event.status,
+            name: event.name || existing.name,
+            summary: event.status === 'error' ? (event.summary || existing.summary) : existing.summary,
+          },
+        }
         return updated
       }
       return [...prev, { type: 'tool', data: event }]

@@ -1,7 +1,7 @@
 'use client'
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useRouter } from 'next/navigation'
+import { useRouter } from '@tanstack/react-router'
 import { taskKeys } from './query-keys'
 import { tasksApi } from '@/lib/api-client'
 import { toast } from 'sonner'
@@ -151,7 +151,7 @@ export function useTaskActions(taskId: string) {
       toast.success('Task deleted')
       queryClient.removeQueries({ queryKey: taskKeys.detail(taskId) })
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() })
-      router.push('/board')
+      router.navigate({ to: '/board' })
     },
     onError: (error: Error) => {
       toast.error(`Failed to delete task: ${error.message}`)

@@ -7,13 +7,12 @@ Dashboard web para gestionar tareas de un agente IA autonomo. Permite crear tare
 ```
 dash-agent/
 ├── packages/
-│   ├── cli/              # CLI entry point (future - dash-agent command)
-│   ├── dashboard/        # Next.js 16.1 frontend application
-│   ├── server/           # Express backend API
+│   ├── cli/              # npx agent-board CLI wrapper
+│   ├── dashboard/        # Vite + React SPA frontend
+│   ├── server/           # Bun + Express backend API
 │   └── shared/           # Shared types and schemas
 ├── package.json          # Root workspace
-├── CLAUDE.md
-└── integration-plan.md   # npm publish plan
+└── CLAUDE.md
 ```
 
 ## Agent Usage Rules
@@ -26,18 +25,18 @@ Sub-agents MUST NOT leave background processes running (e.g., `npm run dev`, `np
 - The user should be the only one starting/stopping dev servers
 
 ### Frontend Development (MANDATORY)
-When working on ANY files inside the `packages/dashboard/` directory, you MUST use the `nextjs-eng` sub-agent via the Task tool. This includes:
+When working on ANY files inside the `packages/dashboard/` directory, you MUST use the `frontend-engineer` sub-agent via the Task tool. This includes:
 - Creating new components
 - Editing existing components
 - Fixing bugs in frontend code
 - Adding new pages or routes
 - Modifying styles or layouts
 - Installing dependencies
-- Any React/Next.js related work
+- Any React/Vite/TanStack Router related work
 
 Example:
 ```
-Task tool with subagent_type: "nextjs-eng"
+Task tool with subagent_type: "frontend-engineer"
 ```
 
 ### Backend Development (MANDATORY)
@@ -49,7 +48,7 @@ When working on ANY files inside the `packages/server/` directory, you MUST use 
 - Database operations
 - Authentication/Authorization
 - AI/LLM integrations
-- Any Python/Node.js backend work
+- Any Bun/Express backend work
 
 Example:
 ```
@@ -73,8 +72,9 @@ Task tool with subagent_type: "fullstack-ts-eng"
 ## Tech Stack
 
 ### Frontend (packages/dashboard/)
-- **Next.js 16.1** with App Router
-- **React 19.2**
+- **Vite 7** as bundler
+- **React 19.2** SPA
+- **TanStack Router** for code-based routing
 - **TypeScript** (strict mode)
 - **Tailwind CSS 4**
 - **shadcn/ui** for UI components
@@ -83,50 +83,34 @@ Task tool with subagent_type: "fullstack-ts-eng"
 - **next-themes** for dark mode
 
 ### Backend (packages/server/)
+- **Bun** as runtime (replaces Node.js/tsx)
 - **Express** with TypeScript
 - **sql.js** for SQLite database
 - **OpenAI** for AI agent
 - **Octokit** for GitHub integration
+- All routes prefixed with `/api/` (e.g., `/api/tasks`, `/api/repos`)
+- Serves static frontend files + SPA fallback in production
+- `bin.ts` entry point for `bun build --compile` standalone binary
+
+### CLI (packages/cli/)
+- Lightweight npm wrapper for `npx agent-board`
+- Downloads platform-specific binary from GitHub Releases
+- Caches binary in `~/.cache/agent-board/v{version}/`
 
 ### Shared (packages/shared/)
 - **Zod** for schemas and validation
 - Shared types for frontend and backend
 
-### Development Server
-- Dashboard runs on **port 3003** (port 3000 is occupied)
-- Server runs on **port 3000**
-- Command: `npm run dev` (from root)
-
-## Implementation Plan
-See `packages/dashboard/frontend-plan.md` for the complete frontend implementation plan with phases:
-- Phase 1: Setup - COMPLETED
-- Phase 2: UI Components - COMPLETED
-- Phase 3: Layout and Navigation - COMPLETED
-- Phase 4: Task List - COMPLETED
-- Phase 5: Task Detail - COMPLETED
-- Phase 6: Create Task - COMPLETED
-- Phase 7: Task Actions - COMPLETED
-- Phase 8: Real-time Logs (SSE) - COMPLETED
-- Phase 9: Diff Viewer - COMPLETED
-- Phase 10: Feedback - COMPLETED
-- Phase 11: Polish - COMPLETED
-- Phase 12: Refactoring
-- Phase 13: Testing
-
-See `cli-integration-plan.md` for the Multi-Agent CLI integration plan.
-See `integration-plan.md` for the npm publish plan.
-
-## Plan Tracking (MANDATORY)
-When implementing phases from any plan file (e.g., `cli-integration-plan.md`, `frontend-plan.md`):
-- **After completing each sub-task**, update the plan file marking it with ✅
-- **After completing a full phase**, mark the phase header with ✅ COMPLETADA
-- **Update the file status table** (Archivos Críticos) with ✅ for completed items
-- This ensures progress is always visible and trackable across sessions
+### Development
+- Dashboard runs on **port 3003** (Vite dev server)
+- Server runs on **port 3000** (Bun)
+- Vite proxies `/api` requests to server in dev mode
+- Command: `npm run dev` (from root, runs both concurrently)
 
 ## Key Directories
 
 ### Dashboard (packages/dashboard/)
-- `packages/dashboard/src/app/` - Next.js App Router pages
+- `packages/dashboard/src/app/` - Page components
 - `packages/dashboard/src/components/ui/` - shadcn/ui components
 - `packages/dashboard/src/components/layout/` - Layout components (Header, Sidebar, etc.)
 - `packages/dashboard/src/components/shared/` - Shared components (StatusBadge, EmptyState, etc.)
@@ -135,10 +119,14 @@ When implementing phases from any plan file (e.g., `cli-integration-plan.md`, `f
 - `packages/dashboard/src/stores/` - Zustand stores
 
 ### Server (packages/server/)
-- `packages/server/src/` - Backend source code
-- `packages/server/src/routes/` - API routes
+- `packages/server/src/index.ts` - Express app + static serving + SPA fallback
+- `packages/server/src/bin.ts` - Binary entry point (`bun build --compile`)
+- `packages/server/src/routes/` - API routes (all under `/api/`)
 - `packages/server/src/services/` - Business logic services
 - `packages/server/src/db/` - Database layer
+
+### CLI (packages/cli/)
+- `packages/cli/bin/cli.js` - npx entry point (downloads + runs binary)
 
 ### Shared (packages/shared/)
 - `packages/shared/src/schemas/` - Zod schemas
@@ -146,8 +134,7 @@ When implementing phases from any plan file (e.g., `cli-integration-plan.md`, `f
 
 ## Environment Variables
 ```
-NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
-API_BASE_URL=http://localhost:3000
+VITE_API_BASE_URL=http://localhost:3000
 ```
 
 ## npm Workspace Commands
@@ -158,7 +145,7 @@ npm install
 # Build all packages (order matters: shared -> server -> dashboard)
 npm run build
 
-# Development mode (runs server and dashboard concurrently)
+# Development mode (runs server + dashboard concurrently)
 npm run dev
 
 # Build specific packages
@@ -167,6 +154,12 @@ npm run build:server
 npm run build:dashboard
 
 # Run specific package in dev mode
-npm run dev:server
-npm run dev:dashboard
+npm run dev:server    # bun run --watch
+npm run dev:dashboard # vite
+
+# Build standalone binary (requires Bun)
+npm run build:binary         # current platform
+npm run build:binary:win     # Windows x64
+npm run build:binary:mac     # macOS x64
+npm run build:binary:linux   # Linux x64
 ```

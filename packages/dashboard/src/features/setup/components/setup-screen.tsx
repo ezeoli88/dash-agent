@@ -1,7 +1,7 @@
 'use client'
 
 import { ArrowRight, Lightbulb } from 'lucide-react'
-import { useRouter } from 'next/navigation'
+import { useRouter } from '@tanstack/react-router'
 import { Button } from '@/components/ui/button'
 import { AgentSelector } from './agent-selector'
 import { useSetupStatus } from '../hooks/use-setup-status'
@@ -14,7 +14,7 @@ export function SetupScreen() {
 
   const handleContinue = () => {
     finishSetup()
-    router.replace('/repos')
+    router.navigate({ to: '/repos' })
   }
 
   return (

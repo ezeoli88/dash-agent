@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter } from '@tanstack/react-router'
 import { useTheme } from 'next-themes'
 import { Command } from 'cmdk'
 import {
@@ -47,7 +47,7 @@ export function CommandPalette() {
   const handleSearchTasks = useCallback(() => {
     if (search.trim()) {
       setSearchQuery(search.trim())
-      router.push('/board')
+      router.navigate({ to: '/board' })
     }
   }, [search, setSearchQuery, router])
 
@@ -98,15 +98,15 @@ export function CommandPalette() {
 
             {/* Navigation */}
             <Command.Group heading="Navigation">
-              <CommandItem onSelect={() => runCommand(() => router.push('/board'))}>
+              <CommandItem onSelect={() => runCommand(() => router.navigate({ to: '/board' }))}>
                 <ClipboardList className="mr-2 h-4 w-4" />
                 <span>Go to Tasks</span>
               </CommandItem>
-              <CommandItem onSelect={() => runCommand(() => router.push('/'))}>
+              <CommandItem onSelect={() => runCommand(() => router.navigate({ to: '/' }))}>
                 <Home className="mr-2 h-4 w-4" />
                 <span>Go to Home</span>
               </CommandItem>
-              <CommandItem onSelect={() => runCommand(() => router.push('/settings'))}>
+              <CommandItem onSelect={() => runCommand(() => router.navigate({ to: '/settings' }))}>
                 <Settings className="mr-2 h-4 w-4" />
                 <span>Go to Settings</span>
               </CommandItem>

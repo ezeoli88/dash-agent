@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { getDatabase, saveDatabase } from '../db/database.js';
+import { getDatabase } from '../db/database.js';
 import { createLogger } from '../utils/logger.js';
 import { getErrorMessage } from '../utils/errors.js';
 import { createStackDetector, DEFAULT_DETECTED_STACK } from './stack-detector.service.js';
@@ -59,66 +59,64 @@ export interface ClearPatternsResponse {
 const logger = createLogger('repo-service');
 
 /**
- * Database row for a repository
+ * Get active task count for a repository URL from the tasks DB table.
+ * Tasks are still persisted in SQLite, so we query the DB for counts.
  */
-interface RepositoryRow {
-  id: string;
-  name: string;
-  url: string;
-  default_branch: string;
-  detected_stack: string | null;
-  conventions: string | null;
-  learned_patterns: string | null;
-  created_at: string;
-  updated_at: string;
+function getActiveTaskCount(repoUrl: string): number {
+  try {
+    const db = getDatabase();
+    const result = db.exec(
+      `SELECT COUNT(*) as count FROM tasks WHERE repo_url = ? AND status NOT IN ('done', 'failed', 'cancelled')`,
+      [repoUrl]
+    );
+    if (result.length > 0 && result[0] && result[0].values[0]) {
+      return result[0].values[0][0] as number;
+    }
+  } catch {
+    // DB might not be initialized yet or tasks table might not exist
+  }
+  return 0;
 }
 
 /**
- * Parse a repository row from the database into a Repository object
+ * Get active task counts grouped by repo_url from the tasks DB table.
  */
-function parseRepositoryRow(row: RepositoryRow): Repository {
-  let detectedStack: DetectedStack = DEFAULT_DETECTED_STACK;
-  let learnedPatterns: LearnedPattern[] = [];
-
-  if (row.detected_stack) {
-    try {
-      detectedStack = JSON.parse(row.detected_stack) as DetectedStack;
-    } catch {
-      logger.warn('Failed to parse detected_stack', { repoId: row.id });
+function getActiveTaskCounts(): Map<string, number> {
+  const counts = new Map<string, number>();
+  try {
+    const db = getDatabase();
+    const result = db.exec(
+      `SELECT repo_url, COUNT(*) as count FROM tasks WHERE status NOT IN ('done', 'failed', 'cancelled') GROUP BY repo_url`
+    );
+    if (result.length > 0 && result[0]) {
+      for (const row of result[0].values) {
+        const url = row[0] as string;
+        const count = row[1] as number;
+        counts.set(url, count);
+      }
     }
+  } catch {
+    // DB might not be initialized yet or tasks table might not exist
   }
-
-  if (row.learned_patterns) {
-    try {
-      learnedPatterns = JSON.parse(row.learned_patterns) as LearnedPattern[];
-    } catch {
-      logger.warn('Failed to parse learned_patterns', { repoId: row.id });
-    }
-  }
-
-  return {
-    id: row.id,
-    name: row.name,
-    url: row.url,
-    default_branch: row.default_branch,
-    detected_stack: detectedStack,
-    conventions: row.conventions ?? '',
-    learned_patterns: learnedPatterns,
-    active_tasks_count: 0, // Will be populated separately if needed
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-  };
+  return counts;
 }
 
 /**
- * Repository service for managing repositories
+ * Repository service for managing repositories.
+ *
+ * Repositories are stored in-memory only. When the server restarts,
+ * all repo data is lost and the user must re-select repos on the /repos page.
+ * Tasks still reference repository_id in the DB, but the repo metadata itself
+ * is ephemeral.
  */
 export class RepoService {
+  /** In-memory store keyed by repository ID */
+  private repos = new Map<string, Repository>();
+
   /**
    * Create a new repository
    */
   async createRepository(input: CreateRepositoryInput, githubToken?: string): Promise<Repository> {
-    const db = getDatabase();
     const id = uuidv4();
     const now = new Date().toISOString();
 
@@ -142,25 +140,6 @@ export class RepoService {
       }
     }
 
-    const sql = `
-      INSERT INTO repositories (id, name, url, default_branch, detected_stack, conventions, learned_patterns, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-
-    db.run(sql, [
-      id,
-      input.name,
-      input.url,
-      input.default_branch,
-      JSON.stringify(detectedStack),
-      '', // Empty conventions initially
-      '[]', // Empty learned patterns
-      now,
-      now,
-    ]);
-
-    saveDatabase();
-
     const repository: Repository = {
       id,
       name: input.name,
@@ -174,39 +153,21 @@ export class RepoService {
       updated_at: now,
     };
 
-    logger.info('Repository created successfully', { id, name: input.name });
+    this.repos.set(id, repository);
 
-    return repository;
+    logger.info('Repository created successfully (in-memory)', { id, name: input.name });
+
+    return { ...repository };
   }
 
   /**
    * Create a new repository with a pre-computed stack (no GitHub API call)
    */
   async createRepositoryWithStack(input: CreateRepositoryInput, detectedStack: DetectedStack): Promise<Repository> {
-    const db = getDatabase();
     const id = uuidv4();
     const now = new Date().toISOString();
 
     logger.info('Creating repository with pre-computed stack', { name: input.name, url: input.url });
-
-    const sql = `
-      INSERT INTO repositories (id, name, url, default_branch, detected_stack, conventions, learned_patterns, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-
-    db.run(sql, [
-      id,
-      input.name,
-      input.url,
-      input.default_branch,
-      JSON.stringify(detectedStack),
-      '',
-      '[]',
-      now,
-      now,
-    ]);
-
-    saveDatabase();
 
     const repository: Repository = {
       id,
@@ -221,131 +182,67 @@ export class RepoService {
       updated_at: now,
     };
 
-    logger.info('Repository created successfully with stack', { id, name: input.name });
+    this.repos.set(id, repository);
 
-    return repository;
+    logger.info('Repository created successfully with stack (in-memory)', { id, name: input.name });
+
+    return { ...repository };
   }
 
   /**
    * Get all repositories
    */
   async getRepositories(): Promise<Repository[]> {
-    const db = getDatabase();
-    const sql = 'SELECT * FROM repositories ORDER BY created_at DESC';
-    const result = db.exec(sql);
+    const repositories = Array.from(this.repos.values())
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
 
-    if (result.length === 0 || !result[0]) {
-      return [];
+    // Get active task counts from the DB (tasks are still persisted)
+    const taskCounts = getActiveTaskCounts();
+
+    for (const repo of repositories) {
+      repo.active_tasks_count = taskCounts.get(repo.url) ?? 0;
     }
 
-    const columns = result[0].columns;
-    const values = result[0].values;
-
-    const repositories: Repository[] = values.map((row) => {
-      const rowObj: Record<string, unknown> = {};
-      columns.forEach((col, idx) => {
-        rowObj[col] = row[idx];
-      });
-      return parseRepositoryRow(rowObj as unknown as RepositoryRow);
-    });
-
-    // Get active task counts for each repository
-    const taskCountSql = `
-      SELECT repo_url, COUNT(*) as count
-      FROM tasks
-      WHERE status NOT IN ('done', 'failed', 'cancelled')
-      GROUP BY repo_url
-    `;
-    const taskCountResult = db.exec(taskCountSql);
-
-    if (taskCountResult.length > 0 && taskCountResult[0]) {
-      const taskCounts = new Map<string, number>();
-      for (const row of taskCountResult[0].values) {
-        const url = row[0] as string;
-        const count = row[1] as number;
-        taskCounts.set(url, count);
-      }
-
-      for (const repo of repositories) {
-        repo.active_tasks_count = taskCounts.get(repo.url) ?? 0;
-      }
-    }
-
-    return repositories;
+    return repositories.map((r) => ({ ...r }));
   }
 
   /**
    * Get a repository by ID
    */
   async getRepositoryById(id: string): Promise<Repository | null> {
-    const db = getDatabase();
-    const sql = 'SELECT * FROM repositories WHERE id = ?';
-    const stmt = db.prepare(sql);
-    stmt.bind([id]);
-
-    if (!stmt.step()) {
-      stmt.free();
+    const repo = this.repos.get(id);
+    if (!repo) {
       return null;
     }
 
-    const row = stmt.getAsObject() as unknown as RepositoryRow;
-    stmt.free();
+    // Get active task count from the DB
+    repo.active_tasks_count = getActiveTaskCount(repo.url);
 
-    const repository = parseRepositoryRow(row);
-
-    // Get active task count
-    const taskCountSql = `
-      SELECT COUNT(*) as count
-      FROM tasks
-      WHERE repo_url = ? AND status NOT IN ('done', 'failed', 'cancelled')
-    `;
-    const taskCountResult = db.exec(taskCountSql, [repository.url]);
-
-    if (taskCountResult.length > 0 && taskCountResult[0] && taskCountResult[0].values[0]) {
-      repository.active_tasks_count = taskCountResult[0].values[0][0] as number;
-    }
-
-    return repository;
+    return { ...repo };
   }
 
   /**
    * Update a repository
    */
   async updateRepository(id: string, input: UpdateRepositoryInput): Promise<Repository | null> {
-    const db = getDatabase();
-    const existing = await this.getRepositoryById(id);
-
-    if (!existing) {
+    const repo = this.repos.get(id);
+    if (!repo) {
       return null;
     }
 
     const now = new Date().toISOString();
-    const updates: string[] = [];
-    const values: (string | number | null)[] = [];
 
     if (input.default_branch !== undefined) {
-      updates.push('default_branch = ?');
-      values.push(input.default_branch);
+      repo.default_branch = input.default_branch;
     }
 
     if (input.conventions !== undefined) {
-      updates.push('conventions = ?');
-      values.push(input.conventions);
+      repo.conventions = input.conventions;
     }
 
-    if (updates.length === 0) {
-      return existing;
-    }
+    repo.updated_at = now;
 
-    updates.push('updated_at = ?');
-    values.push(now);
-    values.push(id);
-
-    const sql = `UPDATE repositories SET ${updates.join(', ')} WHERE id = ?`;
-    db.run(sql, values);
-    saveDatabase();
-
-    logger.info('Repository updated', { id });
+    logger.info('Repository updated (in-memory)', { id });
 
     return this.getRepositoryById(id);
   }
@@ -354,17 +251,14 @@ export class RepoService {
    * Delete a repository
    */
   async deleteRepository(id: string): Promise<boolean> {
-    const db = getDatabase();
-    const existing = await this.getRepositoryById(id);
-
-    if (!existing) {
+    const repo = this.repos.get(id);
+    if (!repo) {
       return false;
     }
 
-    db.run('DELETE FROM repositories WHERE id = ?', [id]);
-    saveDatabase();
+    this.repos.delete(id);
 
-    logger.info('Repository deleted', { id, name: existing.name });
+    logger.info('Repository deleted (in-memory)', { id, name: repo.name });
 
     return true;
   }
@@ -373,31 +267,24 @@ export class RepoService {
    * Re-detect the stack for a repository
    */
   async detectStack(id: string, githubToken: string): Promise<Repository | null> {
-    const repository = await this.getRepositoryById(id);
-
-    if (!repository) {
+    const repo = this.repos.get(id);
+    if (!repo) {
       return null;
     }
 
-    const [owner, repo] = repository.name.split('/');
-    if (!owner || !repo) {
-      logger.error('Invalid repository name format', { id, name: repository.name });
-      return repository;
+    const [owner, repoName] = repo.name.split('/');
+    if (!owner || !repoName) {
+      logger.error('Invalid repository name format', { id, name: repo.name });
+      return this.getRepositoryById(id);
     }
 
-    logger.info('Re-detecting stack for repository', { id, name: repository.name });
+    logger.info('Re-detecting stack for repository', { id, name: repo.name });
 
     const detector = createStackDetector(githubToken);
-    const result = await detector.detectStack(owner, repo, repository.default_branch);
+    const result = await detector.detectStack(owner, repoName, repo.default_branch);
 
-    const db = getDatabase();
-    const now = new Date().toISOString();
-
-    db.run(
-      'UPDATE repositories SET detected_stack = ?, updated_at = ? WHERE id = ?',
-      [JSON.stringify(result.detected_stack), now, id]
-    );
-    saveDatabase();
+    repo.detected_stack = result.detected_stack;
+    repo.updated_at = new Date().toISOString();
 
     logger.info('Stack re-detected successfully', {
       id,
@@ -415,9 +302,8 @@ export class RepoService {
     pattern: string,
     taskId: string
   ): Promise<Repository | null> {
-    const repository = await this.getRepositoryById(id);
-
-    if (!repository) {
+    const repo = this.repos.get(id);
+    if (!repo) {
       return null;
     }
 
@@ -428,16 +314,8 @@ export class RepoService {
       created_at: new Date().toISOString(),
     };
 
-    const updatedPatterns = [...repository.learned_patterns, newPattern];
-
-    const db = getDatabase();
-    const now = new Date().toISOString();
-
-    db.run(
-      'UPDATE repositories SET learned_patterns = ?, updated_at = ? WHERE id = ?',
-      [JSON.stringify(updatedPatterns), now, id]
-    );
-    saveDatabase();
+    repo.learned_patterns = [...repo.learned_patterns, newPattern];
+    repo.updated_at = new Date().toISOString();
 
     logger.info('Learned pattern added', { repoId: id, pattern, taskId });
 
@@ -448,22 +326,15 @@ export class RepoService {
    * Clear all learned patterns from a repository
    */
   async clearLearnedPatterns(id: string): Promise<ClearPatternsResponse> {
-    const repository = await this.getRepositoryById(id);
-
-    if (!repository) {
+    const repo = this.repos.get(id);
+    if (!repo) {
       return { success: false, cleared_count: 0 };
     }
 
-    const clearedCount = repository.learned_patterns.length;
+    const clearedCount = repo.learned_patterns.length;
 
-    const db = getDatabase();
-    const now = new Date().toISOString();
-
-    db.run(
-      'UPDATE repositories SET learned_patterns = ?, updated_at = ? WHERE id = ?',
-      ['[]', now, id]
-    );
-    saveDatabase();
+    repo.learned_patterns = [];
+    repo.updated_at = new Date().toISOString();
 
     logger.info('Learned patterns cleared', { repoId: id, clearedCount });
 
@@ -477,13 +348,12 @@ export class RepoService {
     repoId: string,
     patternId: string
   ): Promise<{ success: boolean; notFound?: 'repo' | 'pattern' }> {
-    const repository = await this.getRepositoryById(repoId);
-
-    if (!repository) {
+    const repo = this.repos.get(repoId);
+    if (!repo) {
       return { success: false, notFound: 'repo' };
     }
 
-    const patternIndex = repository.learned_patterns.findIndex(
+    const patternIndex = repo.learned_patterns.findIndex(
       (p) => p.id === patternId
     );
 
@@ -491,18 +361,10 @@ export class RepoService {
       return { success: false, notFound: 'pattern' };
     }
 
-    const updatedPatterns = repository.learned_patterns.filter(
+    repo.learned_patterns = repo.learned_patterns.filter(
       (p) => p.id !== patternId
     );
-
-    const db = getDatabase();
-    const now = new Date().toISOString();
-
-    db.run(
-      'UPDATE repositories SET learned_patterns = ?, updated_at = ? WHERE id = ?',
-      [JSON.stringify(updatedPatterns), now, repoId]
-    );
-    saveDatabase();
+    repo.updated_at = new Date().toISOString();
 
     logger.info('Learned pattern deleted', { repoId, patternId });
 
@@ -513,20 +375,12 @@ export class RepoService {
    * Get a repository by URL
    */
   async getRepositoryByUrl(url: string): Promise<Repository | null> {
-    const db = getDatabase();
-    const sql = 'SELECT * FROM repositories WHERE url = ?';
-    const stmt = db.prepare(sql);
-    stmt.bind([url]);
-
-    if (!stmt.step()) {
-      stmt.free();
-      return null;
+    for (const repo of this.repos.values()) {
+      if (repo.url === url) {
+        return { ...repo };
+      }
     }
-
-    const row = stmt.getAsObject() as unknown as RepositoryRow;
-    stmt.free();
-
-    return parseRepositoryRow(row);
+    return null;
   }
 }
 

@@ -5,9 +5,10 @@ import path from 'path';
 import { getConfig } from '../config.js';
 import { createLogger } from '../utils/logger.js';
 import { getErrorMessage } from '../utils/errors.js';
-import { repoUrlToDir, toAuthenticatedCloneUrl, parseGitHubUrl } from '../utils/github-url.js';
+import { repoUrlToDir, toAuthenticatedCloneUrl, isLocalRepoUrl, localRepoPath } from '../utils/github-url.js';
+import { isGitLabUrl } from '../utils/gitlab-url.js';
 import { killProcessesForTask, killProcessesInDirectory } from '../utils/process-killer.js';
-import { getGitHubCredentials } from './secrets.service.js';
+import { getGitHubCredentials, getGitLabCredentials } from './secrets.service.js';
 
 const logger = createLogger('git-service');
 
@@ -280,6 +281,21 @@ export class GitService {
   }
 
   /**
+   * Gets the appropriate git token for a given repository URL.
+   * Returns the GitLab token for GitLab URLs, GitHub token for everything else.
+   */
+  private getTokenForUrl(repoUrl: string): string {
+    if (isGitLabUrl(repoUrl)) {
+      const gitlabCreds = getGitLabCredentials();
+      if (gitlabCreds?.token) {
+        return gitlabCreds.token;
+      }
+    }
+    // Fallback to GitHub token (also used as default for unknown providers)
+    return this.githubToken;
+  }
+
+  /**
    * Checks if a bare repository is empty (has no commits).
    * An empty repository has no branches and no commits.
    *
@@ -327,14 +343,22 @@ export class GitService {
 
     logger.info('Cloning bare repository', { repoUrl, bareRepoPath });
 
-    // Clone as bare repository with authentication
-    const cloneUrl = this.githubToken
-      ? toAuthenticatedCloneUrl(repoUrl, this.githubToken)
-      : repoUrl;
+    // Clone as bare repository - use raw path for local repos, authenticated URL for remote
+    const token = this.getTokenForUrl(repoUrl);
+    const cloneUrl = isLocalRepoUrl(repoUrl)
+      ? localRepoPath(repoUrl)
+      : (token ? toAuthenticatedCloneUrl(repoUrl, token) : repoUrl);
 
     try {
       await execGitOrThrow(['clone', '--bare', cloneUrl, bareRepoPath]);
       logger.info('Bare repository cloned successfully', { bareRepoPath });
+
+      // For local repos, the bare clone's origin points to the local path.
+      // Update it to the source repo's actual remote so push/PR operations
+      // go to the correct remote (GitHub/GitLab).
+      if (isLocalRepoUrl(repoUrl)) {
+        await this.copySourceRemoteToBareRepo(localRepoPath(repoUrl), bareRepoPath);
+      }
     } catch (error) {
       // Clean up partial clone on failure
       await fs.rm(bareRepoPath, { recursive: true, force: true }).catch((cleanupError) => {
@@ -358,7 +382,7 @@ export class GitService {
    * @param targetBranch - Optional branch to specifically update (e.g., 'main')
    * @returns True if fetch was successful or skipped (empty repo), false otherwise
    */
-  async fetchRepo(bareRepoPath: string, targetBranch?: string): Promise<void> {
+  async fetchRepo(bareRepoPath: string, targetBranch?: string, repoUrl?: string): Promise<void> {
     logger.debug('Fetching latest changes', { bareRepoPath, targetBranch });
 
     // Check if repository is empty - if so, skip fetch
@@ -368,13 +392,40 @@ export class GitService {
       return;
     }
 
+    // For local repos, just fetch the target branch directly (no prune)
+    // git fetch origin --prune fails on local file:// repos with "couldn't find remote ref HEAD"
+    if (repoUrl && isLocalRepoUrl(repoUrl)) {
+      const repoPath = localRepoPath(repoUrl);
+      if (targetBranch) {
+        try {
+          // Fetch directly from the local path (not origin) to avoid stale remote config
+          await execGitOrThrow(
+            ['fetch', repoPath, `${targetBranch}:${targetBranch}`, '--force'],
+            bareRepoPath
+          );
+          logger.debug('Fetched local repo branch', { targetBranch, repoPath });
+        } catch (error) {
+          logger.warn('Could not fetch local branch, will use existing', {
+            targetBranch,
+            error: getErrorMessage(error),
+          });
+        }
+      }
+      logger.info('Local repository fetched successfully', { bareRepoPath });
+      return;
+    }
+
+    // Determine git credentials username based on provider
+    const gitUsername = (repoUrl && isGitLabUrl(repoUrl)) ? 'oauth2' : 'x-access-token';
+
     // Set up authentication for fetch if we have a token
+    const token = this.getTokenForUrl(repoUrl ?? '');
     const env: Record<string, string> = {};
-    if (this.githubToken) {
+    if (token) {
       // Use credential helper to provide token
       env['GIT_ASKPASS'] = 'echo';
-      env['GIT_USERNAME'] = 'x-access-token';
-      env['GIT_PASSWORD'] = this.githubToken;
+      env['GIT_USERNAME'] = gitUsername;
+      env['GIT_PASSWORD'] = token;
     }
 
     // Fetch all changes first
@@ -454,7 +505,7 @@ export class GitService {
         const isEmptyRepo = await this.isEmptyRepo(bareRepoPath);
 
         if (!isEmptyRepo) {
-          await this.fetchRepo(bareRepoPath, targetBranch);
+          await this.fetchRepo(bareRepoPath, targetBranch, repoUrl);
 
           // Merge latest changes from targetBranch to keep branch up to date
           // The local targetBranch ref was updated by fetchRepo to match origin
@@ -612,7 +663,7 @@ export class GitService {
 
     // Ensure bare repo exists and is up to date (including the target branch)
     const bareRepoPath = await this.ensureBareRepo(repoUrl);
-    await this.fetchRepo(bareRepoPath, targetBranch);
+    await this.fetchRepo(bareRepoPath, targetBranch, repoUrl);
 
     // Check if repository is empty
     const isEmptyRepo = await this.isEmptyRepo(bareRepoPath);
@@ -851,33 +902,36 @@ export class GitService {
   async pushBranch(worktreePath: string, branchName: string): Promise<void> {
     logger.debug('Pushing branch', { worktreePath, branchName });
 
+    // Get the remote URL to detect the provider
+    const remoteResult = await execGit(['remote', 'get-url', 'origin'], worktreePath);
+    const remoteUrl = remoteResult.exitCode === 0 ? remoteResult.stdout : '';
+
+    // Determine git credentials username based on provider
+    const gitUsername = isGitLabUrl(remoteUrl) ? 'oauth2' : 'x-access-token';
+
+    // Get the correct token for this remote
+    const token = this.getTokenForUrl(remoteUrl);
+
     // Set up authentication for push if we have a token
     const env: Record<string, string> = {};
-    if (this.githubToken) {
+    if (token) {
       env['GIT_ASKPASS'] = 'echo';
-      env['GIT_USERNAME'] = 'x-access-token';
-      env['GIT_PASSWORD'] = this.githubToken;
+      env['GIT_USERNAME'] = gitUsername;
+      env['GIT_PASSWORD'] = token;
     }
 
-    // Get the remote URL and update it with authentication
-    if (this.githubToken) {
-      const remoteResult = await execGit(['remote', 'get-url', 'origin'], worktreePath);
-      if (remoteResult.exitCode === 0) {
-        const remoteUrl = remoteResult.stdout;
-        try {
-          const parsed = parseGitHubUrl(remoteUrl);
-          const authUrl = toAuthenticatedCloneUrl(
-            `https://github.com/${parsed.owner}/${parsed.repo}`,
-            this.githubToken
-          );
-          await execGitOrThrow(['remote', 'set-url', 'origin', authUrl], worktreePath);
-        } catch (error) {
-          // If parsing fails, continue with existing URL
-          logger.warn('Could not parse remote URL for authentication', {
-            remoteUrl,
-            error: getErrorMessage(error),
-          });
-        }
+    // Update remote URL with authentication (skip for local repos)
+    if (token && remoteUrl && !isLocalRepoUrl(remoteUrl)) {
+      try {
+        // toAuthenticatedCloneUrl detects provider and uses the correct auth format
+        const authUrl = toAuthenticatedCloneUrl(remoteUrl, token);
+        await execGitOrThrow(['remote', 'set-url', 'origin', authUrl], worktreePath);
+      } catch (error) {
+        // If parsing fails, continue with existing URL
+        logger.warn('Could not parse remote URL for authentication', {
+          remoteUrl,
+          error: getErrorMessage(error),
+        });
       }
     }
 
@@ -1126,17 +1180,31 @@ export class GitService {
   }
 
   /**
-   * Gets the diff of uncommitted changes in a worktree.
+   * Gets the diff of changes in a worktree.
+   * When baseBranch is provided, includes committed changes against that branch.
    *
    * @param worktreePath - Path to the worktree
+   * @param baseBranch - Optional base branch to diff committed changes against
    * @returns The diff output
    */
-  async getDiff(worktreePath: string): Promise<string> {
-    // Get diff of staged and unstaged changes
+  async getDiff(worktreePath: string, baseBranch?: string): Promise<string> {
+    let diff = '';
+
+    // Get committed changes against base branch (the main diff)
+    if (baseBranch) {
+      const branchCheck = await execGit(['rev-parse', '--verify', baseBranch], worktreePath);
+      if (branchCheck.exitCode === 0) {
+        const committedResult = await execGit(['diff', baseBranch, 'HEAD'], worktreePath);
+        if (committedResult.stdout) {
+          diff += committedResult.stdout + '\n';
+        }
+      }
+    }
+
+    // Also include any uncommitted changes (staged + unstaged)
     const stagedResult = await execGit(['diff', '--cached'], worktreePath);
     const unstagedResult = await execGit(['diff'], worktreePath);
 
-    let diff = '';
     if (stagedResult.stdout) {
       diff += '=== Staged Changes ===\n' + stagedResult.stdout + '\n';
     }
@@ -1333,7 +1401,7 @@ export class GitService {
             break;
         }
       } catch (error) {
-        logger.debug('Failed to get file content for diff', { filePath, status, error: getErrorMessage(error) });
+        logger.warn('Failed to get file content for diff', { filePath, status, error: getErrorMessage(error) });
         // Continue without content
       }
 
@@ -1356,7 +1424,50 @@ export class GitService {
       changedFiles.push(changedFile);
     }
 
+    logger.info('getChangedFiles result', {
+      totalFiles: changedFiles.length,
+      withContent: changedFiles.filter(f => f.oldContent !== undefined || f.newContent !== undefined).length,
+      baseBranch,
+      baseBranchExists: baseBranchExists.exitCode === 0,
+    });
+
     return changedFiles;
+  }
+
+  /**
+   * Copies the source repo's remote "origin" URL to a bare repo.
+   * When cloning --bare from a local path, the bare repo's origin points to
+   * the local path. This method reads the source repo's actual remote and
+   * sets it on the bare repo so push/PR operations target the correct host.
+   */
+  private async copySourceRemoteToBareRepo(sourcePath: string, bareRepoPath: string): Promise<void> {
+    try {
+      const result = await execGit(['remote', 'get-url', 'origin'], sourcePath);
+      if (result.exitCode === 0 && result.stdout) {
+        const sourceRemote = result.stdout;
+        // Only update if the source remote is a real URL (not another local path)
+        if (sourceRemote.includes('github.com') || sourceRemote.includes('gitlab.com') || sourceRemote.startsWith('https://') || sourceRemote.startsWith('git@')) {
+          await execGitOrThrow(['remote', 'set-url', 'origin', sourceRemote], bareRepoPath);
+          logger.info('Updated bare repo origin to source remote', { sourceRemote, bareRepoPath });
+        }
+      }
+    } catch (error) {
+      logger.debug('Could not copy source remote to bare repo', { sourcePath, error: getErrorMessage(error) });
+    }
+  }
+
+  /**
+   * Gets the remote "origin" URL configured in a worktree (or bare repo).
+   *
+   * @param repoPath - Path to the worktree or bare repo
+   * @returns The remote URL or null if not found
+   */
+  async getRemoteUrl(repoPath: string): Promise<string | null> {
+    const result = await execGit(['remote', 'get-url', 'origin'], repoPath);
+    if (result.exitCode === 0 && result.stdout) {
+      return result.stdout;
+    }
+    return null;
   }
 
   /**

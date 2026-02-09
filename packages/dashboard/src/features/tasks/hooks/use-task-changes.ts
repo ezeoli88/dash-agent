@@ -12,6 +12,6 @@ export function useTaskChanges(taskId: string, enabled = true) {
     queryKey: taskKeys.changes(taskId),
     queryFn: () => tasksApi.getChanges(taskId),
     enabled: enabled && Boolean(taskId),
-    staleTime: 60_000, // 1 minute
+    staleTime: 0, // Always refetch - diffs change frequently while agent works
   })
 }

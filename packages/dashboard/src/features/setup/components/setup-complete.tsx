@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter } from '@tanstack/react-router'
 import { Check, Rocket } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useSetupStatus } from '../hooks/use-setup-status'
@@ -16,7 +16,7 @@ export function SetupComplete() {
 
   useEffect(() => {
     if (countdown <= 0) {
-      router.push('/board')
+      router.navigate({ to: '/board' })
       return
     }
 
@@ -69,7 +69,7 @@ export function SetupComplete() {
           <Button
             size="lg"
             className="w-full"
-            onClick={() => router.push('/board')}
+            onClick={() => router.navigate({ to: '/board' })}
           >
             <Rocket className="mr-2 size-4" />
             Ir al Dashboard

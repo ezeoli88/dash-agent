@@ -6,6 +6,7 @@ import {
   deleteSecret,
   getAIStatus,
   getGitHubStatus,
+  getGitLabStatus,
   getAllSecretsStatus,
 } from '../services/secrets.service.js';
 import { validateAPIKey, validateOpenRouterKey, getModelInfo } from '../services/ai-provider.service.js';
@@ -14,6 +15,8 @@ import {
   SaveAISecretRequestSchema,
   SaveGitHubSecretRequestSchema,
   ValidateGitHubPATRequestSchema,
+  SaveGitLabSecretRequestSchema,
+  ValidateGitLabPATRequestSchema,
 } from '@dash-agent/shared';
 
 const logger = createLogger('routes:secrets');
@@ -345,6 +348,131 @@ router.post('/github/validate-pat', async (req: Request, res: Response, next: Ne
 });
 
 // =============================================================================
+// GitLab Secret Endpoints
+// =============================================================================
+
+/**
+ * POST /secrets/gitlab - Save a GitLab token
+ */
+router.post('/gitlab', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    logger.info('POST /secrets/gitlab');
+
+    const parseResult = SaveGitLabSecretRequestSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      res.status(400).json(formatZodError(parseResult.error));
+      return;
+    }
+
+    const { token, username, avatarUrl } = parseResult.data;
+
+    // If username not provided, validate the token and fetch user info
+    let finalUsername = username;
+    let finalAvatarUrl = avatarUrl;
+
+    if (!finalUsername) {
+      const userInfo = await fetchGitLabUserInfo(token);
+      if (!userInfo) {
+        res.status(400).json({
+          success: false,
+          error: 'Invalid GitLab token or failed to fetch user info',
+        });
+        return;
+      }
+      finalUsername = userInfo.username;
+      finalAvatarUrl = userInfo.avatar_url;
+    }
+
+    const metadata: Record<string, unknown> = {
+      username: finalUsername,
+    };
+
+    if (finalAvatarUrl) {
+      metadata['avatarUrl'] = finalAvatarUrl;
+    }
+
+    saveSecret('gitlab_token', 'gitlab', token, metadata);
+
+    logger.info('GitLab secret saved successfully', { username: finalUsername });
+
+    res.json({
+      success: true,
+      username: finalUsername,
+      avatarUrl: finalAvatarUrl,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * DELETE /secrets/gitlab - Delete the stored GitLab token
+ */
+router.delete('/gitlab', (_req: Request, res: Response, next: NextFunction): void => {
+  try {
+    logger.info('DELETE /secrets/gitlab');
+
+    const deleted = deleteSecret('gitlab_token', 'gitlab');
+
+    res.json({
+      success: deleted,
+      message: deleted ? 'GitLab token deleted' : 'No GitLab token was stored',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /secrets/gitlab/status - Get GitLab connection status
+ */
+router.get('/gitlab/status', (_req: Request, res: Response, next: NextFunction): void => {
+  try {
+    logger.info('GET /secrets/gitlab/status');
+
+    const status = getGitLabStatus();
+    res.json(status);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /secrets/gitlab/validate-pat - Validate a GitLab Personal Access Token
+ */
+router.post('/gitlab/validate-pat', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    logger.info('POST /secrets/gitlab/validate-pat');
+
+    const parseResult = ValidateGitLabPATRequestSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      res.status(400).json(formatZodError(parseResult.error));
+      return;
+    }
+
+    const { token } = parseResult.data;
+
+    const userInfo = await fetchGitLabUserInfo(token);
+
+    if (!userInfo) {
+      res.json({
+        valid: false,
+        error: 'Invalid token or unable to authenticate with GitLab',
+      });
+      return;
+    }
+
+    res.json({
+      valid: true,
+      username: userInfo.username,
+      avatarUrl: userInfo.avatar_url,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// =============================================================================
 // Combined Status Endpoint
 // =============================================================================
 
@@ -393,6 +521,32 @@ async function fetchGitHubUserInfo(token: string): Promise<{ login: string; avat
     return { login: data.login, avatar_url: data.avatar_url };
   } catch (error) {
     logger.error('GitHub user info fetch error', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+/**
+ * Fetches GitLab user info using a token
+ */
+async function fetchGitLabUserInfo(token: string): Promise<{ username: string; avatar_url: string } | null> {
+  try {
+    const response = await fetch('https://gitlab.com/api/v4/user', {
+      headers: {
+        'PRIVATE-TOKEN': token,
+      },
+    });
+
+    if (!response.ok) {
+      logger.warn('GitLab user info fetch failed', { status: response.status });
+      return null;
+    }
+
+    const data = await response.json() as { username: string; avatar_url: string };
+    return { username: data.username, avatar_url: data.avatar_url };
+  } catch (error) {
+    logger.error('GitLab user info fetch error', {
       error: error instanceof Error ? error.message : String(error),
     });
     return null;

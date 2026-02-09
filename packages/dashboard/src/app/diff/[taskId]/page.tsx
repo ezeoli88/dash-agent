@@ -1,7 +1,6 @@
 'use client'
 
-import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { Link, useParams } from '@tanstack/react-router'
 import { ChevronRight, ArrowLeft, AlertCircle, FileQuestion } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -10,8 +9,7 @@ import { TaskDiff, TaskDiffSkeleton } from '@/features/tasks/components/task-dif
 import { ApiClientError } from '@/lib/api-client'
 
 export default function DiffPage() {
-  const params = useParams<{ taskId: string }>()
-  const taskId = params.taskId
+  const { taskId } = useParams({ strict: false }) as { taskId: string }
 
   const { data: task, isLoading, error } = useTask(taskId)
 
@@ -56,7 +54,7 @@ export default function DiffPage() {
       <div className="flex items-center justify-between">
         <Breadcrumb taskId={taskId} taskTitle={task.title} />
         <Button variant="outline" size="sm" asChild>
-          <Link href="/board">
+          <Link to="/board">
             <ArrowLeft className="mr-1.5 size-3.5" />
             Back to Board
           </Link>
@@ -70,11 +68,11 @@ export default function DiffPage() {
 function Breadcrumb({ taskId, taskTitle }: { taskId: string; taskTitle?: string }) {
   return (
     <nav className="flex items-center space-x-1 text-sm text-muted-foreground">
-      <Link href="/board" className="hover:text-foreground transition-colors">
+      <Link to="/board" className="hover:text-foreground transition-colors">
         Tasks
       </Link>
       <ChevronRight className="h-4 w-4" />
-      <Link href={`/tasks/${taskId}`} className="hover:text-foreground transition-colors">
+      <Link to={`/tasks/${taskId}`} className="hover:text-foreground transition-colors">
         {taskTitle || `Task ${taskId}`}
       </Link>
       <ChevronRight className="h-4 w-4" />
@@ -93,7 +91,7 @@ function NotFoundState({ taskId }: { taskId: string }) {
           The task with ID &quot;{taskId}&quot; could not be found.
         </p>
         <Button asChild>
-          <Link href="/board">Back to Tasks</Link>
+          <Link to="/board">Back to Tasks</Link>
         </Button>
       </CardContent>
     </Card>

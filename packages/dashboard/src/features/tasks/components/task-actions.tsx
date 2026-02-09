@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
+import { Link } from '@tanstack/react-router'
 import {
   Play,
   XCircle,
@@ -134,12 +134,6 @@ function getActionsForStatus(task: Task): ActionConfig[] {
       },
     ],
     plan_review: [
-      {
-        type: 'approve_plan',
-        label: 'Approve Plan',
-        icon: <CheckCircle className="h-4 w-4" />,
-        variant: 'default',
-      },
       {
         type: 'cancel',
         label: 'Cancel',
@@ -649,7 +643,7 @@ export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
       <>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" asChild>
-            <Link href={`/diff/${task.id}`}>
+            <Link to={`/diff/${task.id}`}>
               <GitCompareArrows className="h-4 w-4" />
               Diff
             </Link>

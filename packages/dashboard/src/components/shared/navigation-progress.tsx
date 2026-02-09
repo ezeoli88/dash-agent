@@ -1,12 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { usePathname, useSearchParams } from 'next/navigation'
+import { useLocation } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
 
 export function NavigationProgress() {
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
+  const { pathname, search } = useLocation()
   const [isNavigating, setIsNavigating] = useState(false)
   const [progress, setProgress] = useState(0)
 
@@ -20,7 +19,7 @@ export function NavigationProgress() {
     }, 200)
 
     return () => clearTimeout(timeout)
-  }, [pathname, searchParams])
+  }, [pathname, search])
 
   // Listen for navigation start events
   useEffect(() => {

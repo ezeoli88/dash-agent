@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, type ReactNode } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
+import { useRouter, useLocation } from '@tanstack/react-router'
 import { useSecretsStatus } from '../hooks/use-secrets-status'
 import { useSetupStore } from '../stores/setup-store'
 
@@ -24,7 +24,7 @@ interface SetupGuardProps {
  */
 export function SetupGuard({ children }: SetupGuardProps) {
   const router = useRouter()
-  const pathname = usePathname()
+  const { pathname } = useLocation()
 
   // Fetch secrets status from server
   const { data: serverStatus, isLoading, isError } = useSecretsStatus()
@@ -61,10 +61,10 @@ export function SetupGuard({ children }: SetupGuardProps) {
 
     if (!isComplete && !isSetupPage) {
       // User needs to complete setup
-      router.replace('/setup')
+      router.navigate({ to: '/setup' })
     } else if (isComplete && isSetupPage) {
       // Setup complete, redirect to repos selection
-      router.replace('/repos')
+      router.navigate({ to: '/repos' })
     }
   }, [serverStatus, localIsComplete, pathname, router, isLoading])
 

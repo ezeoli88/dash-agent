@@ -1,7 +1,6 @@
 'use client'
 
-import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { Link, useParams } from '@tanstack/react-router'
 import { ChevronRight, AlertCircle, FileQuestion } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -11,8 +10,7 @@ import { TaskDetailSkeleton } from '@/features/tasks/components/task-detail-skel
 import { ApiClientError } from '@/lib/api-client'
 
 export default function TaskDetailPage() {
-  const params = useParams<{ taskId: string }>()
-  const taskId = params.taskId
+  const { taskId } = useParams({ strict: false }) as { taskId: string }
 
   const { data: task, isLoading, error } = useTask(taskId)
 
@@ -68,7 +66,7 @@ function Breadcrumb({ taskId, taskTitle }: { taskId: string; taskTitle?: string 
   return (
     <nav className="flex items-center space-x-1 text-sm text-muted-foreground">
       <Link
-        href="/board"
+        to="/board"
         className="hover:text-foreground transition-colors"
       >
         Tasks
@@ -91,7 +89,7 @@ function NotFoundState({ taskId }: { taskId: string }) {
           The task with ID &quot;{taskId}&quot; could not be found. It may have been deleted or the ID is incorrect.
         </p>
         <Button asChild>
-          <Link href="/board">Back to Tasks</Link>
+          <Link to="/board">Back to Tasks</Link>
         </Button>
       </CardContent>
     </Card>
@@ -115,7 +113,7 @@ function ErrorState({ error }: { error: Error }) {
             Try Again
           </Button>
           <Button asChild>
-            <Link href="/board">Back to Tasks</Link>
+            <Link to="/board">Back to Tasks</Link>
           </Button>
         </div>
       </CardContent>

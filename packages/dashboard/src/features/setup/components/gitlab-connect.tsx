@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, Loader2, X, Key, ExternalLink, Eye, EyeOff } from 'lucide-react'
+import { Check, Loader2, Key, ExternalLink, Eye, EyeOff } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -64,67 +64,59 @@ export function GitLabConnect({ disabled = false }: GitLabConnectProps) {
           gitlabConnected && 'border-green-500 bg-green-50 dark:bg-green-950/20'
         )}
       >
-        <CardContent className="flex items-center justify-between gap-4 pt-6">
-          <div className="flex items-center gap-4">
-            <div
-              className={cn(
-                'rounded-full p-3',
-                gitlabConnected
-                  ? 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400'
-                  : 'bg-muted text-muted-foreground'
-              )}
-            >
-              <GitLabIcon />
-            </div>
-            <div>
-              <h3 className="font-semibold">GitLab</h3>
-              {gitlabConnected && gitlabUsername ? (
-                <div className="flex items-center gap-2">
-                  <Avatar className="size-5">
-                    <AvatarImage src={gitlabAvatarUrl || undefined} />
-                    <AvatarFallback>
-                      {gitlabUsername.slice(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm text-muted-foreground">
-                    @{gitlabUsername}
-                  </span>
-                  <span className="text-xs text-muted-foreground px-1.5 py-0.5 bg-muted rounded">
-                    Token
-                  </span>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Conecta tu cuenta para crear MRs
-                </p>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {gitlabConnected ? (
-              <>
-                <div className="flex items-center gap-1 text-green-600 dark:text-green-400">
-                  <Check className="size-4" />
-                  <span className="text-sm font-medium">Conectado</span>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleDisconnect}
-                  className="text-muted-foreground hover:text-destructive"
-                >
-                  <X className="size-4" />
-                  <span className="sr-only">Desconectar GitLab</span>
-                </Button>
-              </>
-            ) : (
-              <Button
-                onClick={() => setShowConnectDialog(true)}
-                disabled={disabled}
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4 min-w-0">
+              <div
+                className={cn(
+                  'rounded-full p-3 shrink-0',
+                  gitlabConnected
+                    ? 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400'
+                    : 'bg-muted text-muted-foreground'
+                )}
               >
-                Conectar
-              </Button>
-            )}
+                <GitLabIcon />
+              </div>
+              <div className="min-w-0">
+                <h3 className="font-semibold">GitLab</h3>
+                {gitlabConnected && gitlabUsername ? (
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Avatar className="size-5 shrink-0">
+                      <AvatarImage src={gitlabAvatarUrl || undefined} />
+                      <AvatarFallback>
+                        {gitlabUsername.slice(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="text-sm text-muted-foreground truncate">
+                      @{gitlabUsername}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Conecta tu cuenta para crear MRs
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {gitlabConnected ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDisconnect}
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                >
+                  Disconnect
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => setShowConnectDialog(true)}
+                  disabled={disabled}
+                >
+                  Conectar
+                </Button>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>

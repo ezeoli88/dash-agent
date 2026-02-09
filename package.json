@@ -34,13 +34,14 @@
     "build:dashboard": "npm run build -w @dash-agent/dashboard",
     "dev:dashboard": "npm run dev -w @dash-agent/dashboard",
     "dev:server": "npm run dev -w @dash-agent/server",
-    "dev": "npm run build:shared && concurrently \"npm run dev:server\" \"npm run dev:dashboard\"",
+    "dev": "npm run build:shared && npm run dev:server & npm run dev:dashboard",
     "build": "npm run build:shared && npm run build:server && npm run build:dashboard",
     "lint": "npm run lint --workspaces --if-present",
-    "clean": "npm run clean -w @dash-agent/shared"
-  },
-  "devDependencies": {
-    "concurrently": "^8.2.2"
+    "clean": "npm run clean -w @dash-agent/shared",
+    "build:binary": "npm run build && bun build packages/server/src/bin.ts --compile --outfile dist/agent-board",
+    "build:binary:win": "npm run build && bun build packages/server/src/bin.ts --compile --target=bun-windows-x64 --outfile dist/agent-board-win.exe",
+    "build:binary:mac": "npm run build && bun build packages/server/src/bin.ts --compile --target=bun-darwin-x64 --outfile dist/agent-board-macos",
+    "build:binary:linux": "npm run build && bun build packages/server/src/bin.ts --compile --target=bun-linux-x64 --outfile dist/agent-board-linux"
   },
   "engines": {
     "node": ">=18.0.0"

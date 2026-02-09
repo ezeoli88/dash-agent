@@ -2,12 +2,13 @@
 
 import { useState, useCallback } from 'react'
 import { AlertTriangle, Check, FolderSearch, GitBranch, Loader2, HardDrive, ArrowRight } from 'lucide-react'
-import { useRouter } from 'next/navigation'
+import { useRouter } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useLocalRepos, useAddLocalRepo } from '@/features/repos/hooks/use-local-repos'
 import { useRepos } from '@/features/repos/hooks/use-repos'
+import { useRepoStore } from '@/features/repos/stores/repo-store'
 import type { LocalRepository } from '@/features/repos/types'
 import { useSecretsStatus } from '@/features/setup/hooks/use-secrets-status'
 
@@ -18,40 +19,33 @@ export default function ReposPage() {
   const { data: localReposData, isLoading: isScanning } = useLocalRepos(true)
   const { data: existingRepos } = useRepos()
   const addLocalRepo = useAddLocalRepo()
+  const { setSelectedRepo } = useRepoStore()
 
   const { data: secretsStatus } = useSecretsStatus()
   const hasGitProvider = secretsStatus?.github?.connected || secretsStatus?.gitlab?.connected
 
-  // Multi-select state
-  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
+  // Single-select state
+  const [selectedPath, setSelectedPath] = useState<string | null>(null)
 
   const allRepos = localReposData?.repos ?? []
 
   const toggleSelection = useCallback((path: string) => {
-    setSelectedPaths((prev) => {
-      const next = new Set(prev)
-      if (next.has(path)) {
-        next.delete(path)
-      } else {
-        next.add(path)
-      }
-      return next
-    })
+    setSelectedPath((prev) => (prev === path ? null : path))
   }, [])
 
-  const handleContinue = useCallback(() => {
-    const reposToAdd = allRepos.filter((r) => selectedPaths.has(r.path))
-    // Fire-and-forget: add repos in background, navigate immediately
-    for (const repo of reposToAdd) {
-      addLocalRepo.mutate({
+  const handleContinue = useCallback(async () => {
+    const repo = allRepos.find((r) => r.path === selectedPath)
+    if (repo) {
+      const created = await addLocalRepo.mutateAsync({
         name: repo.name,
         path: repo.path,
         default_branch: repo.current_branch,
         remote_url: repo.remote_url,
       })
+      setSelectedRepo(created)
     }
-    router.replace('/board')
-  }, [allRepos, selectedPaths, addLocalRepo, router])
+    router.navigate({ to: '/board' })
+  }, [allRepos, selectedPath, addLocalRepo, setSelectedRepo, router])
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-background to-muted/20 p-4">
@@ -111,7 +105,7 @@ export default function ReposPage() {
                     <RepoCard
                       key={repo.path}
                       repo={repo}
-                      isSelected={selectedPaths.has(repo.path)}
+                      isSelected={selectedPath === repo.path}
                       onToggle={() => toggleSelection(repo.path)}
                     />
                   ))}
@@ -120,7 +114,7 @@ export default function ReposPage() {
                 <div className="mt-4 flex items-center gap-3">
                   <Button
                     size="sm"
-                    disabled={selectedPaths.size === 0}
+                    disabled={selectedPath === null}
                     onClick={handleContinue}
                   >
                     Continuar
@@ -140,7 +134,7 @@ export default function ReposPage() {
             {/* Continue (for returning users who already have repos) */}
             {existingRepos && existingRepos.length > 0 && (
               <div className="flex items-center gap-3 pt-2">
-                <Button onClick={() => router.replace('/board')} size="sm">
+                <Button onClick={() => router.navigate({ to: '/board' })} size="sm">
                   Continuar al board
                   <ArrowRight className="size-4 ml-2" />
                 </Button>
