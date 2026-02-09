@@ -1,0 +1,28 @@
+{
+  "name": "agent-board",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Dashboard for managing autonomous AI agent tasks — run with npx agent-board",
+  "bin": {
+    "agent-board": "./bin/cli.js"
+  },
+  "files": [
+    "bin/"
+  ],
+  "keywords": [
+    "ai",
+    "agent",
+    "dashboard",
+    "task-management",
+    "llm",
+    "automation"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-username/agent-board.git"
+  }
+}
