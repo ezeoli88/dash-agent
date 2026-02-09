@@ -21,7 +21,7 @@ interface ApiErrorResponse {
 }
 
 // Base URL from environment variables
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 
 // Custom error class for API errors
 export class ApiClientError extends Error {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter } from '@tanstack/react-router'
 import { useRepos } from '@/features/repos/hooks/use-repos'
 
 export default function HomePage() {
@@ -11,9 +11,9 @@ export default function HomePage() {
   useEffect(() => {
     if (isLoading) return
     if (!repos || repos.length === 0) {
-      router.replace('/repos')
+      router.navigate({ to: '/repos' })
     } else {
-      router.replace('/board')
+      router.navigate({ to: '/board' })
     }
   }, [repos, isLoading, router])
 

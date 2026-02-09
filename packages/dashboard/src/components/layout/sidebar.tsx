@@ -1,7 +1,6 @@
 'use client'
 
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { Link, useLocation } from '@tanstack/react-router'
 import {
   ChevronLeft,
   ChevronRight,
@@ -57,7 +56,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ className }: SidebarProps) {
-  const pathname = usePathname()
+  const { pathname } = useLocation()
   const { isSidebarCollapsed, toggleSidebar } = useLayoutStore()
   const { openAddDialog } = useRepoStore()
 
@@ -107,7 +106,7 @@ export function Sidebar({ className }: SidebarProps) {
                 <Tooltip key={`${item.href}-${item.title}`}>
                   <TooltipTrigger asChild>
                     <Link
-                      href={item.href}
+                      to={item.href}
                       className={cn(
                         'flex h-10 w-10 items-center justify-center rounded-md transition-colors',
                         isActive
@@ -129,7 +128,7 @@ export function Sidebar({ className }: SidebarProps) {
             return (
               <Link
                 key={`${item.href}-${item.title}`}
-                href={item.href}
+                to={item.href}
                 className={cn(
                   'flex h-10 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors',
                   isActive
@@ -221,7 +220,7 @@ export function Sidebar({ className }: SidebarProps) {
                 <Tooltip key={item.href}>
                   <TooltipTrigger asChild>
                     <Link
-                      href={item.href}
+                      to={item.href}
                       className={cn(
                         'flex h-10 w-10 items-center justify-center rounded-md transition-colors',
                         isActive
@@ -243,7 +242,7 @@ export function Sidebar({ className }: SidebarProps) {
             return (
               <Link
                 key={item.href}
-                href={item.href}
+                to={item.href}
                 className={cn(
                   'flex h-10 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors',
                   isActive

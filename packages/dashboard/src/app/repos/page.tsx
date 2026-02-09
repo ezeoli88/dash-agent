@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import { AlertTriangle, Check, FolderSearch, GitBranch, Loader2, HardDrive, ArrowRight } from 'lucide-react'
-import { useRouter } from 'next/navigation'
+import { useRouter } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -50,7 +50,7 @@ export default function ReposPage() {
         remote_url: repo.remote_url,
       })
     }
-    router.replace('/board')
+    router.navigate({ to: '/board' })
   }, [allRepos, selectedPaths, addLocalRepo, router])
 
   return (
@@ -140,7 +140,7 @@ export default function ReposPage() {
             {/* Continue (for returning users who already have repos) */}
             {existingRepos && existingRepos.length > 0 && (
               <div className="flex items-center gap-3 pt-2">
-                <Button onClick={() => router.replace('/board')} size="sm">
+                <Button onClick={() => router.navigate({ to: '/board' })} size="sm">
                   Continuar al board
                   <ArrowRight className="size-4 ml-2" />
                 </Button>

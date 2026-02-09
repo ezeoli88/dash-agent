@@ -1,7 +1,6 @@
 'use client'
 
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { Link, useLocation } from '@tanstack/react-router'
 import {
   ClipboardList,
   LayoutDashboard,
@@ -47,7 +46,7 @@ const bottomNavItems: NavItem[] = [
 ]
 
 export function MobileNav() {
-  const pathname = usePathname()
+  const { pathname } = useLocation()
   const { isMobileNavOpen, setMobileNavOpen } = useLayoutStore()
   const { openCreateModal } = useTaskUIStore()
 
@@ -101,7 +100,7 @@ export function MobileNav() {
               return (
                 <Link
                   key={`${item.href}-${item.title}`}
-                  href={item.href}
+                  to={item.href}
                   onClick={handleLinkClick}
                   className={cn(
                     // Minimum touch target of 44px
@@ -130,7 +129,7 @@ export function MobileNav() {
               return (
                 <Link
                   key={item.href}
-                  href={item.href}
+                  to={item.href}
                   onClick={handleLinkClick}
                   className={cn(
                     // Minimum touch target of 44px

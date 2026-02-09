@@ -1,6 +1,6 @@
 'use client'
 
-import Link from 'next/link'
+import { Link } from '@tanstack/react-router'
 import { MessageSquare } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime, extractRepoName, truncateText } from '@/lib/formatters'
@@ -21,7 +21,7 @@ export function TaskListItem({ task, isSelected }: TaskListItemProps) {
 
   return (
     <Link
-      href={`/tasks/${task.id}`}
+      to={`/tasks/${task.id}`}
       className={cn(
         'group flex items-center gap-3 rounded-lg border border-border bg-card p-3',
         'transition-all duration-200 ease-out',
@@ -85,7 +85,7 @@ export function TaskListItemCompact({ task, isSelected }: TaskListItemCompactPro
 
   return (
     <Link
-      href={`/tasks/${task.id}`}
+      to={`/tasks/${task.id}`}
       className={cn(
         'group flex items-center gap-2 rounded-md px-2 py-1.5',
         'transition-all duration-150 ease-out',

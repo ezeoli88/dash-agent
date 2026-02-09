@@ -1,6 +1,6 @@
 'use client'
 
-import Link from 'next/link'
+import { Link } from '@tanstack/react-router'
 import { ArrowLeft, ExternalLink, AlertCircle, Terminal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/shared/status-badge'
@@ -43,7 +43,7 @@ export function TaskHeader({ task }: TaskHeaderProps) {
     <div className="space-y-4">
       {/* Back button */}
       <Button variant="ghost" size="sm" asChild>
-        <Link href="/board" className="gap-2">
+        <Link to="/board" className="gap-2">
           <ArrowLeft className="h-4 w-4" />
           Back to Tasks
         </Link>

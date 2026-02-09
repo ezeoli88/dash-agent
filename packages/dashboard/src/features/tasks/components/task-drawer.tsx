@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
-import Link from 'next/link'
+import { Link } from '@tanstack/react-router'
 import { ExternalLink } from 'lucide-react'
 import { VisuallyHidden } from 'radix-ui'
 import {
@@ -74,7 +74,7 @@ export function TaskDrawer() {
                 <div className="flex items-center gap-1">
                   <Button variant="ghost" size="sm" asChild>
                     <Link
-                      href={`/tasks/${task.id}`}
+                      to={`/tasks/${task.id}`}
                       onClick={closeDrawer}
                     >
                       Detail

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
+import { Link } from '@tanstack/react-router'
 import { Plus, Layers, Search, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from './theme-toggle'
@@ -34,7 +34,7 @@ export function Header() {
         <div className="flex items-center">
           <Link
             className="flex items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-md"
-            href="/"
+            to="/"
           >
             <Layers className="h-6 w-6 text-primary" aria-hidden="true" />
             <span className="font-bold text-lg hidden sm:inline-block">
@@ -88,7 +88,7 @@ export function Header() {
             className="h-9 w-9"
             asChild
           >
-            <Link href="/settings" aria-label="Settings">
+            <Link to="/settings" aria-label="Settings">
               <Settings className="h-4 w-4" />
             </Link>
           </Button>
