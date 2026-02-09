@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Search, Globe, Check, Loader2, Lock, Star, AlertCircle, FolderSearch, HardDrive, GitBranch } from 'lucide-react'
+import { Search, Globe, Check, Loader2, Lock, Star, AlertCircle, FolderSearch, FolderOpen, HardDrive, GitBranch } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
+import { apiClient } from '@/lib/api-client'
 import { useRepoStore } from '../stores/repo-store'
 import { useGitHubRepos } from '../hooks/use-github-repos'
 import { useCreateRepo, useValidateRepoUrl } from '../hooks/use-repo-mutations'
@@ -31,12 +32,14 @@ export function AddRepoDialog() {
   const [urlError, setUrlError] = useState<string | null>(null)
   const [scanEnabled, setScanEnabled] = useState(false)
   const [selectedLocalRepo, setSelectedLocalRepo] = useState<LocalRepository | null>(null)
+  const [customScanPath, setCustomScanPath] = useState('')
+  const [isBrowsing, setIsBrowsing] = useState(false)
 
   const { data: githubData, isLoading: isLoadingGitHub } = useGitHubRepos(searchQuery)
   const { data: existingRepos } = useRepos()
   const createRepo = useCreateRepo()
   const validateUrl = useValidateRepoUrl()
-  const { data: localData, isLoading: isLoadingLocal } = useLocalRepos(scanEnabled)
+  const { data: localData, isLoading: isLoadingLocal } = useLocalRepos(scanEnabled, customScanPath || undefined)
   const addLocalRepo = useAddLocalRepo()
 
   // Filter out repos that are already added
@@ -98,6 +101,21 @@ export function AddRepoDialog() {
     setSelectedLocalRepo(repo)
   }
 
+  const handleBrowseFolder = async () => {
+    setIsBrowsing(true)
+    try {
+      const result = await apiClient.get<{ path: string | null; cancelled: boolean }>('/repos/local/pick-folder')
+      if (result.path && !result.cancelled) {
+        setCustomScanPath(result.path)
+        setScanEnabled(true)
+      }
+    } catch (error) {
+      console.error('Failed to open folder picker:', error)
+    } finally {
+      setIsBrowsing(false)
+    }
+  }
+
   const handleAddRepo = async () => {
     if (activeTab === 'local' && selectedLocalRepo) {
       addLocalRepo.mutate(
@@ -157,6 +175,8 @@ export function AddRepoDialog() {
     setUrlError(null)
     setScanEnabled(false)
     setSelectedLocalRepo(null)
+    setCustomScanPath('')
+    setIsBrowsing(false)
     setActiveTab('local')
   }
 
@@ -202,16 +222,37 @@ export function AddRepoDialog() {
 
           {/* LOCAL TAB */}
           <TabsContent value="local" className="space-y-3 mt-3">
+            {/* Path input */}
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <FolderOpen className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Ruta del directorio (ej: C:\proyectos)"
+                  value={customScanPath}
+                  onChange={(e) => {
+                    setCustomScanPath(e.target.value)
+                    setScanEnabled(false)
+                  }}
+                  className="pl-9 w-full"
+                />
+              </div>
+              <Button onClick={handleBrowseFolder} variant="outline" size="sm" disabled={isBrowsing}>
+                {isBrowsing ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <FolderSearch className="h-4 w-4 mr-1.5" />}
+                Browse
+              </Button>
+              <Button onClick={() => setScanEnabled(true)} variant="outline" size="sm" disabled={!customScanPath.trim()}>
+                <FolderSearch className="h-4 w-4 mr-1.5" />
+                Escanear
+              </Button>
+            </div>
+
+            {/* Results */}
             {!scanEnabled ? (
-              <div className="flex flex-col items-center justify-center py-8 gap-3">
-                <FolderSearch className="h-10 w-10 text-muted-foreground" />
+              <div className="flex flex-col items-center justify-center py-6 gap-2">
+                <FolderSearch className="h-8 w-8 text-muted-foreground" />
                 <p className="text-sm text-muted-foreground text-center">
-                  Escanea el directorio del servidor para encontrar repositorios git
+                  Ingresa una ruta y presiona Escanear para encontrar repositorios git
                 </p>
-                <Button onClick={() => setScanEnabled(true)} variant="outline">
-                  <FolderSearch className="h-4 w-4 mr-2" />
-                  Escanear directorio
-                </Button>
               </div>
             ) : (
               <>

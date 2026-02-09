@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import { AlertCircle, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useQueryClient } from '@tanstack/react-query'
@@ -10,21 +9,14 @@ import { BOARD_COLUMNS } from '../types'
 import { BoardHeader } from './board-header'
 import { BoardColumn, BoardColumnSkeleton } from './board-column'
 
-interface BoardViewProps {
-  initialRepoId?: string
-}
-
 /**
  * Main Kanban board view component.
  * Displays tasks organized in columns based on their status.
  */
-export function BoardView({ initialRepoId }: BoardViewProps) {
-  const [selectedRepoId, setSelectedRepoId] = useState<string | undefined>(initialRepoId)
+export function BoardView() {
   const queryClient = useQueryClient()
 
-  const { columns, isLoading, isError, error } = useBoardTasks({
-    repositoryId: selectedRepoId,
-  })
+  const { columns, isLoading, isError, error } = useBoardTasks({})
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: taskKeys.all })
@@ -34,7 +26,7 @@ export function BoardView({ initialRepoId }: BoardViewProps) {
   if (isError) {
     return (
       <div className="flex flex-col gap-6">
-        <BoardHeader selectedRepoId={selectedRepoId} onRepoChange={setSelectedRepoId} />
+        <BoardHeader />
         <div className="flex flex-col items-center justify-center gap-4 rounded-lg border border-destructive/50 bg-destructive/10 p-8">
           <AlertCircle className="h-8 w-8 text-destructive" />
           <div className="text-center">
@@ -54,7 +46,7 @@ export function BoardView({ initialRepoId }: BoardViewProps) {
 
   return (
     <div className="flex flex-col gap-6">
-      <BoardHeader selectedRepoId={selectedRepoId} onRepoChange={setSelectedRepoId} />
+      <BoardHeader />
 
       {/* Board columns */}
       <div className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 md:-mx-6 md:px-6">

@@ -24,14 +24,20 @@ interface CLICommand {
 
 /**
  * Builds the spawn command for a specific CLI agent type.
+ *
+ * @param agentType - The CLI agent to use
+ * @param prompt - The prompt text
+ * @param model - Optional model override
+ * @param planOnly - When true, restrict to read-only tools (no Edit/Write)
  */
-function buildCLICommand(agentType: string, prompt: string, model?: string): CLICommand {
+function buildCLICommand(agentType: string, prompt: string, model?: string, planOnly?: boolean): CLICommand {
   switch (agentType) {
-    case 'claude-code':
+    case 'claude-code': {
       // Prompt is sent via stdin to avoid Windows command-line argument issues:
       // - cmd.exe interprets special chars (^, &, |, <, >, !) in .cmd wrappers
       // - CreateProcessW has a 32,767 char limit for the entire command line
       // - Multi-line prompts with specs can contain any character
+      const allowedTools = planOnly ? 'Read,Bash,Grep,Glob' : 'Read,Edit,Bash,Write';
       return {
         command: 'claude',
         args: [
@@ -40,11 +46,12 @@ function buildCLICommand(agentType: string, prompt: string, model?: string): CLI
           'stream-json',
           '--verbose',
           '--allowedTools',
-          'Read,Edit,Bash,Write',
+          allowedTools,
           ...(model ? ['--model', model] : []),
         ],
         useStdin: true,
       };
+    }
 
     case 'codex':
       // NOTE: --full-auto is a shortcut for --sandbox workspace-write, which conflicts
@@ -142,13 +149,16 @@ export class CLIAgentRunner implements IAgentRunner {
       if (this.options.reviewFeedback !== undefined) promptOptions.reviewFeedback = this.options.reviewFeedback;
       if (this.options.isEmptyRepo !== undefined) promptOptions.isEmptyRepo = this.options.isEmptyRepo;
       if (this.options.repository) promptOptions.repository = this.options.repository;
+      if (this.options.planOnly !== undefined) promptOptions.planOnly = this.options.planOnly;
+      if (this.options.approvedPlan !== undefined) promptOptions.approvedPlan = this.options.approvedPlan;
       const prompt = buildCLIPrompt(this.options.task, promptOptions);
 
       // Build the CLI command
       const cliCommand = buildCLICommand(
         this.options.agentType,
         prompt,
-        this.options.agentModel
+        this.options.agentModel,
+        this.options.planOnly
       );
 
       this.options.onLog('info', `Starting CLI agent: ${this.options.agentType}`, {
@@ -161,8 +171,9 @@ export class CLIAgentRunner implements IAgentRunner {
       // Spawn the child process
       const result = await this.spawnAndMonitor(cliCommand, prompt);
 
-      // If successful, transition to awaiting_review
-      if (result.success) {
+      // If successful and NOT plan-only, transition to awaiting_review.
+      // Plan-only mode transitions to plan_review in runAgent().
+      if (result.success && !this.options.planOnly) {
         this.options.onStatusChange('awaiting_review');
       }
 

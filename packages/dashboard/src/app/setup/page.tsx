@@ -1,7 +1,5 @@
-'use client'
-
-import { SetupScreen } from '@/features/setup'
+import { redirect } from 'next/navigation'
 
 export default function SetupPage() {
-  return <SetupScreen />
+  redirect('/repos')
 }

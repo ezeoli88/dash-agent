@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import type { ChatMessageEvent, ToolActivityEvent } from '@dash-agent/shared';
 import { createLogger } from '../utils/logger.js';
 import { getErrorMessage } from '../utils/errors.js';
@@ -72,6 +73,9 @@ export class AgentService {
   /** Map of chat history by task ID */
   private chatHistory: Map<string, Array<ChatMessageEvent | ToolActivityEvent>> = new Map();
 
+  /** Map of extracted plans by task ID (from plan-only agent runs) */
+  private agentPlans: Map<string, string> = new Map();
+
   /** Git service for worktree management */
   private gitService = getGitService();
 
@@ -83,10 +87,12 @@ export class AgentService {
    *
    * @param taskId - The task ID to start the agent for
    * @param isResume - Whether this is a resume from changes_requested status
+   * @param planOnly - Whether to run in plan-only mode (read-only, no file changes)
+   * @param approvedPlan - The approved plan text to implement
    * @throws Error if the task doesn't exist or agent is already running
    */
-  async startAgent(taskId: string, isResume: boolean = false): Promise<void> {
-    logger.info('Starting agent for task', { taskId, isResume });
+  async startAgent(taskId: string, isResume: boolean = false, planOnly: boolean = false, approvedPlan?: string): Promise<void> {
+    logger.info('Starting agent for task', { taskId, isResume, planOnly });
 
     // Check if agent is already running
     if (this.activeAgents.has(taskId)) {
@@ -102,7 +108,10 @@ export class AgentService {
     // Validate task status
     // Note: 'planning' is now accepted because the route updates status to 'planning'
     // BEFORE calling startAgent() to ensure the frontend can connect to SSE immediately
-    const validStatuses = isResume ? ['changes_requested', 'planning'] : ['draft', 'backlog', 'failed', 'planning'];
+    // 'coding' and 'plan_review' are accepted for the plan approval flow
+    const validStatuses = isResume
+      ? ['changes_requested', 'planning']
+      : ['draft', 'backlog', 'failed', 'planning', 'coding', 'plan_review'];
     if (!validStatuses.includes(task.status)) {
       throw new Error(`Cannot start agent for task with status: ${task.status}. Expected: ${validStatuses.join(' or ')}`);
     }
@@ -181,7 +190,14 @@ export class AgentService {
         // CLI agent options (from task or global defaults)
         agentType,
         agentModel,
+        // Plan approval flow options
+        planOnly,
       };
+
+      // Only add approvedPlan if it has a value (exactOptionalPropertyTypes)
+      if (approvedPlan) {
+        runnerOptions.approvedPlan = approvedPlan;
+      }
 
       // Only add reviewFeedback if it has a value
       if (reviewFeedback) {
@@ -205,7 +221,7 @@ export class AgentService {
       const timeoutAt = new Date(now.getTime() + DEFAULT_TIMEOUT_MS);
 
       // Start the agent asynchronously
-      const promise = this.runAgent(taskId, runner, task, isResume);
+      const promise = this.runAgent(taskId, runner, task, isResume, planOnly);
 
       // Create active agent entry
       const activeAgent: ActiveAgent = {
@@ -382,12 +398,14 @@ export class AgentService {
    * @param runner - The agent runner
    * @param task - The task object
    * @param isResume - Whether this is a resume from changes_requested
+   * @param planOnly - Whether this was a plan-only run
    */
   private async runAgent(
     taskId: string,
     runner: IAgentRunner,
     task: Task,
-    isResume: boolean = false
+    isResume: boolean = false,
+    planOnly: boolean = false
   ): Promise<AgentRunResult> {
     try {
       const result = await runner.run();
@@ -395,7 +413,27 @@ export class AgentService {
       if (result.success) {
         this.log(taskId, 'info', `Agent completed successfully: ${result.summary}`);
 
-        // Commit changes
+        // Plan-only mode: extract plan from chat history, transition to plan_review
+        if (planOnly) {
+          const planText = this.extractPlanFromChatHistory(taskId);
+          if (planText) {
+            this.agentPlans.set(taskId, planText);
+            this.log(taskId, 'info', `Plan extracted (${planText.length} chars)`);
+          } else {
+            this.log(taskId, 'warn', 'No plan text could be extracted from chat history');
+            // Use the summary as fallback
+            this.agentPlans.set(taskId, result.summary ?? 'No plan details available');
+          }
+
+          // Transition to plan_review status
+          taskService.update(taskId, { status: 'plan_review' });
+          this.sseEmitter.emitStatus(taskId, 'plan_review');
+          this.sseEmitter.emitAwaitingReview(taskId, 'Plan created. Review the plan and approve to start implementation.');
+
+          return result;
+        }
+
+        // Normal mode: commit changes and persist diff data
         const workspacePath = this.gitService.getWorktreePath(taskId);
         if (workspacePath) {
           const hasChanges = await this.gitService.hasChanges(workspacePath);
@@ -482,6 +520,8 @@ export class AgentService {
     }
 
     this.log(taskId, 'info', `User feedback: ${message}`);
+    // Store user message in chat history so it persists across SSE reconnections
+    this.addUserMessageToHistory(taskId, message);
     agent.runner.addFeedback(message);
   }
 
@@ -707,6 +747,81 @@ ${filesDescription || 'No file changes detected.'}
   }
 
   /**
+   * Adds a user message to the chat history so it persists across SSE reconnections.
+   *
+   * @param taskId - The task ID
+   * @param content - The message content
+   */
+  addUserMessageToHistory(taskId: string, content: string): void {
+    const event: ChatMessageEvent = {
+      id: randomUUID(),
+      role: 'user',
+      content,
+      timestamp: new Date().toISOString(),
+    };
+    this.storeChatEvent(taskId, event);
+  }
+
+  /**
+   * Extracts the plan text from chat history by concatenating all assistant messages.
+   *
+   * @param taskId - The task ID
+   * @returns The concatenated plan text, or null if no assistant messages found
+   */
+  private extractPlanFromChatHistory(taskId: string): string | null {
+    const history = this.chatHistory.get(taskId);
+    if (!history || history.length === 0) return null;
+
+    const assistantMessages = history
+      .filter((event): event is ChatMessageEvent => 'role' in event && event.role === 'assistant')
+      .map((event) => event.content);
+
+    if (assistantMessages.length === 0) return null;
+    return assistantMessages.join('\n\n');
+  }
+
+  /**
+   * Approves a plan and starts the agent in implementation mode.
+   *
+   * @param taskId - The task ID
+   * @throws Error if the task is not in plan_review status or no plan is available
+   */
+  async approvePlan(taskId: string): Promise<void> {
+    const task = taskService.getById(taskId);
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+
+    if (task.status !== 'plan_review') {
+      throw new Error(`Cannot approve plan for task with status: ${task.status}. Expected: plan_review`);
+    }
+
+    // Get the stored plan
+    const plan = this.agentPlans.get(taskId);
+    if (!plan) {
+      throw new Error(`No plan found for task ${taskId}. The plan may have been lost after a server restart.`);
+    }
+
+    this.log(taskId, 'info', 'Plan approved, starting implementation');
+
+    // Update status to coding
+    taskService.update(taskId, { status: 'coding' });
+    this.sseEmitter.emitStatus(taskId, 'coding');
+
+    // Start agent again with the approved plan (not plan-only, full tools)
+    try {
+      await this.startAgent(taskId, false, false, plan);
+    } catch (error) {
+      const errorMessage = getErrorMessage(error);
+      this.log(taskId, 'error', `Failed to start implementation agent: ${errorMessage}`);
+      taskService.update(taskId, { status: 'failed', error: errorMessage });
+      this.sseEmitter.emitStatus(taskId, 'failed');
+      this.sseEmitter.emitError(taskId, errorMessage);
+      throw error;
+    }
+  }
+
+  /**
    * Gets information about active agents.
    */
   getActiveAgents(): Array<{ taskId: string; startedAt: Date; timeoutAt: Date }> {
@@ -866,6 +981,9 @@ ${filesDescription || 'No file changes detected.'}
 
     // Remove chat history
     this.chatHistory.delete(taskId);
+
+    // Remove stored plans
+    this.agentPlans.delete(taskId);
 
     // Optionally remove worktree
     if (removeWorktree) {

@@ -64,7 +64,7 @@ export const BOARD_COLUMNS: BoardColumnConfig[] = [
   {
     id: 'inReview',
     title: 'In Review',
-    statuses: ['awaiting_review', 'review', 'changes_requested', 'pr_created'],
+    statuses: ['awaiting_review', 'review', 'plan_review', 'changes_requested', 'pr_created'],
     color: 'text-purple-600 dark:text-purple-400',
     bgColor: 'bg-purple-50 dark:bg-purple-900/20',
     borderColor: 'border-purple-300 dark:border-purple-700',
@@ -104,6 +104,7 @@ export const STATUS_TO_COLUMN: Record<TaskStatus, BoardColumnId> = {
   // In Review column
   awaiting_review: 'inReview',
   review: 'inReview',
+  plan_review: 'inReview',
   changes_requested: 'inReview',
   pr_created: 'inReview',
   // Done column

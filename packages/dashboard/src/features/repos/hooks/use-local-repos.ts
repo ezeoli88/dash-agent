@@ -6,12 +6,17 @@ import { repoKeys } from './query-keys'
 import type { LocalReposResponse, Repository } from '../types'
 
 /**
- * Hook to scan for local repositories
+ * Hook to scan for local repositories, optionally at a custom path.
  */
-export function useLocalRepos(enabled: boolean) {
+export function useLocalRepos(enabled: boolean, scanPath?: string) {
   return useQuery({
-    queryKey: repoKeys.localScan(),
-    queryFn: () => apiClient.get<LocalReposResponse>('/repos/local/scan'),
+    queryKey: [...repoKeys.localScan(), scanPath ?? 'default'],
+    queryFn: () => {
+      const url = scanPath
+        ? `/repos/local/scan?path=${encodeURIComponent(scanPath)}`
+        : '/repos/local/scan'
+      return apiClient.get<LocalReposResponse>(url)
+    },
     enabled,
   })
 }

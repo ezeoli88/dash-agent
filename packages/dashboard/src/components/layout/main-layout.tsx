@@ -8,7 +8,7 @@ interface MainLayoutProps {
 
 export function MainLayout({ children }: MainLayoutProps) {
   return (
-    <div className="relative min-h-screen bg-background">
+    <div className="relative min-h-screen bg-gradient-page">
       <Header />
       <main
         id="main-content"

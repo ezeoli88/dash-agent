@@ -41,6 +41,10 @@ export interface BaseRunnerOptions {
   repository?: Repository | null;
   /** Callback for structured chat events (messages and tool activity) */
   onChatEvent?: (event: ChatMessageEvent | ToolActivityEvent) => void;
+  /** Whether to run in plan-only mode (read-only tools, no file changes) */
+  planOnly?: boolean;
+  /** The approved plan text to implement (set after plan approval) */
+  approvedPlan?: string;
 }
 
 /**

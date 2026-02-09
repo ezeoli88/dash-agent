@@ -42,6 +42,17 @@ export function useTaskActions(taskId: string) {
     },
   })
 
+  const approvePlan = useMutation({
+    mutationFn: (): Promise<ActionResponse> => tasksApi.approvePlan(taskId),
+    onSuccess: () => {
+      toast.success('Plan approved. Agent is implementing...')
+      invalidateTask()
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to approve plan: ${error.message}`)
+    },
+  })
+
   const cancel = useMutation({
     mutationFn: (): Promise<ActionResponse> => tasksApi.cancel(taskId),
     onSuccess: () => {
@@ -147,5 +158,5 @@ export function useTaskActions(taskId: string) {
     },
   })
 
-  return { execute, approve, cancel, extend, sendFeedback, requestChanges, markPRMerged, markPRClosed, retry, cleanupWorktree, deleteTask }
+  return { execute, approve, approvePlan, cancel, extend, sendFeedback, requestChanges, markPRMerged, markPRClosed, retry, cleanupWorktree, deleteTask }
 }

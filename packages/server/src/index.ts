@@ -1,3 +1,4 @@
+import { createServer } from 'net';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { getConfig } from './config.js';
@@ -94,6 +95,35 @@ function createApp(): express.Application {
 }
 
 /**
+ * Checks if a port is available by attempting to create a server on it.
+ */
+function isPortAvailable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => {
+      server.close(() => resolve(true));
+    });
+    server.listen(port);
+  });
+}
+
+/**
+ * Finds an available port starting from the given port.
+ * Tries up to maxAttempts consecutive ports.
+ */
+async function findAvailablePort(startPort: number, maxAttempts = 10): Promise<number> {
+  for (let i = 0; i < maxAttempts; i++) {
+    const port = startPort + i;
+    if (await isPortAvailable(port)) {
+      return port;
+    }
+    logger.info(`Port ${port} is in use, trying next...`);
+  }
+  throw new Error(`No available port found in range ${startPort}-${startPort + maxAttempts - 1}`);
+}
+
+/**
  * Starts the HTTP server.
  */
 async function main(): Promise<void> {
@@ -114,11 +144,16 @@ async function main(): Promise<void> {
   // Create and start Express app
   const app = createApp();
 
-  const server = app.listen(config.port, () => {
-    logger.info(`Server listening on port ${config.port}`);
-    logger.info(`Health check: http://localhost:${config.port}/health`);
-    logger.info(`Tasks API: http://localhost:${config.port}/tasks`);
-    logger.info(`Repos API: http://localhost:${config.port}/repos`);
+  const actualPort = await findAvailablePort(config.port);
+  if (actualPort !== config.port) {
+    logger.info(`Default port ${config.port} was in use, using port ${actualPort} instead`);
+  }
+
+  const server = app.listen(actualPort, () => {
+    logger.info(`Server listening on port ${actualPort}`);
+    logger.info(`Health check: http://localhost:${actualPort}/health`);
+    logger.info(`Tasks API: http://localhost:${actualPort}/tasks`);
+    logger.info(`Repos API: http://localhost:${actualPort}/repos`);
   });
 
   // Start PR comments polling service

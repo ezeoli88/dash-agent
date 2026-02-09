@@ -65,7 +65,7 @@ export function Sidebar({ className }: SidebarProps) {
     <TooltipProvider delayDuration={0}>
       <aside
         className={cn(
-          'relative flex h-full flex-col border-r border-border bg-sidebar transition-all duration-300 ease-in-out',
+          'relative flex h-full flex-col border-r border-border bg-gradient-sidebar transition-all duration-300 ease-in-out',
           isSidebarCollapsed ? 'w-16' : 'w-[280px]',
           className
         )}

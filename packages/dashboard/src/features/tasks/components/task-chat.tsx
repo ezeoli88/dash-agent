@@ -10,7 +10,6 @@ import {
   Search,
   Loader2,
   Check,
-  CheckCircle,
   X,
   Send,
   Keyboard,
@@ -18,16 +17,15 @@ import {
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { useQueryClient } from '@tanstack/react-query'
 import { cn } from '@/lib/utils'
+import { taskKeys } from '../hooks/query-keys'
 import { useTaskChat } from '../hooks/use-task-chat'
 import type { ChatEntry } from '../hooks/use-task-chat'
 import { useTaskActions } from '../hooks/use-task-actions'
-import { useTaskChanges } from '../hooks/use-task-changes'
 import { toast } from 'sonner'
 import type { Task } from '../types'
 import type { ChatMessageEvent, ToolActivityEvent } from '@dash-agent/shared'
-import { TaskDiff } from './task-diff'
 
 interface TaskChatProps {
   task: Task
@@ -121,7 +119,7 @@ function ToolBadge({ activity }: { activity: ToolActivityEvent }) {
 // ChatInput
 // ============================================================================
 
-function ChatInput({ taskId, disabled }: { taskId: string; disabled: boolean }) {
+function ChatInput({ taskId, disabled, onMessageSent }: { taskId: string; disabled: boolean; onMessageSent?: (content: string) => void }) {
   const [message, setMessage] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const { sendFeedback } = useTaskActions(taskId)
@@ -131,13 +129,15 @@ function ChatInput({ taskId, disabled }: { taskId: string; disabled: boolean }) 
   const handleSubmit = useCallback(() => {
     if (!canSubmit) return
     const trimmed = message.trim()
+    // Show the message in chat immediately (optimistic)
+    onMessageSent?.(trimmed)
+    setMessage('')
     sendFeedback.mutate(trimmed, {
       onSuccess: () => {
-        setMessage('')
         textareaRef.current?.focus()
       },
     })
-  }, [canSubmit, message, sendFeedback])
+  }, [canSubmit, message, sendFeedback, onMessageSent])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -183,33 +183,6 @@ function ChatInput({ taskId, disabled }: { taskId: string; disabled: boolean }) 
 }
 
 // ============================================================================
-// CompletionCard — inline diff shown when the agent completes
-// ============================================================================
-
-const COMPLETION_STATUSES = ['awaiting_review', 'review', 'pr_created', 'done']
-
-function CompletionCard({ taskId }: { taskId: string }) {
-  const { data } = useTaskChanges(taskId)
-
-  // Don't render the card if there are no changes
-  if (!data || data.files.length === 0) return null
-
-  return (
-    <Card className="mt-3 border-emerald-500/30 bg-emerald-500/5">
-      <CardHeader className="py-3 px-4">
-        <div className="flex items-center gap-2 text-sm font-medium text-emerald-600 dark:text-emerald-400">
-          <CheckCircle className="size-4" />
-          Agent completed. Review changes below.
-        </div>
-      </CardHeader>
-      <CardContent className="px-4 pb-4 pt-0">
-        <TaskDiff taskId={taskId} />
-      </CardContent>
-    </Card>
-  )
-}
-
-// ============================================================================
 // TaskChat (main component)
 // ============================================================================
 
@@ -218,16 +191,23 @@ const TERMINAL_STATUSES = ['done', 'failed']
 export function TaskChat({ task, readOnly = false, className }: TaskChatProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const queryClient = useQueryClient()
 
   const isTerminal = TERMINAL_STATUSES.includes(task.status)
   const isDraft = task.status === 'draft'
   const hasHistory = !isDraft
   const canChat = !isDraft && !isTerminal
 
-  const { entries, isConnected, status } = useTaskChat({
+  // Invalidate task query when SSE reports a status change so the UI refreshes
+  const handleStatusChange = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: taskKeys.detail(task.id) })
+    queryClient.invalidateQueries({ queryKey: taskKeys.lists() })
+  }, [queryClient, task.id])
+
+  const { entries, isConnected, status, addUserMessage } = useTaskChat({
     taskId: task.id,
     enabled: hasHistory,
-    onStatusChange: () => {},
+    onStatusChange: handleStatusChange,
     onComplete: (prUrl) => {
       toast.success('Task completed!', {
         description: prUrl ? `PR: ${prUrl}` : 'Task finished successfully',
@@ -282,16 +262,13 @@ export function TaskChat({ task, readOnly = false, className }: TaskChatProps) {
           ) : (
             entries.map(renderEntry)
           )}
-          {COMPLETION_STATUSES.includes(task.status) && (
-            <CompletionCard taskId={task.id} />
-          )}
           <div ref={bottomRef} />
         </div>
       </div>
 
       {/* Chat input */}
       {!readOnly && (
-        <ChatInput taskId={task.id} disabled={!canChat} />
+        <ChatInput taskId={task.id} disabled={!canChat} onMessageSent={addUserMessage} />
       )}
     </div>
   )

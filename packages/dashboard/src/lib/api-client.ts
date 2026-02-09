@@ -271,6 +271,10 @@ export const tasksApi = {
   // Legacy + Updated Task Actions
   // ==========================================================================
 
+  /** Approve plan and start implementation (status: plan_review -> coding) */
+  approvePlan: (id: string) =>
+    apiClient.post<ActionResponse>(`/tasks/${id}/approve-plan`),
+
   /** Execute task (start Dev Agent or legacy agent) */
   execute: (id: string) => apiClient.post<ActionResponse>(`/tasks/${id}/execute`),
 

@@ -29,6 +29,7 @@ export const TASK_STATUSES = [
   'pending_approval',   // Waiting for user to approve/edit spec
   'approved',           // Spec approved, in queue for Dev Agent
   'coding',             // Dev Agent working
+  'plan_review',        // Plan created, waiting for user approval
   'review',             // PR created, waiting for review
   'changes_requested',  // User requested changes on PR
   'done',               // PR merged

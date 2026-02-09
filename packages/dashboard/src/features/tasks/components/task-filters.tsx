@@ -166,6 +166,10 @@ const STATUS_COLORS: Record<TaskStatus, { active: string; inactive: string }> = 
     active: 'bg-yellow-500 text-white hover:bg-yellow-600',
     inactive: 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900 dark:text-yellow-300 dark:hover:bg-yellow-800',
   },
+  plan_review: {
+    active: 'bg-orange-500 text-white hover:bg-orange-600',
+    inactive: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900 dark:text-orange-300 dark:hover:bg-orange-800',
+  },
   review: {
     active: 'bg-purple-500 text-white hover:bg-purple-600',
     inactive: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900 dark:text-purple-300 dark:hover:bg-purple-800',

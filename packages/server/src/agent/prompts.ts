@@ -40,8 +40,7 @@ ${task.description}
 2. Read relevant files to understand existing patterns and conventions
 3. Create a clear plan for implementing the required changes
 4. Implement the changes step by step, testing as you go
-5. Run any available tests or build commands to verify your changes
-6. Call task_complete when you have finished all the work
+5. Call task_complete when you have finished all the work
 
 ## Available Tools
 You have access to the following tools:

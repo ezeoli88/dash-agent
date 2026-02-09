@@ -460,6 +460,65 @@ router.post('/:id/approve-spec', requireTaskId, loadTask, async (req: Request, r
 });
 
 // =============================================================================
+// Plan Approval Endpoints
+// =============================================================================
+
+/**
+ * POST /tasks/:id/approve-plan - Approve the implementation plan and start coding
+ *
+ * After the agent creates a plan (plan_review status), the user reviews it
+ * in the chat and clicks "Approve Plan". This endpoint:
+ * - Validates the task is in 'plan_review' status
+ * - Retrieves the stored plan
+ * - Starts the agent again in implementation mode with the approved plan
+ */
+router.post('/:id/approve-plan', requireTaskId, loadTask, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { task } = req as RequestWithTask;
+    const { id } = req.params;
+    logger.info('POST /tasks/:id/approve-plan', { id, status: task.status });
+
+    // Validate task status
+    if (task.status !== 'plan_review') {
+      res.status(400).json({
+        error: 'Invalid task status',
+        message: `Cannot approve plan for task with status: ${task.status}. Expected: plan_review`,
+      });
+      return;
+    }
+
+    const agentService = getAgentService();
+
+    // Check for conflicting tasks on same repo
+    const activeAgents = agentService.getActiveAgents();
+    const conflictingTask = activeAgents.find((a) => {
+      const t = taskService.getById(a.taskId);
+      return t && t.repo_url === task.repo_url && t.id !== id;
+    });
+
+    if (conflictingTask) {
+      res.status(409).json({
+        error: 'Another task is already in progress for this repository',
+        conflicting_task_id: conflictingTask.taskId,
+      });
+      return;
+    }
+
+    // Approve plan and start implementation (async)
+    agentService.approvePlan(id!).catch((error) => {
+      logger.error('Failed to approve plan and start implementation', { taskId: id, error: getErrorMessage(error) });
+    });
+
+    res.json({
+      status: 'approved',
+      message: 'Plan approved. Agent is implementing...',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// =============================================================================
 // Agent Execution Endpoints (Legacy + Updated)
 // =============================================================================
 
@@ -521,8 +580,9 @@ router.post('/:id/start', requireTaskId, loadTask, async (req: Request, res: Res
     const sseEmitter = getSSEEmitter();
     sseEmitter.emitStatus(id!, 'planning');
 
-    // Start agent execution asynchronously
-    agentService.startAgent(id!, false).catch((error) => {
+    // Start agent execution asynchronously in plan-only mode
+    // The agent will explore the codebase and create a plan without making changes
+    agentService.startAgent(id!, false, true).catch((error) => {
       logger.error('Failed to start agent', { taskId: id, error: getErrorMessage(error) });
       const currentTask = taskService.getById(id!);
       if (currentTask && currentTask.status !== 'failed') {
@@ -532,7 +592,7 @@ router.post('/:id/start', requireTaskId, loadTask, async (req: Request, res: Res
       }
     });
 
-    res.json({ status: 'started', message: 'Agent execution started' });
+    res.json({ status: 'started', message: 'Agent started in plan-only mode' });
   } catch (error) {
     next(error);
   }
@@ -697,6 +757,9 @@ router.post('/:id/feedback', requireTaskId, loadTask, (req: Request, res: Respon
 
     logger.info('No active agent, resuming with user message', { id, status: task.status });
 
+    // Store the user message in chat history so it persists across SSE reconnections
+    agentService.addUserMessageToHistory(id!, result.data.message);
+
     // Store the message as review feedback and resume the agent
     agentService.storeFeedbackForResume(id!, result.data.message);
 
@@ -780,7 +843,7 @@ router.post('/:id/cancel', requireTaskId, loadTask, (req: Request, res: Response
     if (!agentService.isAgentRunning(id!)) {
       // Agent process already exited but task is stuck in an active status.
       // Reset to failed so the user can retry.
-      const activeStatuses = ['planning', 'in_progress'];
+      const activeStatuses = ['planning', 'in_progress', 'coding', 'plan_review', 'approved', 'awaiting_review'];
       if (activeStatuses.includes(task.status)) {
         logger.info('No active agent but task is stuck in active status, resetting', { id, status: task.status });
         taskService.update(id!, { status: 'failed', error: 'Agent process exited unexpectedly' });
@@ -1088,6 +1151,12 @@ router.get('/:id/logs', requireTaskId, loadTask, (req: Request, res: Response, n
       })}\n\n`;
       res.write(reviewEvent);
       // Don't close - user may want to monitor while reviewing
+    } else if (task.status === 'plan_review') {
+      const planReviewEvent = `event: awaiting_review\ndata: ${JSON.stringify({
+        message: 'Plan created. Review the plan and approve to start implementation.',
+      })}\n\n`;
+      res.write(planReviewEvent);
+      // Don't close - user needs to review plan in chat
     } else if (task.status === 'pending_approval') {
       const pendingEvent = `event: log\ndata: ${JSON.stringify({
         timestamp: new Date().toISOString(),

@@ -10,6 +10,7 @@ export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   pending_approval: 'Review Spec',
   approved: 'Approved',
   coding: 'Coding',
+  plan_review: 'Review Plan',
   review: 'PR Review',
   changes_requested: 'Changes Requested',
   done: 'Done',
@@ -32,6 +33,7 @@ export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
   pending_approval: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100',
   approved: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100',
   coding: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100',
+  plan_review: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-100',
   review: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-100',
   changes_requested: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100',
   done: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-100',
@@ -63,6 +65,8 @@ export function getAvailableActionsForStatus(
       return ['cancel'] as const;  // Dev Agent starting
     case 'coding':
       return ['extend', 'cancel', 'feedback'] as const;
+    case 'plan_review':
+      return ['approve_plan', 'cancel'] as const;
     case 'review':
       return ['request_changes', 'mark_merged', 'mark_closed'] as const;
     case 'changes_requested':
@@ -115,6 +119,7 @@ export function requiresUserAction(status: TaskStatus): boolean {
   return (
     status === 'draft' ||           // User needs to start
     status === 'pending_approval' || // User needs to review/approve spec
+    status === 'plan_review' ||     // User needs to approve plan
     status === 'review' ||          // User needs to review PR
     status === 'changes_requested' || // User requested changes
     // Legacy
@@ -142,6 +147,7 @@ export function isCodingPhase(status: TaskStatus): boolean {
   return (
     status === 'approved' ||
     status === 'coding' ||
+    status === 'plan_review' ||
     status === 'review' ||
     status === 'changes_requested' ||
     // Legacy

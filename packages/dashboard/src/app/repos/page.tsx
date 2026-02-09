@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import { Check, FolderSearch, GitBranch, Loader2, HardDrive, ArrowRight } from 'lucide-react'
+import { AlertTriangle, Check, FolderSearch, GitBranch, Loader2, HardDrive, ArrowRight } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { useLocalRepos, useAddLocalRepo } from '@/features/repos/hooks/use-local-repos'
 import { useRepos } from '@/features/repos/hooks/use-repos'
 import type { LocalRepository } from '@/features/repos/types'
+import { useSecretsStatus } from '@/features/setup/hooks/use-secrets-status'
 
 export default function ReposPage() {
   const router = useRouter()
@@ -18,24 +19,13 @@ export default function ReposPage() {
   const { data: existingRepos } = useRepos()
   const addLocalRepo = useAddLocalRepo()
 
+  const { data: secretsStatus } = useSecretsStatus()
+  const hasGitProvider = secretsStatus?.github?.connected || secretsStatus?.gitlab?.connected
+
   // Multi-select state
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
-  const [addingRepos, setAddingRepos] = useState(false)
 
-  // Derive sets for filtering: match by name or by file:// url
-  const existingRepoKeys = new Set(
-    existingRepos?.flatMap((r) => {
-      const keys = [r.name]
-      if (r.url.startsWith('file://')) keys.push(r.url.replace('file://', ''))
-      return keys
-    }) ?? []
-  )
-
-  // Filter scanned repos: exclude already-added ones
-  const isAlreadyAdded = (r: LocalRepository) =>
-    existingRepoKeys.has(r.name) || existingRepoKeys.has(r.path)
-  const availableRepos = localReposData?.repos.filter((r) => !isAlreadyAdded(r)) ?? []
-  const alreadyAddedRepos = localReposData?.repos.filter(isAlreadyAdded) ?? []
+  const allRepos = localReposData?.repos ?? []
 
   const toggleSelection = useCallback((path: string) => {
     setSelectedPaths((prev) => {
@@ -49,25 +39,19 @@ export default function ReposPage() {
     })
   }, [])
 
-  const handleAddSelected = useCallback(async () => {
-    const reposToAdd = availableRepos.filter((r) => selectedPaths.has(r.path))
-    if (reposToAdd.length === 0) return
-
-    setAddingRepos(true)
-    try {
-      for (const repo of reposToAdd) {
-        await addLocalRepo.mutateAsync({
-          name: repo.name,
-          path: repo.path,
-          default_branch: repo.current_branch,
-          remote_url: repo.remote_url,
-        })
-      }
-      setSelectedPaths(new Set())
-    } finally {
-      setAddingRepos(false)
+  const handleContinue = useCallback(() => {
+    const reposToAdd = allRepos.filter((r) => selectedPaths.has(r.path))
+    // Fire-and-forget: add repos in background, navigate immediately
+    for (const repo of reposToAdd) {
+      addLocalRepo.mutate({
+        name: repo.name,
+        path: repo.path,
+        default_branch: repo.current_branch,
+        remote_url: repo.remote_url,
+      })
     }
-  }, [availableRepos, selectedPaths, addLocalRepo])
+    router.replace('/board')
+  }, [allRepos, selectedPaths, addLocalRepo, router])
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-background to-muted/20 p-4">
@@ -79,6 +63,21 @@ export default function ReposPage() {
             Selecciona tus repositorios
           </p>
         </div>
+
+        {/* Git provider warning */}
+        {secretsStatus && !hasGitProvider && (
+          <div className="mb-6 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-500" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-foreground">
+                Token de GitHub o GitLab no configurado
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Para crear PRs y gestionar repositorios remotos, necesitas configurar un token de acceso personal.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Scanning state */}
         {isScanning && (
@@ -104,11 +103,11 @@ export default function ReposPage() {
               </span>
             </div>
 
-            {/* Available repos to add */}
-            {availableRepos.length > 0 && (
+            {/* All repos */}
+            {allRepos.length > 0 && (
               <div>
                 <div className="grid grid-cols-4 gap-3">
-                  {availableRepos.map((repo) => (
+                  {allRepos.map((repo) => (
                     <RepoCard
                       key={repo.path}
                       repo={repo}
@@ -121,66 +120,32 @@ export default function ReposPage() {
                 <div className="mt-4 flex items-center gap-3">
                   <Button
                     size="sm"
-                    disabled={selectedPaths.size === 0 || addingRepos}
-                    onClick={handleAddSelected}
+                    disabled={selectedPaths.size === 0}
+                    onClick={handleContinue}
                   >
-                    {addingRepos && <Loader2 className="size-4 mr-2 animate-spin" />}
-                    Agregar seleccionados ({selectedPaths.size})
+                    Continuar
+                    <ArrowRight className="size-4 ml-1.5" />
                   </Button>
                 </div>
               </div>
             )}
 
-            {/* Already added repos */}
-            {alreadyAddedRepos.length > 0 && (
-              <div>
-                <p className="mb-3 text-sm font-medium text-muted-foreground">
-                  Ya agregados
-                </p>
-                <div className="grid grid-cols-4 gap-3">
-                  {alreadyAddedRepos.map((repo) => (
-                    <div
-                      key={repo.path}
-                      className="relative rounded-lg border border-green-500/30 bg-green-500/5 p-4"
-                    >
-                      <Check className="absolute top-2.5 right-2.5 size-4 text-green-500" />
-                      <FolderSearch className="size-5 text-muted-foreground mb-2" />
-                      <p className="text-sm font-medium truncate">{repo.name}</p>
-                      <div className="mt-2 flex items-center gap-1.5">
-                        <Badge variant="secondary" className="gap-1 text-xs">
-                          <GitBranch className="size-3" />
-                          {repo.current_branch}
-                        </Badge>
-                        {repo.language && (
-                          <Badge variant="outline" className="text-xs">
-                            {repo.language}
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* No repos at all */}
-            {availableRepos.length === 0 && alreadyAddedRepos.length === 0 && (
+            {allRepos.length === 0 && (
               <div className="rounded-lg border bg-muted/50 p-6 text-center text-sm text-muted-foreground">
                 No se encontraron repositorios Git en la ruta escaneada.
               </div>
             )}
 
-            {/* Continue / Skip */}
-            <div className="flex items-center gap-3 pt-2">
-              <Button onClick={() => router.replace('/board')} size="sm">
-                Continuar al board
-                <ArrowRight className="size-4 ml-2" />
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => router.replace('/board')}>
-                Omitir
-                <ArrowRight className="size-4 ml-1" />
-              </Button>
-            </div>
+            {/* Continue (for returning users who already have repos) */}
+            {existingRepos && existingRepos.length > 0 && (
+              <div className="flex items-center gap-3 pt-2">
+                <Button onClick={() => router.replace('/board')} size="sm">
+                  Continuar al board
+                  <ArrowRight className="size-4 ml-2" />
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>

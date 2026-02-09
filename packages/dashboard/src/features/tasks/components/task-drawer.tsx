@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react'
 import Link from 'next/link'
-import { ExternalLink, GitCompareArrows } from 'lucide-react'
+import { ExternalLink } from 'lucide-react'
 import { VisuallyHidden } from 'radix-ui'
 import {
   Sheet,
@@ -72,15 +72,6 @@ export function TaskDrawer() {
               <div className="flex items-center justify-between pr-8">
                 <StatusBadge status={task.status} />
                 <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="sm" asChild>
-                    <Link
-                      href={`/diff/${task.id}`}
-                      onClick={closeDrawer}
-                    >
-                      <GitCompareArrows className="mr-1 h-3 w-3" />
-                      Diff
-                    </Link>
-                  </Button>
                   <Button variant="ghost" size="sm" asChild>
                     <Link
                       href={`/tasks/${task.id}`}

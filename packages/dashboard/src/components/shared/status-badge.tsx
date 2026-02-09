@@ -23,6 +23,7 @@ const STATUS_CONFIG: Record<
   pending_approval: { label: 'Review Spec', variant: 'orange' },
   approved: { label: 'Approved', variant: 'success' },
   coding: { label: 'Coding', variant: 'warning' },
+  plan_review: { label: 'Review Plan', variant: 'orange' },
   review: { label: 'PR Review', variant: 'purple' },
   changes_requested: { label: 'Changes Requested', variant: 'orange' },
   done: { label: 'Done', variant: 'success' },

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import {
   Play,
   XCircle,
@@ -12,6 +13,8 @@ import {
   Ban,
   Trash2,
   Pencil,
+  GitCompareArrows,
+  CheckCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -52,6 +55,7 @@ interface TaskActionsProps {
 type ActionType =
   | 'execute'
   | 'approve'
+  | 'approve_plan'
   | 'cancel'
   | 'delete'
   | 'extend'
@@ -129,6 +133,21 @@ function getActionsForStatus(task: Task): ActionConfig[] {
         isDestructive: true,
       },
     ],
+    plan_review: [
+      {
+        type: 'approve_plan',
+        label: 'Approve Plan',
+        icon: <CheckCircle className="h-4 w-4" />,
+        variant: 'default',
+      },
+      {
+        type: 'cancel',
+        label: 'Cancel',
+        icon: <XCircle className="h-4 w-4" />,
+        variant: 'destructive',
+        isDestructive: true,
+      },
+    ],
     review: [
       ...(task.pr_url
         ? [
@@ -192,6 +211,12 @@ function getActionsForStatus(task: Task): ActionConfig[] {
       },
     ],
     awaiting_review: [
+      {
+        type: 'approve',
+        label: 'Create PR',
+        icon: <GitMerge className="h-4 w-4" />,
+        variant: 'default',
+      },
       {
         type: 'delete',
         label: 'Delete Task',
@@ -367,7 +392,7 @@ function RequestChangesDialog({
 export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
   const isCompact = variant === 'compact'
   const actions = getActionsForStatus(task)
-  const { execute, approve, cancel, extend, requestChanges, markPRMerged, markPRClosed, retry, cleanupWorktree, deleteTask } =
+  const { execute, approve, approvePlan, cancel, extend, requestChanges, markPRMerged, markPRClosed, retry, cleanupWorktree, deleteTask } =
     useTaskActions(task.id)
   const startTaskMutation = useStartTask()
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
@@ -376,6 +401,7 @@ export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
   const isAnyActionPending =
     execute.isPending ||
     approve.isPending ||
+    approvePlan.isPending ||
     cancel.isPending ||
     deleteTask.isPending ||
     extend.isPending ||
@@ -407,6 +433,8 @@ export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
         return { handler: handleStartFresh, isPending: cleanupWorktree.isPending || execute.isPending }
       case 'approve':
         return { handler: () => approve.mutate(), isPending: approve.isPending }
+      case 'approve_plan':
+        return { handler: () => approvePlan.mutate(), isPending: approvePlan.isPending }
       case 'cancel':
         return { handler: () => cancel.mutate(), isPending: cancel.isPending }
       case 'delete':
@@ -620,6 +648,12 @@ export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
     return (
       <>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" asChild>
+            <Link href={`/diff/${task.id}`}>
+              <GitCompareArrows className="h-4 w-4" />
+              Diff
+            </Link>
+          </Button>
           {renderActionButtons()}
         </div>
         <EditTaskDialog

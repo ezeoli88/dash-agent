@@ -50,10 +50,21 @@ export function useTaskChat(options: UseTaskChatOptions) {
     onError: options.onError,
   })
 
+  const addUserMessage = useCallback((content: string) => {
+    const event: ChatMessageEvent = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content,
+      timestamp: new Date().toISOString(),
+    }
+    setEntries(prev => [...prev, { type: 'message', data: event }])
+  }, [])
+
   return {
     entries,
     isConnected: sse.connectionStatus === 'connected',
     status: sse.connectionStatus,
     clearEntries: () => setEntries([]),
+    addUserMessage,
   }
 }

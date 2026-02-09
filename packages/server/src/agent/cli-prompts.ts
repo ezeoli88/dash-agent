@@ -6,6 +6,8 @@ interface CLIPromptOptions {
   reviewFeedback?: string;
   isEmptyRepo?: boolean;
   repository?: Repository | null;
+  planOnly?: boolean;
+  approvedPlan?: string;
 }
 
 /**
@@ -14,7 +16,17 @@ interface CLIPromptOptions {
  * so we need to combine all context into a single comprehensive prompt.
  */
 export function buildCLIPrompt(task: Task, options: CLIPromptOptions = {}): string {
-  const { isResume, reviewFeedback, isEmptyRepo, repository } = options;
+  const { isResume, reviewFeedback, isEmptyRepo, repository, planOnly, approvedPlan } = options;
+
+  // If implementing an approved plan, build implementation prompt
+  if (approvedPlan) {
+    return buildImplementationPrompt(task, approvedPlan, repository);
+  }
+
+  // If plan-only mode, build plan-only prompt
+  if (planOnly) {
+    return buildPlanOnlyPrompt(task, repository);
+  }
 
   // If resuming with feedback, build a focused resume prompt
   if (isResume && reviewFeedback) {
@@ -82,16 +94,6 @@ ${task.context_files.map((f) => `- ${f}`).join('\n')}
 `
       : '';
 
-  const buildSection = task.build_command
-    ? `
-## Build Verification
-After implementing your changes, run this command to verify everything works:
-\`\`\`
-${task.build_command}
-\`\`\`
-`
-    : '';
-
   const branchSection = task.target_branch
     ? `
 ## Branch
@@ -108,7 +110,7 @@ Work on branch: \`${task.target_branch}\`
 
 **Specification:**
 ${spec}
-${branchSection}${repoSection}${contextSection}${buildSection}
+${branchSection}${repoSection}${contextSection}
 ## Workflow
 
 1. **Explore** the codebase structure to understand the project layout and conventions
@@ -119,16 +121,20 @@ ${branchSection}${repoSection}${contextSection}${buildSection}
    - Key design decisions and their rationale
    - Print the plan so the user can review it before you start coding
 4. **Implement** the changes step by step, following existing code style and conventions
-5. **Verify** your work by running tests or the build command if available
-6. **Commit** your changes with a clear, descriptive commit message
+5. **Commit** your changes with a clear, descriptive commit message
 
 ## Guidelines
 - Understand before changing: always read existing code before modifying it
 - Follow existing patterns: match the coding style, naming conventions, and architecture
 - Make minimal changes: only modify what is necessary for the task
-- Test your changes: run tests or builds if available to verify your work
 - Write clean commits: use clear, descriptive commit messages
-- Process cleanup: BEFORE starting any dev server or process that listens on a port, check which ports are already in use (e.g., via \`netstat\` or \`lsof\`). When you are done testing, ONLY kill processes that YOU started during this session — NEVER kill pre-existing processes. To do this safely: note the PID of any process you start, and kill only that specific PID when done. If a port is already occupied, choose a different port instead of killing the existing process`.trim();
+
+## FORBIDDEN — Do NOT do any of the following
+- **DO NOT** run tests, builds, linters, or any verification commands
+- **DO NOT** start dev servers or any process that listens on a port
+- **DO NOT** run \`npm run build\`, \`npm run test\`, \`npm run dev\`, or similar commands
+- **DO NOT** run \`npx\`, \`node\`, or any script that executes project code
+- Your job is ONLY to write code and commit — verification will be done separately`.trim();
 }
 
 /**
@@ -157,15 +163,19 @@ ${feedback}
 1. **Review** the current state of your previous changes in the working tree
 2. **Understand** exactly what the reviewer is asking for
 3. **Implement** the necessary modifications to address the feedback
-4. **Verify** your changes work correctly — run tests or the build command if available
-5. **Commit** your changes with a clear message referencing the feedback
+4. **Commit** your changes with a clear message referencing the feedback
 
 ## Guidelines
 - Focus specifically on addressing the reviewer's feedback
 - Make minimal additional changes beyond what is requested
-- Test your changes before completing
 - Write a clear commit message describing what you changed to address the feedback
-- Process cleanup: BEFORE starting any dev server or process that listens on a port, check which ports are already in use (e.g., via \`netstat\` or \`lsof\`). When you are done testing, ONLY kill processes that YOU started during this session — NEVER kill pre-existing processes. To do this safely: note the PID of any process you start, and kill only that specific PID when done. If a port is already occupied, choose a different port instead of killing the existing process`.trim();
+
+## FORBIDDEN — Do NOT do any of the following
+- **DO NOT** run tests, builds, linters, or any verification commands
+- **DO NOT** start dev servers or any process that listens on a port
+- **DO NOT** run \`npm run build\`, \`npm run test\`, \`npm run dev\`, or similar commands
+- **DO NOT** run \`npx\`, \`node\`, or any script that executes project code
+- Your job is ONLY to write code and commit — verification will be done separately`.trim();
 }
 
 /**
@@ -176,16 +186,6 @@ function buildEmptyRepoPrompt(task: Task, repository?: Repository | null): strin
   const spec = task.final_spec || task.generated_spec || task.description;
   const repoSection = repository ? `\n${buildRepositorySection(repository)}\n` : '';
 
-  const buildSection = task.build_command
-    ? `
-## Build Command
-Once the project is set up, verify it works with:
-\`\`\`
-${task.build_command}
-\`\`\`
-`
-    : '';
-
   return `You are an autonomous coding agent. This repository is completely empty — there are no files or commits yet. Your task is to create the initial project from scratch.
 
 ## Task
@@ -193,26 +193,127 @@ ${task.build_command}
 
 **Specification:**
 ${spec}
-${repoSection}${buildSection}
+${repoSection}
 ## Workflow
 
 1. **Analyze** the requirements from the specification to determine the appropriate project type and tech stack
 2. **Create the project structure** including:
-   - A README.md file explaining the project
    - Configuration files (package.json, tsconfig.json, etc. as appropriate)
    - A .gitignore file with sensible defaults
    - Source code directories and initial files
 3. **Implement** the requested functionality as described in the specification
-4. **Verify** the project builds and runs correctly
-5. **Commit** all files with a clear initial commit message
+4. **Commit** all files with a clear initial commit message
 
 ## Guidelines
-- Start with the most fundamental files first (README.md, package.json or equivalent)
+- Start with the most fundamental files first (package.json or equivalent)
 - Create directories before creating files within them
 - All files should have proper content, not just placeholders
-- The project should be ready to run after you complete your work
 - Follow best practices for the chosen technology stack
-- Process cleanup: BEFORE starting any dev server or process that listens on a port, check which ports are already in use (e.g., via \`netstat\` or \`lsof\`). When you are done testing, ONLY kill processes that YOU started during this session — NEVER kill pre-existing processes. To do this safely: note the PID of any process you start, and kill only that specific PID when done. If a port is already occupied, choose a different port instead of killing the existing process`.trim();
+
+## FORBIDDEN — Do NOT do any of the following
+- **DO NOT** run tests, builds, linters, or any verification commands
+- **DO NOT** start dev servers or any process that listens on a port
+- **DO NOT** run \`npm run build\`, \`npm run test\`, \`npm run dev\`, or similar commands
+- **DO NOT** run \`npx\`, \`node\`, or any script that executes project code
+- Your job is ONLY to write code and commit — verification will be done separately`.trim();
+}
+
+/**
+ * Builds a plan-only prompt that instructs the agent to explore the codebase
+ * and create a detailed implementation plan WITHOUT making any file changes.
+ */
+function buildPlanOnlyPrompt(task: Task, repository?: Repository | null): string {
+  const spec = task.final_spec || task.generated_spec || task.description;
+
+  const contextSection =
+    task.context_files.length > 0
+      ? `
+## Context Files
+Review these files — they are directly relevant to your task:
+${task.context_files.map((f) => `- ${f}`).join('\n')}
+`
+      : '';
+
+  const repoSection = repository ? `\n${buildRepositorySection(repository)}\n` : '';
+
+  return `You are an autonomous coding agent in PLAN-ONLY mode. Your job is to explore the codebase and create a detailed implementation plan for the following task. You must NOT make any changes to files — only read and analyze.
+
+## Task
+**Title:** ${task.title}
+
+**Specification:**
+${spec}
+${repoSection}${contextSection}
+## Your Mission
+
+Create a comprehensive, step-by-step implementation plan. You should:
+
+1. **Explore** the codebase structure to understand the project layout, architecture, and conventions
+2. **Read** relevant files to understand existing patterns, dependencies, and integration points
+3. **Analyze** what needs to change and identify potential risks or edge cases
+4. **Output a detailed plan** that includes:
+   - Which files need to be created, modified, or deleted
+   - The exact changes needed in each file (describe the code changes clearly)
+   - The order of changes and dependencies between them
+   - Key design decisions and their rationale
+   - Any potential risks or things to watch out for
+
+## CRITICAL RULES
+- **DO NOT** create, edit, write, or modify any files
+- **DO NOT** run any commands that modify the filesystem
+- **ONLY** use read-only operations: reading files, searching code, listing directories
+- Your output IS the plan — write it clearly so a developer can follow it step by step
+- Be specific: include file paths, function names, and describe the actual code changes needed`.trim();
+}
+
+/**
+ * Builds an implementation prompt that tells the agent to execute
+ * a previously approved plan step by step.
+ */
+function buildImplementationPrompt(task: Task, plan: string, repository?: Repository | null): string {
+  const spec = task.final_spec || task.generated_spec || task.description;
+
+  const branchSection = task.target_branch
+    ? `
+## Branch
+Work on branch: \`${task.target_branch}\`
+`
+    : '';
+
+  const repoSection = repository ? `\n${buildRepositorySection(repository)}\n` : '';
+
+  return `You are an autonomous coding agent. You have a previously approved implementation plan. Your job is to implement it step by step.
+
+## Task
+**Title:** ${task.title}
+
+**Specification:**
+${spec}
+${branchSection}${repoSection}
+## Approved Implementation Plan
+
+The following plan has been reviewed and approved by the user. Follow it closely:
+
+${plan}
+
+## Workflow
+
+1. **Follow the plan** — implement each step in the order specified
+2. **Commit** your changes with a clear, descriptive commit message
+
+## Guidelines
+- Follow the approved plan closely — it has been reviewed and approved
+- If you encounter unexpected issues not covered by the plan, use your best judgment
+- Follow existing code style and conventions
+- Make minimal changes beyond what the plan specifies
+- Write clean commits with clear, descriptive messages
+
+## FORBIDDEN — Do NOT do any of the following
+- **DO NOT** run tests, builds, linters, or any verification commands
+- **DO NOT** start dev servers or any process that listens on a port
+- **DO NOT** run \`npm run build\`, \`npm run test\`, \`npm run dev\`, or similar commands
+- **DO NOT** run \`npx\`, \`node\`, or any script that executes project code
+- Your job is ONLY to write code and commit — verification will be done separately`.trim();
 }
 
 export default {

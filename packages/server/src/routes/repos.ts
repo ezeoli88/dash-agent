@@ -1,5 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { z, ZodError } from 'zod';
+import { execSync } from 'child_process';
+import { platform, tmpdir } from 'os';
+import { writeFileSync, unlinkSync } from 'fs';
+import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
 import { getRepoService } from '../services/repo.service.js';
 import { createGitHubService } from '../services/github.service.js';
@@ -138,6 +142,101 @@ router.post('/github/repos/validate', async (req: Request, res: Response) => {
     res.status(500).json({
       error: 'Internal Server Error',
       message: 'Failed to validate repository URL',
+    });
+  }
+});
+
+/**
+ * GET /repos/local/pick-folder - Open native OS folder picker dialog
+ */
+router.get('/local/pick-folder', async (_req: Request, res: Response) => {
+  try {
+    const os = platform();
+
+    if (os === 'win32') {
+      // Windows: Write PS1 script to temp file to avoid escaping issues
+      const scriptPath = join(tmpdir(), `pick-folder-${Date.now()}.ps1`);
+      const psScript = [
+        'Add-Type -AssemblyName System.Windows.Forms',
+        '$dialog = New-Object System.Windows.Forms.FolderBrowserDialog',
+        "$dialog.Description = 'Select a folder to scan for repositories'",
+        '$dialog.ShowNewFolderButton = $false',
+        '$result = $dialog.ShowDialog()',
+        'if ($result -eq [System.Windows.Forms.DialogResult]::OK) {',
+        '  Write-Output $dialog.SelectedPath',
+        '} else {',
+        "  Write-Output '::CANCELLED::'",
+        '}',
+      ].join('\r\n');
+
+      writeFileSync(scriptPath, psScript, 'utf-8');
+
+      try {
+        const { execFile } = await import('child_process');
+        const result = await new Promise<string>((resolve, reject) => {
+          execFile(
+            'powershell',
+            ['-STA', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
+            { encoding: 'utf-8', timeout: 120000 },
+            (error, stdout, stderr) => {
+              if (error) {
+                reject(error);
+              } else {
+                resolve(stdout.trim());
+              }
+            }
+          );
+        });
+
+        if (result && result !== '::CANCELLED::') {
+          logger.info('Folder picked', { path: result });
+          res.json({ path: result, cancelled: false });
+        } else {
+          res.json({ path: null, cancelled: true });
+        }
+      } finally {
+        try { unlinkSync(scriptPath); } catch { /* ignore cleanup errors */ }
+      }
+    } else if (os === 'darwin') {
+      // macOS: Use osascript
+      try {
+        const result = execSync(
+          'osascript -e \'POSIX path of (choose folder with prompt "Select a folder to scan for repositories")\'',
+          { encoding: 'utf-8', timeout: 120000 }
+        ).trim();
+        if (result) {
+          logger.info('Folder picked', { path: result });
+          res.json({ path: result, cancelled: false });
+        } else {
+          res.json({ path: null, cancelled: true });
+        }
+      } catch {
+        // User cancelled
+        res.json({ path: null, cancelled: true });
+      }
+    } else {
+      // Linux: Use zenity
+      try {
+        const result = execSync(
+          'zenity --file-selection --directory --title="Select a folder to scan for repositories"',
+          { encoding: 'utf-8', timeout: 120000 }
+        ).trim();
+        if (result) {
+          logger.info('Folder picked', { path: result });
+          res.json({ path: result, cancelled: false });
+        } else {
+          res.json({ path: null, cancelled: true });
+        }
+      } catch {
+        // User cancelled
+        res.json({ path: null, cancelled: true });
+      }
+    }
+  } catch (error) {
+    logger.errorWithStack('Failed to open folder picker', error as Error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to open folder picker dialog',
     });
   }
 });

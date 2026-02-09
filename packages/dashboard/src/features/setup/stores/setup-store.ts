@@ -120,7 +120,7 @@ const DEFAULT_STATE = {
   agentConnected: false,
 
   // Setup completion
-  setupFinished: false as boolean,
+  setupFinished: true as boolean,
 
   // GitHub
   githubConnected: false,
