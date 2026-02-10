@@ -84,7 +84,7 @@ function createSSEConnectionManager() {
     receivedTerminalEvent = false;
     setStatus('connecting');
 
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || window.location.origin;
     const url = `${baseUrl}/api/tasks/${taskId}/logs`;
 
     try {
