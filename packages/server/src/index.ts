@@ -1,5 +1,5 @@
 import { createServer } from 'net';
-import { resolve, join } from 'path';
+import { resolve, join, dirname } from 'path';
 import { existsSync } from 'fs';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
@@ -69,7 +69,9 @@ function createApp(): express.Application {
   app.use('/api/secrets', secretsRouter);
 
   // Serve frontend static files (for production/binary mode)
-  const staticDir = resolve(process.cwd(), 'public');
+  const isBinaryMode = process.env['__BIN_MODE__'] === '1';
+  const baseDir = isBinaryMode ? dirname(process.execPath) : process.cwd();
+  const staticDir = resolve(baseDir, 'public');
   if (existsSync(staticDir)) {
     app.use(express.static(staticDir));
 

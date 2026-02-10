@@ -15,16 +15,16 @@
     "pull-request",
     "code-review"
   ],
-  "homepage": "https://github.com/your-username/dash-agent#readme",
+  "homepage": "https://github.com/ezeoli88/dash-agent#readme",
   "bugs": {
-    "url": "https://github.com/your-username/dash-agent/issues"
+    "url": "https://github.com/ezeoli88/dash-agent/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/your-username/dash-agent.git"
+    "url": "git+https://github.com/ezeoli88/dash-agent.git"
   },
   "license": "MIT",
-  "author": "Your Name <your@email.com>",
+  "author": "Ezequiel Olivera",
   "workspaces": [
     "packages/*"
   ],
@@ -38,10 +38,10 @@
     "build": "npm run build:shared && npm run build:server && npm run build:dashboard",
     "lint": "npm run lint --workspaces --if-present",
     "clean": "npm run clean -w @dash-agent/shared",
-    "build:binary": "npm run build && bun build packages/server/src/bin.ts --compile --outfile dist/agent-board",
-    "build:binary:win": "npm run build && bun build packages/server/src/bin.ts --compile --target=bun-windows-x64 --outfile dist/agent-board-win.exe",
-    "build:binary:mac": "npm run build && bun build packages/server/src/bin.ts --compile --target=bun-darwin-x64 --outfile dist/agent-board-macos",
-    "build:binary:linux": "npm run build && bun build packages/server/src/bin.ts --compile --target=bun-linux-x64 --outfile dist/agent-board-linux"
+    "build:binary:linux-x64": "bun build packages/server/src/bin.ts --compile --target=bun-linux-x64 --outfile dist/linux-x64/agent-board",
+    "build:binary:macos-x64": "bun build packages/server/src/bin.ts --compile --target=bun-darwin-x64 --outfile dist/macos-x64/agent-board",
+    "build:binary:macos-arm64": "bun build packages/server/src/bin.ts --compile --target=bun-darwin-arm64 --outfile dist/macos-arm64/agent-board",
+    "build:binary:win-x64": "bun build packages/server/src/bin.ts --compile --target=bun-windows-x64 --outfile dist/win-x64/agent-board.exe"
   },
   "engines": {
     "node": ">=18.0.0"
