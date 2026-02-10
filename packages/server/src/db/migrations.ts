@@ -165,6 +165,13 @@ export function runMigrations(): void {
         ALTER TABLE tasks ADD COLUMN changes_data TEXT;
       `,
     },
+    {
+      version: 9,
+      description: 'Add conflict_files column to tasks table for merge conflict tracking',
+      sql: `
+        ALTER TABLE tasks ADD COLUMN conflict_files TEXT;
+      `,
+    },
   ];
 
   // Apply pending migrations

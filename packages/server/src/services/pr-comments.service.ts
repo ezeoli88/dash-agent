@@ -2,7 +2,7 @@ import { createLogger } from '../utils/logger.js';
 import { getErrorMessage } from '../utils/errors.js';
 import { getGitHubClient, type PRCommentInfo } from '../github/client.js';
 import { isGitLabUrl } from '../utils/gitlab-url.js';
-import { getGitLabClient, hasGitLabToken } from '../gitlab/client.js';
+import { getGitLabClient, hasGitLabToken, extractTokenFromUrl, GitLabClient } from '../gitlab/client.js';
 import { getSSEEmitter, type PRCommentData } from '../utils/sse-emitter.js';
 import { taskService, type Task, type TaskStatus } from './task.service.js';
 import { getAgentService } from './agent.service.js';
@@ -17,7 +17,7 @@ const POLLING_INTERVAL_MS = 60_000;
 /**
  * Statuses that indicate a task has an active PR that should be monitored for comments
  */
-const PR_ACTIVE_STATUSES: TaskStatus[] = ['pr_created', 'changes_requested'];
+const PR_ACTIVE_STATUSES: TaskStatus[] = ['pr_created', 'changes_requested', 'merge_conflicts'];
 
 /**
  * Tracked PR information for polling
@@ -223,13 +223,13 @@ export class PRCommentsService {
     if (!isInitialFetch) {
       try {
         if (isGitLab) {
-          if (!hasGitLabToken()) {
-            logger.warn('GitLab token not available, skipping MR state check', {
+          const gitlabClient = this.resolveGitLabClient(trackedPR.repoUrl);
+          if (!gitlabClient) {
+            logger.warn('GitLab token not available (neither secrets nor URL-embedded), skipping MR state check', {
               taskId: trackedPR.taskId,
               prNumber: trackedPR.prNumber,
             });
           } else {
-            const gitlabClient = getGitLabClient();
             const mrInfo = await gitlabClient.getMergeRequest(trackedPR.repoUrl, trackedPR.prNumber);
 
             if (mrInfo.state === 'merged') {
@@ -296,14 +296,14 @@ export class PRCommentsService {
     let comments: PRCommentInfo[];
 
     if (isGitLab) {
-      if (!hasGitLabToken()) {
-        logger.warn('GitLab token not available, skipping MR comment fetch', {
+      const gitlabClient = this.resolveGitLabClient(trackedPR.repoUrl);
+      if (!gitlabClient) {
+        logger.warn('GitLab token not available (neither secrets nor URL-embedded), skipping MR comment fetch', {
           taskId: trackedPR.taskId,
           prNumber: trackedPR.prNumber,
         });
         return;
       }
-      const gitlabClient = getGitLabClient();
       comments = await gitlabClient.getMergeRequestNotes(
         trackedPR.repoUrl,
         trackedPR.prNumber,
@@ -414,6 +414,25 @@ export class PRCommentsService {
   }
 
   /**
+   * Resolves a GitLab client from the secrets service token or, as a fallback,
+   * from a token embedded in the repo URL (e.g. https://oauth2:TOKEN@gitlab.com/...).
+   * Returns null if no token is available from either source.
+   */
+  private resolveGitLabClient(repoUrl: string): GitLabClient | null {
+    if (hasGitLabToken()) {
+      return getGitLabClient();
+    }
+
+    const embeddedToken = extractTokenFromUrl(repoUrl);
+    if (embeddedToken) {
+      logger.debug('Using token extracted from repo URL for GitLab client');
+      return new GitLabClient(embeddedToken);
+    }
+
+    return null;
+  }
+
+  /**
    * Force an immediate poll for a specific task's PR/MR.
    * Useful when the user wants to refresh comments.
    */
@@ -424,11 +443,11 @@ export class PRCommentsService {
     }
 
     if (isGitLabUrl(trackedPR.repoUrl)) {
-      if (!hasGitLabToken()) {
-        logger.warn('GitLab token not available, cannot poll MR comments', { taskId });
+      const gitlabClient = this.resolveGitLabClient(trackedPR.repoUrl);
+      if (!gitlabClient) {
+        logger.warn('GitLab token not available (neither secrets nor URL-embedded), cannot poll MR comments', { taskId });
         return [];
       }
-      const gitlabClient = getGitLabClient();
       return gitlabClient.getMergeRequestNotes(
         trackedPR.repoUrl,
         trackedPR.prNumber

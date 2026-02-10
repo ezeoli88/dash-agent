@@ -20,7 +20,8 @@ import { AgentTypeSchema } from './agent.schema.js';
  * - pr_created: PR has been created on GitHub
  * - changes_requested: User requested changes on the PR
  * - done: PR merged, task complete
- * - failed: Error occurred
+ * - failed: Error occurred (system)
+ * - canceled: Canceled by user or PR closed without merging
  */
 export const TASK_STATUSES = [
   // New two-agent workflow statuses
@@ -31,9 +32,11 @@ export const TASK_STATUSES = [
   'coding',             // Dev Agent working
   'plan_review',        // Plan created, waiting for user approval
   'review',             // PR created, waiting for review
+  'merge_conflicts',    // Merge conflicts detected before PR creation
   'changes_requested',  // User requested changes on PR
   'done',               // PR merged
-  'failed',             // Error occurred
+  'failed',             // Error occurred (system)
+  'canceled',           // Canceled by user or PR closed without merging
   // Legacy statuses (for backward compatibility)
   'backlog',            // Legacy: same as draft
   'planning',           // Legacy: same as refining
@@ -89,6 +92,9 @@ export const TaskSchema = z.object({
   // CLI Agent configuration (optional override per task)
   agent_type: AgentTypeSchema.nullable().optional(),
   agent_model: z.string().nullable().optional(),
+
+  // Merge conflict data
+  conflict_files: z.string().nullable().optional(),  // JSON array of conflicting file paths
 
   // Status and metadata
   status: TaskStatusSchema,
@@ -155,6 +161,7 @@ export const UpdateTaskSchema = z.object({
   agent_type: AgentTypeSchema.nullable().optional(),
   agent_model: z.string().nullable().optional(),
   changes_data: z.string().nullable().optional(),
+  conflict_files: z.string().nullable().optional(),  // JSON array of conflicting file paths
 });
 
 /**

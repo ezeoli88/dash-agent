@@ -12,9 +12,11 @@ export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   coding: 'Coding',
   plan_review: 'Review Plan',
   review: 'PR Review',
+  merge_conflicts: 'Merge Conflicts',
   changes_requested: 'Changes Requested',
   done: 'Done',
   failed: 'Failed',
+  canceled: 'Canceled',
   // Legacy statuses (for backward compatibility)
   backlog: 'Backlog',
   planning: 'Planning',
@@ -35,9 +37,11 @@ export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
   coding: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100',
   plan_review: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-100',
   review: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-100',
+  merge_conflicts: 'bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-100',
   changes_requested: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100',
   done: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-100',
   failed: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100',
+  canceled: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-100',
   // Legacy statuses (for backward compatibility)
   backlog: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-100',
   planning: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100',
@@ -69,11 +73,15 @@ export function getAvailableActionsForStatus(
       return ['approve_plan', 'cancel'] as const;
     case 'review':
       return ['request_changes', 'mark_merged', 'mark_closed'] as const;
+    case 'merge_conflicts':
+      return ['open_vscode', 'mark_resolved', 'cancel'] as const;
     case 'changes_requested':
       return ['execute', 'mark_closed'] as const;  // Resume or close
     case 'done':
       return ['view_pr'] as const;
     case 'failed':
+      return ['retry', 'delete'] as const;
+    case 'canceled':
       return ['retry', 'delete'] as const;
     // Legacy statuses (for backward compatibility)
     case 'backlog':
@@ -95,7 +103,7 @@ export function getAvailableActionsForStatus(
  * Checks if a task is in a terminal state (cannot progress further).
  */
 export function isTerminalStatus(status: TaskStatus): boolean {
-  return status === 'done' || status === 'failed';
+  return status === 'done' || status === 'failed' || status === 'canceled';
 }
 
 /**
@@ -121,6 +129,7 @@ export function requiresUserAction(status: TaskStatus): boolean {
     status === 'pending_approval' || // User needs to review/approve spec
     status === 'plan_review' ||     // User needs to approve plan
     status === 'review' ||          // User needs to review PR
+    status === 'merge_conflicts' || // User needs to resolve conflicts
     status === 'changes_requested' || // User requested changes
     // Legacy
     status === 'backlog' ||
@@ -149,6 +158,7 @@ export function isCodingPhase(status: TaskStatus): boolean {
     status === 'coding' ||
     status === 'plan_review' ||
     status === 'review' ||
+    status === 'merge_conflicts' ||
     status === 'changes_requested' ||
     // Legacy
     status === 'in_progress' ||

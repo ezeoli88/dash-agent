@@ -34,7 +34,8 @@ export function useBoardTasks(options: UseBoardTasksOptions = {}): UseBoardTasks
       inProgress: [],
       inReview: [],
       done: [],
-      cancelled: [],
+      failed: [],
+      canceled: [],
     }
 
     if (!tasks) return result
@@ -71,7 +72,8 @@ export function useBoardTasks(options: UseBoardTasksOptions = {}): UseBoardTasks
       columns.inProgress.length +
       columns.inReview.length +
       columns.done.length +
-      columns.cancelled.length
+      columns.failed.length +
+      columns.canceled.length
     )
   }, [columns])
 

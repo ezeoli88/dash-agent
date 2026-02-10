@@ -43,6 +43,16 @@ export function stripCredentialsFromUrl(url: string): string {
 }
 
 /**
+ * Extracts an embedded token from a git URL with credentials.
+ * e.g. https://oauth2:TOKEN@gitlab.com/user/repo.git -> TOKEN
+ * Returns null if no embedded credentials are found.
+ */
+export function extractTokenFromUrl(url: string): string | null {
+  const match = url.match(/\/\/[^:]+:([^@]+)@/);
+  return match?.[1] ?? null;
+}
+
+/**
  * Minimal GitLab API client for creating Merge Requests.
  */
 export class GitLabClient {

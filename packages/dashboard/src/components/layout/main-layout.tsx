@@ -19,7 +19,7 @@ export function MainLayout({ children }: MainLayoutProps) {
         tabIndex={-1}
         aria-label="Main content"
       >
-        <div className="container py-6 px-4 md:px-6 lg:px-8">
+        <div className="w-full py-6 px-4 md:px-6 lg:px-8">
           {children}
         </div>
       </main>

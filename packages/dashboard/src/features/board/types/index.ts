@@ -9,7 +9,7 @@ import type { Task, TaskStatus } from '@/features/tasks/types'
 /**
  * Column identifiers for the Kanban board
  */
-export type BoardColumnId = 'todo' | 'inProgress' | 'inReview' | 'done' | 'cancelled'
+export type BoardColumnId = 'todo' | 'inProgress' | 'inReview' | 'done' | 'failed' | 'canceled'
 
 /**
  * Configuration for a board column
@@ -38,7 +38,8 @@ export interface BoardState {
   inProgress: Task[]
   inReview: Task[]
   done: Task[]
-  cancelled: Task[]
+  failed: Task[]
+  canceled: Task[]
 }
 
 /**
@@ -64,7 +65,7 @@ export const BOARD_COLUMNS: BoardColumnConfig[] = [
   {
     id: 'inReview',
     title: 'In Review',
-    statuses: ['awaiting_review', 'review', 'plan_review', 'changes_requested', 'pr_created'],
+    statuses: ['awaiting_review', 'review', 'plan_review', 'changes_requested', 'merge_conflicts', 'pr_created'],
     color: 'text-purple-600 dark:text-purple-400',
     bgColor: 'bg-purple-50 dark:bg-purple-900/20',
     borderColor: 'border-purple-300 dark:border-purple-700',
@@ -78,12 +79,20 @@ export const BOARD_COLUMNS: BoardColumnConfig[] = [
     borderColor: 'border-green-300 dark:border-green-700',
   },
   {
-    id: 'cancelled',
-    title: 'Cancelled',
+    id: 'failed',
+    title: 'Failed',
     statuses: ['failed'],
     color: 'text-red-600 dark:text-red-400',
     bgColor: 'bg-red-50 dark:bg-red-900/20',
     borderColor: 'border-red-300 dark:border-red-700',
+  },
+  {
+    id: 'canceled',
+    title: 'Canceled',
+    statuses: ['canceled'],
+    color: 'text-slate-600 dark:text-slate-400',
+    bgColor: 'bg-slate-50 dark:bg-slate-800/20',
+    borderColor: 'border-slate-300 dark:border-slate-700',
   },
 ]
 
@@ -106,9 +115,12 @@ export const STATUS_TO_COLUMN: Record<TaskStatus, BoardColumnId> = {
   review: 'inReview',
   plan_review: 'inReview',
   changes_requested: 'inReview',
+  merge_conflicts: 'inReview',
   pr_created: 'inReview',
   // Done column
   done: 'done',
-  // Cancelled column
-  failed: 'cancelled',
+  // Failed column
+  failed: 'failed',
+  // Canceled column
+  canceled: 'canceled',
 }

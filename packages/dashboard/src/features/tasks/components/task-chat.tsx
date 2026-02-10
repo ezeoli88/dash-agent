@@ -283,12 +283,18 @@ export function TaskChat({ task, readOnly = false, className }: TaskChatProps) {
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
-      {/* Error banner when task has failed */}
-      {isFailed && task.error && (
+      {/* Error banner when task has failed, merge conflicts, or canceled */}
+      {(task.status === 'failed' || task.status === 'merge_conflicts' || task.status === 'canceled') && task.error && (
         <div className="flex items-start gap-2.5 border-b border-red-500/30 bg-red-950/60 dark:bg-red-50 px-4 py-3 text-sm text-red-300 dark:text-red-700">
           <AlertCircle className="size-4 shrink-0 mt-0.5" />
           <div className="min-w-0 space-y-1">
-            <p className="font-medium text-red-200 dark:text-red-800">Task failed</p>
+            <p className="font-medium text-red-200 dark:text-red-800">
+              {task.status === 'merge_conflicts'
+                ? 'Merge Conflicts'
+                : task.status === 'canceled'
+                  ? 'Task canceled'
+                  : 'Task failed'}
+            </p>
             <p className="whitespace-pre-wrap break-words">{task.error}</p>
           </div>
         </div>

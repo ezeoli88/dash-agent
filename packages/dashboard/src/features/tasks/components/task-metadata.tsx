@@ -113,12 +113,16 @@ export function TaskMetadata({ task }: TaskMetadataProps) {
             </div>
           )}
 
-          {/* Error message (if status is failed) */}
-          {task.status === 'failed' && task.error && (
+          {/* Error message (if status is failed, merge_conflicts, or canceled) */}
+          {(task.status === 'failed' || task.status === 'merge_conflicts' || task.status === 'canceled') && task.error && (
             <div className="space-y-1.5 sm:col-span-2">
               <div className="flex items-center gap-2 text-sm font-medium text-destructive">
                 <AlertCircle className="h-4 w-4" />
-                Error
+                {task.status === 'merge_conflicts'
+                  ? 'Merge Conflicts'
+                  : task.status === 'canceled'
+                    ? 'Canceled'
+                    : 'Error'}
               </div>
               <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {task.error}

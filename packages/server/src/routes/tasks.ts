@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { ZodError, z } from 'zod';
 import { taskService, type Task } from '../services/task.service.js';
 import { getAgentService } from '../services/agent.service.js';
-import { getGitService } from '../services/git.service.js';
+import { getGitService, execGitOrThrow } from '../services/git.service.js';
 import { getPRCommentsService } from '../services/pr-comments.service.js';
 import { getSSEEmitter } from '../utils/sse-emitter.js';
 import { CreateTaskSchema, UpdateTaskSchema, GenerateSpecRequestSchema, UpdateSpecRequestSchema, ApproveSpecRequestSchema } from '../schemas/task.schema.js';
@@ -12,6 +12,7 @@ import { getGitHubClient } from '../github/client.js';
 import { generateSpec, regenerateSpec, cancelSpecGeneration } from '../services/pm-agent.service.js';
 import { executeSpec, cancelExecution } from '../services/dev-agent.service.js';
 import { getAICredentials } from '../services/secrets.service.js';
+import { spawn } from 'child_process';
 
 const logger = createLogger('routes:tasks');
 const router = Router();
@@ -489,21 +490,6 @@ router.post('/:id/approve-plan', requireTaskId, loadTask, async (req: Request, r
 
     const agentService = getAgentService();
 
-    // Check for conflicting tasks on same repo
-    const activeAgents = agentService.getActiveAgents();
-    const conflictingTask = activeAgents.find((a) => {
-      const t = taskService.getById(a.taskId);
-      return t && t.repo_url === task.repo_url && t.id !== id;
-    });
-
-    if (conflictingTask) {
-      res.status(409).json({
-        error: 'Another task is already in progress for this repository',
-        conflicting_task_id: conflictingTask.taskId,
-      });
-      return;
-    }
-
     // Approve plan and start implementation (async)
     agentService.approvePlan(id!).catch((error) => {
       logger.error('Failed to approve plan and start implementation', { taskId: id, error: getErrorMessage(error) });
@@ -542,22 +528,6 @@ router.post('/:id/start', requireTaskId, loadTask, async (req: Request, res: Res
       return;
     }
 
-    // Check for conflicting tasks on same repo
-    const agentService = getAgentService();
-    const activeAgents = agentService.getActiveAgents();
-    const conflictingTask = activeAgents.find((a) => {
-      const t = taskService.getById(a.taskId);
-      return t && t.repo_url === task.repo_url && t.id !== id;
-    });
-
-    if (conflictingTask) {
-      res.status(409).json({
-        error: 'Another task is already in progress for this repository',
-        conflicting_task_id: conflictingTask.taskId,
-      });
-      return;
-    }
-
     // Generate branch name
     const titleSlug = task.title.toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
@@ -581,6 +551,7 @@ router.post('/:id/start', requireTaskId, loadTask, async (req: Request, res: Res
     sseEmitter.emitStatus(id!, 'planning');
 
     // Start agent execution asynchronously
+    const agentService = getAgentService();
     agentService.startAgent(id!, false).catch((error) => {
       logger.error('Failed to start agent', { taskId: id, error: getErrorMessage(error) });
       const currentTask = taskService.getById(id!);
@@ -622,23 +593,8 @@ router.post('/:id/execute', requireTaskId, loadTask, async (req: Request, res: R
       return;
     }
 
-    // Check for conflicting tasks on same repo
-    const agentService = getAgentService();
-    const activeAgents = agentService.getActiveAgents();
-    const conflictingTask = activeAgents.find((a) => {
-      const t = taskService.getById(a.taskId);
-      return t && t.repo_url === task.repo_url && t.id !== id;
-    });
-
-    if (conflictingTask) {
-      res.status(409).json({
-        error: 'Another task is already in progress for this repository',
-        conflicting_task_id: conflictingTask.taskId,
-      });
-      return;
-    }
-
     // Determine if this is a resume from changes_requested
+    const agentService = getAgentService();
     const isResume = task.status === 'changes_requested';
     const isRetry = task.status === 'failed';
 
@@ -868,9 +824,9 @@ router.post('/:id/cancel', requireTaskId, loadTask, (req: Request, res: Response
       const activeStatuses = ['planning', 'in_progress', 'coding', 'plan_review', 'approved', 'awaiting_review'];
       if (activeStatuses.includes(task.status)) {
         logger.info('No active agent but task is stuck in active status, resetting', { id, status: task.status });
-        taskService.update(id!, { status: 'failed', error: 'Agent process exited unexpectedly' });
+        taskService.update(id!, { status: 'canceled', error: 'Task canceled by user (agent not running)' });
         const sseEmitter = getSSEEmitter();
-        sseEmitter.emitStatus(id!, 'failed');
+        sseEmitter.emitStatus(id!, 'canceled');
         res.json({ status: 'cancelled' });
         return;
       }
@@ -1005,7 +961,7 @@ router.post('/:id/pr-merged', requireTaskId, loadTask, async (req: Request, res:
  * POST /tasks/:id/pr-closed - Mark PR as closed (not merged)
  *
  * Call this when the PR is closed without merging to:
- * - Update task status to 'failed'
+ * - Update task status to 'canceled'
  * - Clean up the worktree
  */
 router.post('/:id/pr-closed', requireTaskId, loadTask, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -1027,7 +983,7 @@ router.post('/:id/pr-closed', requireTaskId, loadTask, async (req: Request, res:
     await agentService.markPRClosed(id!);
 
     res.json({
-      status: 'failed',
+      status: 'canceled',
       message: 'PR marked as closed. Worktree cleaned up.',
     });
   } catch (error) {
@@ -1274,6 +1230,165 @@ router.get('/:id/changes', requireTaskId, loadTask, async (req: Request, res: Re
     res.status(400).json({
       error: 'No changes available',
       message: 'No worktree or persisted changes found for this task.',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// =============================================================================
+// Merge Conflict Resolution Endpoints
+// =============================================================================
+
+/**
+ * POST /tasks/:id/open-editor - Open VS Code at the worktree path
+ *
+ * Opens the worktree directory in VS Code so the user can resolve merge conflicts.
+ * Only valid for tasks with status: 'merge_conflicts'
+ */
+router.post('/:id/open-editor', requireTaskId, loadTask, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { task } = req as RequestWithTask;
+    const { id } = req.params;
+    logger.info('POST /tasks/:id/open-editor', { id });
+
+    // Validate task status
+    if (task.status !== 'merge_conflicts') {
+      res.status(400).json({
+        error: 'Invalid task status',
+        message: `Cannot open editor for task with status: ${task.status}. Expected: merge_conflicts`,
+      });
+      return;
+    }
+
+    // Get worktree path
+    const gitService = getGitService();
+    const worktreePath = gitService.getWorktreePath(id!);
+    if (!worktreePath) {
+      res.status(400).json({
+        error: 'No worktree',
+        message: 'No worktree found for this task.',
+      });
+      return;
+    }
+
+    // Open VS Code (fire-and-forget)
+    const child = spawn('code', [worktreePath], {
+      detached: true,
+      stdio: 'ignore',
+      shell: process.platform === 'win32',
+    });
+    child.unref();
+
+    logger.info('VS Code opened for merge conflict resolution', { id, worktreePath });
+
+    res.json({ opened: true, path: worktreePath });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /tasks/:id/resolve-conflicts - Mark conflicts as resolved and continue PR creation
+ *
+ * Called when the user finishes resolving merge conflicts in VS Code.
+ * Validates that no conflict markers remain, completes the merge commit,
+ * then pushes and creates the PR.
+ *
+ * Only valid for tasks with status: 'merge_conflicts'
+ */
+router.post('/:id/resolve-conflicts', requireTaskId, loadTask, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { task } = req as RequestWithTask;
+    const { id } = req.params;
+    logger.info('POST /tasks/:id/resolve-conflicts', { id });
+
+    // Validate task status
+    if (task.status !== 'merge_conflicts') {
+      res.status(400).json({
+        error: 'Invalid task status',
+        message: `Cannot resolve conflicts for task with status: ${task.status}. Expected: merge_conflicts`,
+      });
+      return;
+    }
+
+    // Get worktree path
+    const gitService = getGitService();
+    const worktreePath = gitService.getWorktreePath(id!);
+    if (!worktreePath) {
+      res.status(400).json({
+        error: 'No worktree',
+        message: 'No worktree found for this task.',
+      });
+      return;
+    }
+
+    // Parse the list of conflict files from the task
+    let conflictFileList: string[] = [];
+    if (task.conflict_files) {
+      try {
+        conflictFileList = JSON.parse(task.conflict_files);
+      } catch {
+        // If parsing fails, check all files via git
+      }
+    }
+
+    // If no files from task, check git for any remaining conflicts
+    if (conflictFileList.length === 0) {
+      conflictFileList = await gitService.getConflictingFiles(worktreePath);
+    }
+
+    // Check for remaining conflict markers
+    const filesWithMarkers = await gitService.hasConflictMarkers(worktreePath, conflictFileList);
+    if (filesWithMarkers.length > 0) {
+      res.status(409).json({
+        error: 'Aún hay archivos con conflictos',
+        files: filesWithMarkers,
+      });
+      return;
+    }
+
+    const sseEmitter = getSSEEmitter();
+
+    // Stage all changes and complete the merge commit
+    try {
+      await execGitOrThrow(['add', '.'], worktreePath);
+      await execGitOrThrow(['commit', '--no-edit'], worktreePath);
+    } catch (commitError) {
+      const errorMsg = getErrorMessage(commitError);
+      logger.error('Failed to complete merge commit', { id, error: errorMsg });
+      res.status(500).json({
+        error: 'Failed to complete merge commit',
+        message: errorMsg,
+      });
+      return;
+    }
+
+    // Clear conflict data and update status
+    taskService.update(id!, {
+      status: 'approved',
+      conflict_files: null,
+      error: null,
+    });
+    sseEmitter.emitStatus(id!, 'approved');
+    sseEmitter.emitLog(id!, 'info', 'Conflictos resueltos, creando PR...');
+
+    // Push and create PR asynchronously
+    const agentService = getAgentService();
+    agentService.pushAndCreatePR(id!).catch((error) => {
+      const errorMsg = getErrorMessage(error);
+      logger.error('Failed to push and create PR after conflict resolution', { id, error: errorMsg });
+      taskService.update(id!, {
+        status: 'awaiting_review',
+        error: `Failed to create PR: ${errorMsg}`,
+      });
+      sseEmitter.emitStatus(id!, 'awaiting_review');
+      sseEmitter.emitError(id!, errorMsg);
+    });
+
+    res.json({
+      status: 'resolving',
+      message: 'Conflictos resueltos. Creando PR...',
     });
   } catch (error) {
     next(error);

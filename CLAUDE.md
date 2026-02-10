@@ -1,5 +1,12 @@
 # dash-agent - Project Instructions for Claude
 
+## Critical Thinking (MANDATORY)
+Before implementing any request, you MUST:
+- **Evaluate tradeoffs**: Analyze pros/cons of the approach, consider alternatives, and mention what could go wrong.
+- **Be critical**: If an idea has flaws, edge cases, or better alternatives, say so directly. Do not just agree and implement blindly.
+- **Ask when in doubt**: If requirements are ambiguous or you see potential issues, raise them before writing code. It's better to debate first than to rewrite later.
+- **Challenge assumptions**: If the user's approach could cause problems (performance, UX, maintainability), flag it explicitly.
+
 ## Project Overview
 Dashboard web para gestionar tareas de un agente IA autonomo. Permite crear tareas, monitorear su ejecucion en tiempo real via SSE, enviar feedback al agente, revisar cambios (diff) y aprobar la creacion de PRs.
 
@@ -68,6 +75,18 @@ Example:
 ```
 Task tool with subagent_type: "fullstack-ts-eng"
 ```
+
+### CLI Integration Cross-Check (MANDATORY)
+When modifying CLI-specific code in `packages/server/src/agent/cli-runner.ts` or `packages/server/src/services/agent-detection.service.ts`, you MUST verify that changes for one CLI type do NOT affect others. The system supports multiple CLI agents (claude-code, codex, copilot, gemini), each with:
+- **Independent command building** in `buildCLICommand()` (separate `case` per agent)
+- **Independent output parsing** in `parseOutputLine()` (separate parser per agent)
+- **Independent model lists** in `agent-detection.service.ts`
+
+After any CLI-specific change:
+1. Verify the modified `case` is self-contained (no shared variables/constants affected)
+2. Confirm other CLI cases remain untouched
+3. Check that output parser routing in `parseOutputLine()` correctly maps each agent type
+4. Run `npm run build` to verify compilation
 
 ## Tech Stack
 

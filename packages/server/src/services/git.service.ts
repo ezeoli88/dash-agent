@@ -12,6 +12,25 @@ import { getGitHubCredentials, getGitLabCredentials } from './secrets.service.js
 
 const logger = createLogger('git-service');
 
+// =============================================================================
+// Per-repo lock to prevent concurrent bare repo operations (e.g., index.lock)
+// =============================================================================
+
+const repoLocks = new Map<string, Promise<void>>();
+
+async function withRepoLock(repoKey: string, fn: () => Promise<void>): Promise<void> {
+  const existing = repoLocks.get(repoKey) ?? Promise.resolve();
+  const next = existing.then(fn, fn);
+  repoLocks.set(repoKey, next);
+  try {
+    await next;
+  } finally {
+    if (repoLocks.get(repoKey) === next) {
+      repoLocks.delete(repoKey);
+    }
+  }
+}
+
 /**
  * Result of executing a git command.
  */
@@ -153,7 +172,7 @@ async function execGit(
  * @returns The stdout output
  * @throws Error if the command fails
  */
-async function execGitOrThrow(
+export async function execGitOrThrow(
   args: string[],
   cwd?: string,
   env?: Record<string, string>
@@ -335,40 +354,49 @@ export class GitService {
     // Ensure base directory exists
     await ensureDir(this.reposBaseDir);
 
-    // Check if bare repo already exists
+    // Check if bare repo already exists (fast path, no lock needed)
     if (await directoryExists(bareRepoPath)) {
       logger.info('Bare repo already exists', { bareRepoPath });
       return bareRepoPath;
     }
 
-    logger.info('Cloning bare repository', { repoUrl, bareRepoPath });
-
-    // Clone as bare repository - use raw path for local repos, authenticated URL for remote
-    const token = this.getTokenForUrl(repoUrl);
-    const cloneUrl = isLocalRepoUrl(repoUrl)
-      ? localRepoPath(repoUrl)
-      : (token ? toAuthenticatedCloneUrl(repoUrl, token) : repoUrl);
-
-    try {
-      await execGitOrThrow(['clone', '--bare', cloneUrl, bareRepoPath]);
-      logger.info('Bare repository cloned successfully', { bareRepoPath });
-
-      // For local repos, the bare clone's origin points to the local path.
-      // Update it to the source repo's actual remote so push/PR operations
-      // go to the correct remote (GitHub/GitLab).
-      if (isLocalRepoUrl(repoUrl)) {
-        await this.copySourceRemoteToBareRepo(localRepoPath(repoUrl), bareRepoPath);
+    // Acquire per-repo lock before cloning to prevent duplicate clones
+    await withRepoLock(bareRepoPath, async () => {
+      // Re-check after acquiring lock (another task may have cloned it)
+      if (await directoryExists(bareRepoPath)) {
+        logger.info('Bare repo created by another task while waiting for lock', { bareRepoPath });
+        return;
       }
-    } catch (error) {
-      // Clean up partial clone on failure
-      await fs.rm(bareRepoPath, { recursive: true, force: true }).catch((cleanupError) => {
-        logger.debug('Failed to cleanup partial clone on failure', {
-          bareRepoPath,
-          error: getErrorMessage(cleanupError),
+
+      logger.info('Cloning bare repository', { repoUrl, bareRepoPath });
+
+      // Clone as bare repository - use raw path for local repos, authenticated URL for remote
+      const token = this.getTokenForUrl(repoUrl);
+      const cloneUrl = isLocalRepoUrl(repoUrl)
+        ? localRepoPath(repoUrl)
+        : (token ? toAuthenticatedCloneUrl(repoUrl, token) : repoUrl);
+
+      try {
+        await execGitOrThrow(['clone', '--bare', cloneUrl, bareRepoPath]);
+        logger.info('Bare repository cloned successfully', { bareRepoPath });
+
+        // For local repos, the bare clone's origin points to the local path.
+        // Update it to the source repo's actual remote so push/PR operations
+        // go to the correct remote (GitHub/GitLab).
+        if (isLocalRepoUrl(repoUrl)) {
+          await this.copySourceRemoteToBareRepo(localRepoPath(repoUrl), bareRepoPath);
+        }
+      } catch (error) {
+        // Clean up partial clone on failure
+        await fs.rm(bareRepoPath, { recursive: true, force: true }).catch((cleanupError) => {
+          logger.debug('Failed to cleanup partial clone on failure', {
+            bareRepoPath,
+            error: getErrorMessage(cleanupError),
+          });
         });
-      });
-      throw error;
-    }
+        throw error;
+      }
+    });
 
     return bareRepoPath;
   }
@@ -385,73 +413,76 @@ export class GitService {
   async fetchRepo(bareRepoPath: string, targetBranch?: string, repoUrl?: string): Promise<void> {
     logger.debug('Fetching latest changes', { bareRepoPath, targetBranch });
 
-    // Check if repository is empty - if so, skip fetch
-    const isEmpty = await this.isEmptyRepo(bareRepoPath);
-    if (isEmpty) {
-      logger.info('Skipping fetch for empty repository', { bareRepoPath });
-      return;
-    }
+    // Acquire per-repo lock to prevent concurrent fetch/clone on the same bare repo
+    await withRepoLock(bareRepoPath, async () => {
+      // Check if repository is empty - if so, skip fetch
+      const isEmpty = await this.isEmptyRepo(bareRepoPath);
+      if (isEmpty) {
+        logger.info('Skipping fetch for empty repository', { bareRepoPath });
+        return;
+      }
 
-    // For local repos, just fetch the target branch directly (no prune)
-    // git fetch origin --prune fails on local file:// repos with "couldn't find remote ref HEAD"
-    if (repoUrl && isLocalRepoUrl(repoUrl)) {
-      const repoPath = localRepoPath(repoUrl);
+      // For local repos, just fetch the target branch directly (no prune)
+      // git fetch origin --prune fails on local file:// repos with "couldn't find remote ref HEAD"
+      if (repoUrl && isLocalRepoUrl(repoUrl)) {
+        const repoPath = localRepoPath(repoUrl);
+        if (targetBranch) {
+          try {
+            // Fetch directly from the local path (not origin) to avoid stale remote config
+            await execGitOrThrow(
+              ['fetch', repoPath, `${targetBranch}:${targetBranch}`, '--force'],
+              bareRepoPath
+            );
+            logger.debug('Fetched local repo branch', { targetBranch, repoPath });
+          } catch (error) {
+            logger.warn('Could not fetch local branch, will use existing', {
+              targetBranch,
+              error: getErrorMessage(error),
+            });
+          }
+        }
+        logger.info('Local repository fetched successfully', { bareRepoPath });
+        return;
+      }
+
+      // Determine git credentials username based on provider
+      const gitUsername = (repoUrl && isGitLabUrl(repoUrl)) ? 'oauth2' : 'x-access-token';
+
+      // Set up authentication for fetch if we have a token
+      const token = this.getTokenForUrl(repoUrl ?? '');
+      const env: Record<string, string> = {};
+      if (token) {
+        // Use credential helper to provide token
+        env['GIT_ASKPASS'] = 'echo';
+        env['GIT_USERNAME'] = gitUsername;
+        env['GIT_PASSWORD'] = token;
+      }
+
+      // Fetch all changes first
+      await execGitOrThrow(['fetch', 'origin', '--prune'], bareRepoPath, env);
+
+      // If a target branch is specified, update the local branch to match origin
+      // In a bare repo, we need to explicitly update the local ref
       if (targetBranch) {
         try {
-          // Fetch directly from the local path (not origin) to avoid stale remote config
+          // Update local branch ref to match origin
+          // This is equivalent to: git update-ref refs/heads/main refs/remotes/origin/main
           await execGitOrThrow(
-            ['fetch', repoPath, `${targetBranch}:${targetBranch}`, '--force'],
-            bareRepoPath
+            ['fetch', 'origin', `${targetBranch}:${targetBranch}`, '--force'],
+            bareRepoPath,
+            env
           );
-          logger.debug('Fetched local repo branch', { targetBranch, repoPath });
+          logger.debug('Updated local branch from origin', { targetBranch });
         } catch (error) {
-          logger.warn('Could not fetch local branch, will use existing', {
+          logger.warn('Could not update local branch ref, will use existing', {
             targetBranch,
             error: getErrorMessage(error),
           });
         }
       }
-      logger.info('Local repository fetched successfully', { bareRepoPath });
-      return;
-    }
 
-    // Determine git credentials username based on provider
-    const gitUsername = (repoUrl && isGitLabUrl(repoUrl)) ? 'oauth2' : 'x-access-token';
-
-    // Set up authentication for fetch if we have a token
-    const token = this.getTokenForUrl(repoUrl ?? '');
-    const env: Record<string, string> = {};
-    if (token) {
-      // Use credential helper to provide token
-      env['GIT_ASKPASS'] = 'echo';
-      env['GIT_USERNAME'] = gitUsername;
-      env['GIT_PASSWORD'] = token;
-    }
-
-    // Fetch all changes first
-    await execGitOrThrow(['fetch', 'origin', '--prune'], bareRepoPath, env);
-
-    // If a target branch is specified, update the local branch to match origin
-    // In a bare repo, we need to explicitly update the local ref
-    if (targetBranch) {
-      try {
-        // Update local branch ref to match origin
-        // This is equivalent to: git update-ref refs/heads/main refs/remotes/origin/main
-        await execGitOrThrow(
-          ['fetch', 'origin', `${targetBranch}:${targetBranch}`, '--force'],
-          bareRepoPath,
-          env
-        );
-        logger.debug('Updated local branch from origin', { targetBranch });
-      } catch (error) {
-        logger.warn('Could not update local branch ref, will use existing', {
-          targetBranch,
-          error: getErrorMessage(error),
-        });
-      }
-    }
-
-    logger.info('Repository fetched successfully', { bareRepoPath });
+      logger.info('Repository fetched successfully', { bareRepoPath });
+    });
   }
 
   /**
@@ -671,11 +702,6 @@ export class GitService {
       logger.info('Repository is empty, will create orphan branch', { taskId, bareRepoPath });
     }
 
-    // Prune orphaned worktree references BEFORE attempting to create
-    // This helps clean up stale references from previous failed cleanups
-    logger.debug('Pruning orphaned worktree references before creation', { bareRepoPath });
-    await execGit(['worktree', 'prune'], bareRepoPath);
-
     // Ensure worktrees directory exists
     await ensureDir(this.worktreesDir);
 
@@ -690,60 +716,68 @@ export class GitService {
       throw new Error(errorMsg);
     }
 
-    // Also check for and clean up orphaned worktree metadata in the bare repo
-    const worktreeMetadataPath = path.join(bareRepoPath, 'worktrees', `task-${taskId}`);
-    if (await directoryExists(worktreeMetadataPath)) {
-      logger.warn('Orphaned worktree metadata found, cleaning up', { worktreeMetadataPath });
-      try {
-        await removeDirectoryWithRetry(worktreeMetadataPath, 3, 200);
-      } catch (error) {
-        logger.warn('Failed to clean up orphaned worktree metadata', {
-          worktreeMetadataPath,
-          error: getErrorMessage(error),
-        });
-      }
-      // Run prune again after cleaning up metadata
+    // Acquire per-repo lock for worktree operations on the bare repo
+    await withRepoLock(bareRepoPath, async () => {
+      // Prune orphaned worktree references BEFORE attempting to create
+      // This helps clean up stale references from previous failed cleanups
+      logger.debug('Pruning orphaned worktree references before creation', { bareRepoPath });
       await execGit(['worktree', 'prune'], bareRepoPath);
-    }
 
-    // Handle empty repository case - need to create orphan branch manually
-    if (isEmptyRepo) {
-      await this.createWorktreeForEmptyRepo(bareRepoPath, worktreePath, branchName);
-    } else {
-      // Normal case: repository has commits
-      // Check if branch already exists
-      const branchCheckResult = await execGit(
-        ['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`],
-        bareRepoPath
-      );
-
-      if (branchCheckResult.exitCode === 0) {
-        // Branch exists, create worktree from existing branch
-        logger.debug('Branch already exists, using existing branch', { branchName });
-        await execGitOrThrow(['worktree', 'add', worktreePath, branchName], bareRepoPath);
-
-        // Merge latest changes from targetBranch to keep branch up to date
-        // The local targetBranch ref was updated by fetchRepo to match origin
-        logger.debug('Merging latest changes into existing branch', { targetBranch });
+      // Also check for and clean up orphaned worktree metadata in the bare repo
+      const worktreeMetadataPath = path.join(bareRepoPath, 'worktrees', `task-${taskId}`);
+      if (await directoryExists(worktreeMetadataPath)) {
+        logger.warn('Orphaned worktree metadata found, cleaning up', { worktreeMetadataPath });
         try {
-          await execGitOrThrow(['merge', targetBranch, '--no-edit'], worktreePath);
-          logger.debug('Successfully merged latest changes', { targetBranch });
-        } catch (mergeError) {
-          logger.warn('Could not auto-merge latest changes, branch may have conflicts', {
-            targetBranch,
-            error: getErrorMessage(mergeError),
+          await removeDirectoryWithRetry(worktreeMetadataPath, 3, 200);
+        } catch (error) {
+          logger.warn('Failed to clean up orphaned worktree metadata', {
+            worktreeMetadataPath,
+            error: getErrorMessage(error),
           });
         }
+        // Run prune again after cleaning up metadata
+        await execGit(['worktree', 'prune'], bareRepoPath);
+      }
+
+      // Handle empty repository case - need to create orphan branch manually
+      if (isEmptyRepo) {
+        await this.createWorktreeForEmptyRepo(bareRepoPath, worktreePath, branchName);
       } else {
-        // Create new worktree with new branch based on targetBranch
-        // The local targetBranch ref was updated by fetchRepo to match origin
-        logger.debug('Creating new branch from target branch', { branchName, targetBranch });
-        await execGitOrThrow(
-          ['worktree', 'add', worktreePath, '-b', branchName, targetBranch],
+        // Normal case: repository has commits
+        // Check if branch already exists
+        const branchCheckResult = await execGit(
+          ['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`],
           bareRepoPath
         );
+
+        if (branchCheckResult.exitCode === 0) {
+          // Branch exists, create worktree from existing branch
+          logger.debug('Branch already exists, using existing branch', { branchName });
+          await execGitOrThrow(['worktree', 'add', worktreePath, branchName], bareRepoPath);
+
+          // Merge latest changes from targetBranch to keep branch up to date
+          // The local targetBranch ref was updated by fetchRepo to match origin
+          logger.debug('Merging latest changes into existing branch', { targetBranch });
+          try {
+            await execGitOrThrow(['merge', targetBranch, '--no-edit'], worktreePath);
+            logger.debug('Successfully merged latest changes', { targetBranch });
+          } catch (mergeError) {
+            logger.warn('Could not auto-merge latest changes, branch may have conflicts', {
+              targetBranch,
+              error: getErrorMessage(mergeError),
+            });
+          }
+        } else {
+          // Create new worktree with new branch based on targetBranch
+          // The local targetBranch ref was updated by fetchRepo to match origin
+          logger.debug('Creating new branch from target branch', { branchName, targetBranch });
+          await execGitOrThrow(
+            ['worktree', 'add', worktreePath, '-b', branchName, targetBranch],
+            bareRepoPath
+          );
+        }
       }
-    }
+    });
 
     // Configure git user for the worktree
     await execGitOrThrow(['config', 'user.email', 'agent@agent-board.local'], worktreePath);
@@ -891,6 +925,61 @@ export class GitService {
     // Commit changes
     await execGitOrThrow(['commit', '-m', message], worktreePath);
     logger.info('Changes committed successfully', { worktreePath });
+  }
+
+  /**
+   * Fetches a branch from the remote origin, running inside a worktree.
+   * Unlike fetchRepo (which operates on the bare repo), this uses the worktree's
+   * "origin" remote -- which for local file:// repos is the actual GitHub/GitLab URL
+   * (set by copySourceRemoteToBareRepo). This ensures we always fetch from the
+   * real remote, not a stale local copy.
+   *
+   * @param worktreePath - Path to the worktree
+   * @param branch - The branch to fetch (e.g., 'main')
+   */
+  async fetchInWorktree(worktreePath: string, branch: string): Promise<void> {
+    logger.debug('Fetching branch in worktree', { worktreePath, branch });
+
+    // Get the remote URL to detect the provider and set up auth
+    const remoteResult = await execGit(['remote', 'get-url', 'origin'], worktreePath);
+    const remoteUrl = remoteResult.exitCode === 0 ? remoteResult.stdout : '';
+
+    // Determine git credentials username based on provider
+    const gitUsername = isGitLabUrl(remoteUrl) ? 'oauth2' : 'x-access-token';
+
+    // Get the correct token for this remote
+    const token = this.getTokenForUrl(remoteUrl);
+
+    // Set up authentication for fetch if we have a token
+    const env: Record<string, string> = {};
+    if (token) {
+      env['GIT_ASKPASS'] = 'echo';
+      env['GIT_USERNAME'] = gitUsername;
+      env['GIT_PASSWORD'] = token;
+    }
+
+    // Update remote URL with authentication (skip for local repos)
+    if (token && remoteUrl && !isLocalRepoUrl(remoteUrl)) {
+      try {
+        const authUrl = toAuthenticatedCloneUrl(remoteUrl, token);
+        await execGitOrThrow(['remote', 'set-url', 'origin', authUrl], worktreePath);
+      } catch (error) {
+        logger.warn('Could not parse remote URL for authentication during fetch', {
+          remoteUrl,
+          error: getErrorMessage(error),
+        });
+      }
+    }
+
+    // Use explicit refspec to update the remote tracking ref (origin/<branch>).
+    // Without it, `git fetch origin <branch>` only updates FETCH_HEAD,
+    // leaving `origin/<branch>` unresolvable for the subsequent merge.
+    await execGitOrThrow(
+      ['fetch', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`],
+      worktreePath,
+      env,
+    );
+    logger.info('Branch fetched in worktree successfully', { branch });
   }
 
   /**
@@ -1042,11 +1131,13 @@ export class GitService {
     // Find the bare repo path first (before we potentially corrupt the worktree)
     const bareRepoPath = await this.findBareRepoPath(worktreePath, taskId);
 
-    // IMPORTANT: Run git worktree prune FIRST to clean up orphaned worktree references
-    // This helps when a previous cleanup failed partway through
+    // IMPORTANT: Run git worktree prune and remove under per-repo lock
+    // to prevent concurrent bare repo operations
     if (bareRepoPath && await directoryExists(bareRepoPath)) {
-      logger.debug('Pruning orphaned worktree references', { bareRepoPath });
-      await execGit(['worktree', 'prune'], bareRepoPath);
+      await withRepoLock(bareRepoPath, async () => {
+        logger.debug('Pruning orphaned worktree references', { bareRepoPath });
+        await execGit(['worktree', 'prune'], bareRepoPath);
+      });
     }
 
     // Check if worktree directory exists
@@ -1062,17 +1153,19 @@ export class GitService {
 
     // Strategy 1: Try to remove the worktree using git worktree remove
     if (bareRepoPath && await directoryExists(bareRepoPath)) {
-      try {
-        await execGitOrThrow(['worktree', 'remove', '--force', worktreePath], bareRepoPath);
-        removalSucceeded = true;
-        logger.debug('Worktree removed via git worktree remove', { worktreePath });
-      } catch (error) {
-        lastError = error as Error;
-        logger.warn('git worktree remove failed, will attempt direct removal', {
-          worktreePath,
-          error: getErrorMessage(error),
-        });
-      }
+      await withRepoLock(bareRepoPath, async () => {
+        try {
+          await execGitOrThrow(['worktree', 'remove', '--force', worktreePath], bareRepoPath);
+          removalSucceeded = true;
+          logger.debug('Worktree removed via git worktree remove', { worktreePath });
+        } catch (error) {
+          lastError = error as Error;
+          logger.warn('git worktree remove failed, will attempt direct removal', {
+            worktreePath,
+            error: getErrorMessage(error),
+          });
+        }
+      });
     }
 
     // Strategy 2: Direct removal with retry (handles EBUSY on Windows)
@@ -1120,38 +1213,39 @@ export class GitService {
       }
     }
 
-    // Optionally remove the branch
-    if (removeBranch && bareRepoPath && worktreeInfo !== undefined) {
-      try {
-        await execGitOrThrow(['branch', '-D', worktreeInfo.branchName], bareRepoPath);
-        logger.debug('Branch removed', { branch: worktreeInfo.branchName });
-      } catch (error) {
-        logger.warn('Failed to remove branch', {
-          branch: worktreeInfo.branchName,
-          error: getErrorMessage(error),
-        });
-      }
-    }
-
-    // Run git worktree prune again to clean up any remaining references
+    // Bare repo cleanup operations under per-repo lock
     if (bareRepoPath && await directoryExists(bareRepoPath)) {
-      await execGit(['worktree', 'prune'], bareRepoPath);
-    }
-
-    // Also clean up the worktree metadata in the bare repo if it still exists
-    if (bareRepoPath) {
-      const worktreeMetadataPath = path.join(bareRepoPath, 'worktrees', `task-${taskId}`);
-      if (await directoryExists(worktreeMetadataPath)) {
-        try {
-          await removeDirectoryWithRetry(worktreeMetadataPath, 3, 500);
-          logger.debug('Worktree metadata cleaned up', { worktreeMetadataPath });
-        } catch (error) {
-          logger.warn('Failed to remove worktree metadata', {
-            worktreeMetadataPath,
-            error: getErrorMessage(error),
-          });
+      await withRepoLock(bareRepoPath, async () => {
+        // Optionally remove the branch
+        if (removeBranch && worktreeInfo !== undefined) {
+          try {
+            await execGitOrThrow(['branch', '-D', worktreeInfo.branchName], bareRepoPath);
+            logger.debug('Branch removed', { branch: worktreeInfo.branchName });
+          } catch (error) {
+            logger.warn('Failed to remove branch', {
+              branch: worktreeInfo.branchName,
+              error: getErrorMessage(error),
+            });
+          }
         }
-      }
+
+        // Run git worktree prune again to clean up any remaining references
+        await execGit(['worktree', 'prune'], bareRepoPath);
+
+        // Also clean up the worktree metadata in the bare repo if it still exists
+        const worktreeMetadataPath = path.join(bareRepoPath, 'worktrees', `task-${taskId}`);
+        if (await directoryExists(worktreeMetadataPath)) {
+          try {
+            await removeDirectoryWithRetry(worktreeMetadataPath, 3, 500);
+            logger.debug('Worktree metadata cleaned up', { worktreeMetadataPath });
+          } catch (error) {
+            logger.warn('Failed to remove worktree metadata', {
+              worktreeMetadataPath,
+              error: getErrorMessage(error),
+            });
+          }
+        }
+      });
     }
 
     // Final verification - check if directory still exists
@@ -1468,6 +1562,55 @@ export class GitService {
       return result.stdout;
     }
     return null;
+  }
+
+  /**
+   * Gets the list of files with merge conflicts in a worktree.
+   * Uses `git diff --name-only --diff-filter=U` to detect unmerged files.
+   *
+   * @param worktreePath - Path to the worktree
+   * @returns Array of file paths with merge conflicts
+   */
+  async getConflictingFiles(worktreePath: string): Promise<string[]> {
+    const result = await execGit(['diff', '--name-only', '--diff-filter=U'], worktreePath);
+    if (result.exitCode !== 0 || !result.stdout.trim()) {
+      return [];
+    }
+    return result.stdout.trim().split('\n').filter((f) => f.length > 0);
+  }
+
+  /**
+   * Checks which files still contain conflict markers (<<<<<<).
+   *
+   * @param worktreePath - Path to the worktree
+   * @param files - List of file paths to check
+   * @returns List of files that still have conflict markers
+   */
+  async hasConflictMarkers(worktreePath: string, files: string[]): Promise<string[]> {
+    const filesWithMarkers: string[] = [];
+    for (const file of files) {
+      try {
+        const fullPath = path.join(worktreePath, file);
+        const content = await fs.readFile(fullPath, 'utf-8');
+        if (content.includes('<<<<<<<')) {
+          filesWithMarkers.push(file);
+        }
+      } catch {
+        // File might have been deleted, skip it
+      }
+    }
+    return filesWithMarkers;
+  }
+
+  /**
+   * Gets the bare repo path for a task from the active worktrees map.
+   *
+   * @param taskId - The task identifier
+   * @returns The bare repo path or null if not found
+   */
+  getBareRepoPathForTask(taskId: string): string | null {
+    const info = activeWorktrees.get(taskId);
+    return info?.bareRepoPath ?? null;
   }
 
   /**

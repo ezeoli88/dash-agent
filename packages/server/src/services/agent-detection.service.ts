@@ -108,10 +108,11 @@ const CLI_CONFIGS: CLIConfig[] = [
     versionArgs: ['--version'],
     authCheckArgs: ['-p', 'hi', '--output-format', 'json'],
     models: [
-      { id: 'gemini-3-pro', name: 'Gemini 3 Pro', description: 'Best multimodal understanding' },
-      { id: 'gemini-3-flash', name: 'Gemini 3 Flash', description: 'Balanced speed & performance' },
+      { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', description: 'Best multimodal understanding' },
+      { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', description: 'Balanced speed & performance' },
       { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Frontier thinking model (stable)' },
       { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: 'Best price-performance (stable)' },
+      { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', description: 'Lightweight and fast' },
     ],
     // Same as vibe-kanban: ~/.gemini/oauth_creds.json indicates OAuth login
     loginFile: '.gemini/oauth_creds.json',

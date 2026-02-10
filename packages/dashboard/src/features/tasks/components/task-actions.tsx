@@ -15,6 +15,8 @@ import {
   Pencil,
   GitCompareArrows,
   CheckCircle,
+  MonitorUp,
+  CheckCircle2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -43,6 +45,8 @@ import {
 import { toast } from 'sonner'
 import { useTaskActions } from '../hooks/use-task-actions'
 import { useStartTask } from '../hooks/use-start-task'
+import { useOpenEditor } from '../hooks/use-open-editor'
+import { useResolveConflicts } from '../hooks/use-resolve-conflicts'
 import { FeedbackForm } from './feedback-form'
 import { EditTaskDialog } from './edit-task-dialog'
 import type { Task, TaskStatus } from '../types'
@@ -67,6 +71,8 @@ type ActionType =
   | 'mark_closed'
   | 'start'
   | 'edit'
+  | 'open_editor'
+  | 'mark_resolved'
 
 type ActionConfig = {
   type: ActionType
@@ -172,6 +178,28 @@ function getActionsForStatus(task: Task): ActionConfig[] {
         type: 'mark_closed',
         label: 'Mark as Closed',
         icon: <Ban className="h-4 w-4" />,
+        variant: 'destructive',
+        isDestructive: true,
+      },
+    ],
+
+    merge_conflicts: [
+      {
+        type: 'open_editor',
+        label: 'Abrir en VS Code',
+        icon: <MonitorUp className="h-4 w-4" />,
+        variant: 'outline',
+      },
+      {
+        type: 'mark_resolved',
+        label: 'Ya resolvi los conflictos',
+        icon: <CheckCircle2 className="h-4 w-4" />,
+        variant: 'default',
+      },
+      {
+        type: 'cancel',
+        label: 'Cancel',
+        icon: <XCircle className="h-4 w-4" />,
         variant: 'destructive',
         isDestructive: true,
       },
@@ -304,6 +332,15 @@ function getActionsForStatus(task: Task): ActionConfig[] {
         isDestructive: true,
       },
     ],
+    canceled: [
+      {
+        type: 'delete',
+        label: 'Delete Task',
+        icon: <Trash2 className="h-4 w-4" />,
+        variant: 'destructive',
+        isDestructive: true,
+      },
+    ],
   }
 
   return actionsByStatus[status] || []
@@ -389,6 +426,8 @@ export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
   const { execute, approve, approvePlan, cancel, extend, requestChanges, markPRMerged, markPRClosed, retry, cleanupWorktree, deleteTask } =
     useTaskActions(task.id)
   const startTaskMutation = useStartTask()
+  const openEditorMutation = useOpenEditor(task.id)
+  const resolveConflictsMutation = useResolveConflicts(task.id)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
 
   // Helper to check if any action is pending
@@ -404,7 +443,9 @@ export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
     markPRClosed.isPending ||
     retry.isPending ||
     cleanupWorktree.isPending ||
-    startTaskMutation.isPending
+    startTaskMutation.isPending ||
+    openEditorMutation.isPending ||
+    resolveConflictsMutation.isPending
 
   // Handler for start_fresh: cleanup worktree then execute
   const handleStartFresh = () => {
@@ -443,6 +484,16 @@ export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
         return {
           handler: () => startTaskMutation.mutate(task.id),
           isPending: startTaskMutation.isPending,
+        }
+      case 'open_editor':
+        return {
+          handler: () => openEditorMutation.mutate(),
+          isPending: openEditorMutation.isPending,
+        }
+      case 'mark_resolved':
+        return {
+          handler: () => resolveConflictsMutation.mutate(),
+          isPending: resolveConflictsMutation.isPending,
         }
       default:
         return { handler: () => {}, isPending: false }
@@ -638,16 +689,20 @@ export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
     })
 
   // Compact variant: flat flex layout, no Card wrapper
+  const showDiffButton = task.status !== 'canceled' && task.status !== 'draft' && task.status !== 'backlog'
+
   if (isCompact) {
     return (
       <>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" asChild>
-            <Link to={`/diff/${task.id}`}>
-              <GitCompareArrows className="h-4 w-4" />
-              Diff
-            </Link>
-          </Button>
+          {showDiffButton && (
+            <Button variant="outline" size="sm" asChild>
+              <Link to={`/diff/${task.id}`}>
+                <GitCompareArrows className="h-4 w-4" />
+                Diff
+              </Link>
+            </Button>
+          )}
           {renderActionButtons()}
         </div>
         <EditTaskDialog

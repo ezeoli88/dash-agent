@@ -17,6 +17,7 @@ import { TaskDiff } from './task-diff'
 import { FeedbackSection } from './feedback-section'
 import { PRComments } from './pr-comments'
 import { PatternSuggestion } from './pattern-suggestion'
+import { MergeConflicts } from './merge-conflicts'
 import { AgentModelSelector } from './agent-model-selector'
 import { useTaskUIStore } from '../stores/task-ui-store'
 
@@ -47,6 +48,7 @@ export function TaskDetail({ task }: TaskDetailProps) {
     task.status === 'approved' ||
     task.status === 'pr_created' ||
     task.status === 'changes_requested' ||
+    task.status === 'merge_conflicts' ||
     task.status === 'review' ||
     task.status === 'done' ||
     task.status === 'failed'
@@ -102,6 +104,10 @@ export function TaskDetail({ task }: TaskDetailProps) {
             </TabsList>
 
             <TabsContent value="overview" className="space-y-6 mt-0">
+              {task.status === 'merge_conflicts' && (
+                <MergeConflicts task={task} />
+              )}
+
               <TaskDescription task={task} showRebuildSpec />
 
               {/* Agent / Model selector */}

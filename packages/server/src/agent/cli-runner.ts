@@ -75,16 +75,19 @@ function buildCLICommand(agentType: string, prompt: string, model?: string, plan
       };
 
     case 'gemini':
+      // Gemini's -p requires a string value (unlike Claude's boolean -p).
+      // Full prompt is sent via stdin to avoid Windows command-line limits.
+      // Gemini appends -p value to stdin content, so we use a minimal placeholder.
       return {
         command: 'gemini',
         args: [
-          '--non-interactive',
-          prompt,
+          '-p', '.',
           '--output-format',
-          'ndjson',
+          'stream-json',
           '--yolo',
           ...(model ? ['--model', model] : []),
         ],
+        useStdin: true,
       };
 
     default:
@@ -490,8 +493,10 @@ export class CLIAgentRunner implements IAgentRunner {
         this.parseCodexOutput(line);
         break;
       case 'copilot':
-      case 'gemini':
         this.parseGenericOutput(line);
+        break;
+      case 'gemini':
+        this.parseGeminiOutput(line);
         break;
       default:
         this.options.onLog('info', `CLI: ${line}`);
@@ -843,7 +848,157 @@ export class CLIAgentRunner implements IAgentRunner {
   }
 
   /**
-   * Parses generic text output (Copilot, Gemini, or any unsupported format).
+   * Parses Gemini CLI stream-json output.
+   *
+   * Gemini emits JSON lines with a `type` field:
+   *   - init: session metadata (model, session_id)
+   *   - tool_use: tool invocation with name and parameters
+   *   - tool_result: tool output with status and content
+   *   - result: final result with status and optional stats/error
+   *   - Plain text (non-JSON): agent messages and summaries
+   */
+  private parseGeminiOutput(line: string): void {
+    const parsed = tryParseJSON(line);
+
+    if (!parsed) {
+      // Not JSON — plain text agent message (e.g. "I have completed the task.\n\n**Summary:**...")
+      this.options.onLog('info', `Agent: ${line.substring(0, 1000)}`);
+      this.options.onChatEvent?.({
+        id: randomUUID(),
+        role: 'assistant',
+        content: line,
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    const type = parsed.type as string | undefined;
+
+    switch (type) {
+      case 'init': {
+        // Session initialization — extract model and session info
+        const model = parsed.model as string | undefined;
+        const sessionId = parsed.session_id as string | undefined;
+        const parts: string[] = [];
+        if (model) parts.push(`model=${model}`);
+        if (sessionId) parts.push(`session=${sessionId.substring(0, 8)}`);
+        const infoMsg = parts.length > 0 ? `Gemini initialized: ${parts.join(', ')}` : 'Gemini initialized';
+        this.options.onLog('info', infoMsg);
+        this.options.onChatEvent?.({
+          id: randomUUID(),
+          role: 'system',
+          content: infoMsg,
+          timestamp: (parsed.timestamp as string) ?? new Date().toISOString(),
+        });
+        break;
+      }
+
+      case 'tool_use': {
+        // Tool invocation — emit tool activity with "running" status
+        const toolName = (parsed.tool_name as string) ?? 'unknown';
+        const toolId = (parsed.tool_id as string) ?? randomUUID();
+        const parameters = parsed.parameters as Record<string, unknown> | undefined;
+
+        // Extract a meaningful summary from tool parameters
+        let summary = '';
+        if (parameters) {
+          const key = parameters.command ?? parameters.file_path ?? parameters.path
+            ?? parameters.pattern ?? parameters.query ?? parameters.file ?? parameters.url;
+          if (typeof key === 'string') {
+            summary = key.substring(0, 200);
+          }
+        }
+
+        this.options.onLog('info', `Tool: ${toolName}${summary ? `: ${summary}` : ''}`);
+        this.options.onChatEvent?.({
+          id: toolId,
+          name: toolName,
+          summary,
+          status: 'running',
+          timestamp: (parsed.timestamp as string) ?? new Date().toISOString(),
+        });
+        break;
+      }
+
+      case 'tool_result': {
+        // Tool result — emit tool activity with completed/error status
+        const toolId = (parsed.tool_id as string) ?? randomUUID();
+        const status = (parsed.status as string) === 'success' ? 'completed' : 'error';
+        const output = parsed.output as string | undefined;
+        const summaryText = status === 'error'
+          ? (output ? output.substring(0, 200) : 'error')
+          : 'done';
+
+        if (status === 'error' && output) {
+          this.options.onLog('warn', `Tool error: ${output.substring(0, 500)}`);
+        } else {
+          this.options.onLog('debug', `Tool result (${output?.length ?? 0} chars)`);
+        }
+
+        this.options.onChatEvent?.({
+          id: toolId,
+          name: '',
+          summary: summaryText,
+          status,
+          timestamp: (parsed.timestamp as string) ?? new Date().toISOString(),
+        });
+        break;
+      }
+
+      case 'result': {
+        // Final result — completion or error
+        const resultStatus = parsed.status as string | undefined;
+        const error = parsed.error as Record<string, unknown> | undefined;
+        const stats = parsed.stats as Record<string, unknown> | undefined;
+
+        const metaParts: string[] = [];
+        if (stats) {
+          const tokensIn = stats.input_tokens as number | undefined;
+          const tokensOut = stats.output_tokens as number | undefined;
+          if (tokensIn !== undefined) metaParts.push(`in=${tokensIn}`);
+          if (tokensOut !== undefined) metaParts.push(`out=${tokensOut}`);
+        }
+
+        let msg: string;
+        if (resultStatus === 'error' && error) {
+          const errorMsg = (error.message ?? error.error ?? 'unknown error') as string;
+          msg = `Result: error — ${errorMsg}`;
+          this.options.onLog('error', msg);
+        } else {
+          msg = `Result: ${resultStatus ?? 'completed'}`;
+          if (metaParts.length > 0) msg += ` (${metaParts.join(', ')})`;
+          this.options.onLog('info', msg);
+        }
+
+        this.options.onChatEvent?.({
+          id: randomUUID(),
+          role: 'system',
+          content: msg,
+          timestamp: (parsed.timestamp as string) ?? new Date().toISOString(),
+        });
+        break;
+      }
+
+      default: {
+        // Unknown JSON event type — check for message/content fields, otherwise debug log
+        const message = (parsed.message ?? parsed.content ?? parsed.text) as string | undefined;
+        if (message) {
+          this.options.onLog('info', `Agent: ${message.substring(0, 1000)}`);
+          this.options.onChatEvent?.({
+            id: randomUUID(),
+            role: 'assistant',
+            content: message,
+            timestamp: (parsed.timestamp as string) ?? new Date().toISOString(),
+          });
+        } else {
+          this.options.onLog('debug', `Gemini event (${type ?? 'unknown'}): ${line.substring(0, 200)}`);
+        }
+      }
+    }
+  }
+
+  /**
+   * Parses generic text output (Copilot or any unsupported format).
    */
   private parseGenericOutput(line: string): void {
     // Try JSON first in case the CLI outputs structured data
