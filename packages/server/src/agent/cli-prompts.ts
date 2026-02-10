@@ -113,13 +113,6 @@ ${task.context_files.map((f) => `- ${f}`).join('\n')}
 `
       : '';
 
-  const branchSection = task.target_branch
-    ? `
-## Branch
-Work on branch: \`${task.target_branch}\`
-`
-    : '';
-
   const repoSection = repository ? `\n${buildRepositorySection(repository)}\n` : '';
   const agentInstructions = buildAgentSpecificInstructions(agentType);
 
@@ -130,26 +123,25 @@ Work on branch: \`${task.target_branch}\`
 
 **Specification:**
 ${spec}
-${branchSection}${repoSection}${contextSection}
+${repoSection}${contextSection}
 ## Workflow
 
 1. **Explore** the codebase structure to understand the project layout and conventions
 2. **Read** relevant files to understand existing patterns before making changes
 3. **Implement** the changes step by step, following existing code style and conventions
-4. **Commit** your changes with a clear, descriptive commit message
 
 ## Guidelines
 - Understand before changing: always read existing code before modifying it
 - Follow existing patterns: match the coding style, naming conventions, and architecture
 - Make minimal changes: only modify what is necessary for the task
-- Write clean commits: use clear, descriptive commit messages
 
 ## FORBIDDEN — Do NOT do any of the following
 - **DO NOT** run tests, builds, linters, or any verification commands
 - **DO NOT** start dev servers or any process that listens on a port
 - **DO NOT** run \`npm run build\`, \`npm run test\`, \`npm run dev\`, or similar commands
 - **DO NOT** run \`npx\`, \`node\`, or any script that executes project code
-- Your job is ONLY to write code and commit — verification will be done separately${agentInstructions}`.trim();
+- **DO NOT** use git commands (git add, git commit, git checkout, git switch, git branch, git push, etc.) — the system manages version control automatically
+- Your job is ONLY to write code — verification and version control will be done separately${agentInstructions}`.trim();
 }
 
 /**
@@ -179,19 +171,18 @@ ${feedback}
 1. **Review** the current state of your previous changes in the working tree
 2. **Understand** exactly what the reviewer is asking for
 3. **Implement** the necessary modifications to address the feedback
-4. **Commit** your changes with a clear message referencing the feedback
 
 ## Guidelines
 - Focus specifically on addressing the reviewer's feedback
 - Make minimal additional changes beyond what is requested
-- Write a clear commit message describing what you changed to address the feedback
 
 ## FORBIDDEN — Do NOT do any of the following
 - **DO NOT** run tests, builds, linters, or any verification commands
 - **DO NOT** start dev servers or any process that listens on a port
 - **DO NOT** run \`npm run build\`, \`npm run test\`, \`npm run dev\`, or similar commands
 - **DO NOT** run \`npx\`, \`node\`, or any script that executes project code
-- Your job is ONLY to write code and commit — verification will be done separately${agentInstructions}`.trim();
+- **DO NOT** use git commands (git add, git commit, git checkout, git switch, git branch, git push, etc.) — the system manages version control automatically
+- Your job is ONLY to write code — verification and version control will be done separately${agentInstructions}`.trim();
 }
 
 /**
@@ -219,7 +210,6 @@ ${repoSection}
    - A .gitignore file with sensible defaults
    - Source code directories and initial files
 3. **Implement** the requested functionality as described in the specification
-4. **Commit** all files with a clear initial commit message
 
 ## Guidelines
 - Start with the most fundamental files first (package.json or equivalent)
@@ -232,7 +222,8 @@ ${repoSection}
 - **DO NOT** start dev servers or any process that listens on a port
 - **DO NOT** run \`npm run build\`, \`npm run test\`, \`npm run dev\`, or similar commands
 - **DO NOT** run \`npx\`, \`node\`, or any script that executes project code
-- Your job is ONLY to write code and commit — verification will be done separately${agentInstructions}`.trim();
+- **DO NOT** use git commands (git add, git commit, git checkout, git switch, git branch, git push, etc.) — the system manages version control automatically
+- Your job is ONLY to write code — verification and version control will be done separately${agentInstructions}`.trim();
 }
 
 /**
@@ -290,13 +281,6 @@ Create a comprehensive, step-by-step implementation plan. You should:
 function buildImplementationPrompt(task: Task, plan: string, repository?: Repository | null, agentType?: string): string {
   const spec = task.final_spec || task.generated_spec || task.description;
 
-  const branchSection = task.target_branch
-    ? `
-## Branch
-Work on branch: \`${task.target_branch}\`
-`
-    : '';
-
   const repoSection = repository ? `\n${buildRepositorySection(repository)}\n` : '';
   const agentInstructions = buildAgentSpecificInstructions(agentType);
 
@@ -307,7 +291,7 @@ Work on branch: \`${task.target_branch}\`
 
 **Specification:**
 ${spec}
-${branchSection}${repoSection}
+${repoSection}
 ## Approved Implementation Plan
 
 The following plan has been reviewed and approved by the user. Follow it closely:
@@ -317,21 +301,20 @@ ${plan}
 ## Workflow
 
 1. **Follow the plan** — implement each step in the order specified
-2. **Commit** your changes with a clear, descriptive commit message
 
 ## Guidelines
 - Follow the approved plan closely — it has been reviewed and approved
 - If you encounter unexpected issues not covered by the plan, use your best judgment
 - Follow existing code style and conventions
 - Make minimal changes beyond what the plan specifies
-- Write clean commits with clear, descriptive messages
 
 ## FORBIDDEN — Do NOT do any of the following
 - **DO NOT** run tests, builds, linters, or any verification commands
 - **DO NOT** start dev servers or any process that listens on a port
 - **DO NOT** run \`npm run build\`, \`npm run test\`, \`npm run dev\`, or similar commands
 - **DO NOT** run \`npx\`, \`node\`, or any script that executes project code
-- Your job is ONLY to write code and commit — verification will be done separately${agentInstructions}`.trim();
+- **DO NOT** use git commands (git add, git commit, git checkout, git switch, git branch, git push, etc.) — the system manages version control automatically
+- Your job is ONLY to write code — verification and version control will be done separately${agentInstructions}`.trim();
 }
 
 export default {
