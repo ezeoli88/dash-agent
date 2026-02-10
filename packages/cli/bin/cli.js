@@ -179,6 +179,7 @@ function runBinary(cacheDir, args) {
     env: {
       ...process.env,
       __BIN_MODE__: '1',
+      AGENT_BOARD_USER_DIR: process.cwd(),
     },
   });
 

@@ -146,10 +146,17 @@ export class LocalScanService {
   }
 
   /**
-   * Get the default scan path by finding the git workspace root and going one level up.
-   * This way if the server runs from packages/server/, we scan the parent of the monorepo root.
+   * Get the default scan path.
+   * In binary mode, uses AGENT_BOARD_USER_DIR (the directory where the user ran npx).
+   * Otherwise, finds the git workspace root and goes one level up.
    */
   private getDefaultScanPath(): string {
+    // In binary mode, use the directory where the user invoked the CLI
+    const userDir = process.env['AGENT_BOARD_USER_DIR'];
+    if (userDir) {
+      return userDir;
+    }
+
     try {
       const gitRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf-8' }).trim();
       // Go one level up from the git root so sibling repos are visible
