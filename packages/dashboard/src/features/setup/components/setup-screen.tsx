@@ -71,7 +71,7 @@ export function SetupScreen() {
           <ul className="space-y-1 text-sm text-muted-foreground">
             <li>
               <strong>Agente de coding (requerido):</strong> Para ejecutar el agente que analiza
-              y modifica tu codigo. Usa CLIs como Claude Code, Codex, Copilot o Gemini.
+              y modifica tu codigo. Usa CLIs como Claude Code, Codex, Gemini o conecta OpenRouter.
             </li>
             <li>
               <strong>GitHub / GitLab (recomendado):</strong> Para crear PRs/MRs con los cambios del agente. Conectalo en Settings despues del setup.

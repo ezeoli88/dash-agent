@@ -172,8 +172,9 @@ export async function main(): Promise<number> {
     logger.info(`Default port ${config.port} was in use, using port ${actualPort} instead`);
   }
 
-  const server = app.listen(actualPort, () => {
-    logger.info(`Server listening on port ${actualPort}`);
+  // Listen on 0.0.0.0 so the server is accessible from LAN (not just localhost)
+  const server = app.listen(actualPort, '0.0.0.0', () => {
+    logger.info(`Server listening on 0.0.0.0:${actualPort}`);
     logger.info(`Health check: http://localhost:${actualPort}/api/health`);
     logger.info(`Tasks API: http://localhost:${actualPort}/api/tasks`);
     logger.info(`Repos API: http://localhost:${actualPort}/api/repos`);

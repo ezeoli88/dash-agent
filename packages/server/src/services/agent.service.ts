@@ -118,9 +118,12 @@ export class AgentService {
       throw new Error(`Cannot start agent for task with status: ${task.status}. Expected: ${validStatuses.join(' or ')}`);
     }
 
-    // Initialize logs for this task (preserve existing logs if resuming)
+    // Initialize logs and chat history for this task (preserve if resuming)
     if (!isResume || !this.agentLogs.has(taskId)) {
       this.agentLogs.set(taskId, []);
+    }
+    if (!isResume) {
+      this.chatHistory.delete(taskId);
     }
 
     try {

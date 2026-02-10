@@ -11,6 +11,7 @@ import {
 } from '../services/secrets.service.js';
 import { validateAPIKey, validateOpenRouterKey, getModelInfo } from '../services/ai-provider.service.js';
 import { resetGitHubClient } from '../github/client.js';
+import { clearAgentCache } from '../services/agent-detection.service.js';
 import {
   SaveAISecretRequestSchema,
   SaveGitHubSecretRequestSchema,
@@ -114,6 +115,11 @@ router.post('/ai', async (req: Request, res: Response, next: NextFunction): Prom
 
     saveSecret('ai_api_key', provider, apiKey, metadata);
 
+    // Clear agent detection cache so next request picks up new auth/models
+    if (provider === 'openrouter') {
+      clearAgentCache();
+    }
+
     logger.info('AI secret saved successfully', { provider });
 
     res.json({
@@ -138,6 +144,9 @@ router.delete('/ai', (_req: Request, res: Response, next: NextFunction): void =>
     logger.info('DELETE /secrets/ai');
 
     const deleted = deleteSecret('ai_api_key');
+
+    // Clear agent detection cache so stale auth/models are removed
+    clearAgentCache();
 
     res.json({
       success: deleted,

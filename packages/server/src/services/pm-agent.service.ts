@@ -81,7 +81,7 @@ interface AIProviderConfig {
 /**
  * Valid AgentType values for runtime checking.
  */
-const VALID_AGENT_TYPES: readonly string[] = ['claude-code', 'codex', 'copilot', 'gemini'];
+const VALID_AGENT_TYPES: readonly string[] = ['claude-code', 'codex', 'gemini', 'openrouter'];
 
 /**
  * Checks if a string is a valid AgentType.
@@ -183,12 +183,6 @@ function buildSpecCommand(agentType: AgentType, model: string | null, prompt: st
           '-', // read prompt from stdin (codex requires explicit -)
         ],
         useStdin: true,
-      };
-    case 'copilot':
-      return {
-        command: 'copilot',
-        args: [prompt],
-        useStdin: false,
       };
     case 'gemini':
       return {
@@ -329,8 +323,6 @@ function parseCLIOutput(agentType: AgentType, stdout: string): string {
         return stdout.trim();
       }
     }
-    case 'copilot':
-      return stdout.trim();
     case 'gemini': {
       try {
         const lines = stdout.trim().split('\n');
@@ -356,7 +348,7 @@ function parseCLIOutput(agentType: AgentType, stdout: string): string {
  * For Claude Code and Gemini: prompt is passed as a CLI argument (fast, no stdin issues).
  * For Codex: prompt is piped via stdin (requires explicit `-` arg).
  *
- * On Windows, npm-installed CLIs (codex, copilot) are .cmd wrappers that need
+ * On Windows, npm-installed CLIs (codex) are .cmd wrappers that need
  * shell: true. Native binaries (claude, gemini) use shell: false to preserve
  * argument integrity (long prompts with newlines break under cmd.exe).
  */
@@ -459,19 +451,9 @@ function extractProgressLine(agentType: AgentType, line: string): string | null 
         if (type) return `Event: ${type}`;
         break;
       }
-      case 'copilot': {
-        // May output structured data
-        const msg = (parsed.message ?? parsed.content ?? parsed.text) as string | undefined;
-        if (msg) return `Agent: ${msg.substring(0, 300)}`;
-        break;
-      }
     }
     return null;
   } catch {
-    // Not JSON — for copilot (raw text output), return the line as-is
-    if (agentType === 'copilot' && line.length > 0) {
-      return line.substring(0, 300);
-    }
     return null;
   }
 }
@@ -498,11 +480,10 @@ async function callCLIForSpec(
   logger.info('PM Agent: Calling CLI for spec', { agentType, command, model, useStdin });
 
   return new Promise((resolve, reject) => {
-    // npm-installed CLIs (codex, copilot) are .cmd wrappers on Windows — need shell.
+    // npm-installed CLIs (codex) are .cmd wrappers on Windows — need shell.
     // Native binaries (claude, gemini) must NOT use shell to preserve arg integrity.
-    // For copilot on Windows: use PowerShell + temp file workaround for multiline prompts.
     const needsWindowsWorkaround =
-      process.platform === 'win32' && (command === 'codex' || command === 'copilot');
+      process.platform === 'win32' && command === 'codex';
 
     let promptFilePath: string | null = null;
     let spawnCommand: string;
@@ -527,9 +508,6 @@ async function callCLIForSpec(
           innerCmd = `$p | & codex exec --json --skip-git-repo-check ${modelArg}-`;
           break;
         }
-        case 'copilot':
-          innerCmd = `& copilot $p`;
-          break;
         default:
           innerCmd = `& ${command} $p`;
       }
@@ -754,6 +732,11 @@ export async function generateSpec(
       const modelLabel = cliAgent.model || 'default';
       sseEmitter.emitLog(task_id, 'info', `PM Agent: Generating specification via Anthropic API (${modelLabel})...`);
       result = await callClaude(aiConfig.apiKey, userMessage, cliAgent.model ?? undefined);
+    } else if (cliAgent?.agentType === 'openrouter' && aiConfig?.provider === 'openrouter') {
+      // OpenRouter is API-based — use API directly, not CLI
+      const modelLabel = cliAgent.model || aiConfig.model || 'default';
+      sseEmitter.emitLog(task_id, 'info', `PM Agent: Generating specification via OpenRouter API (${modelLabel})...`);
+      result = await callAIProvider(aiConfig, userMessage);
     } else if (cliAgent?.agentType === 'claude-code' && !aiConfig) {
       // Claude Code selected but no API key — fall back to CLI with a warning
       const modelLabel = cliAgent.model || 'default';
@@ -766,7 +749,7 @@ export async function generateSpec(
         throw new Error(`Claude Code CLI failed and no API fallback configured: ${getErrorMessage(cliError)}`);
       }
     } else if (cliAgent) {
-      // Other CLI agents (codex, gemini, copilot) — use CLI as before
+      // Other CLI agents (codex, gemini) — use CLI as before
       const sourceLabel = cliAgent.source === 'task' ? 'task-configured' : 'default';
       const modelLabel = cliAgent.model ? ` (model: ${cliAgent.model})` : '';
       sseEmitter.emitLog(task_id, 'info', `PM Agent: Generating specification using ${sourceLabel} ${cliAgent.agentType} CLI${modelLabel}...`);

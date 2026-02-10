@@ -5,7 +5,6 @@ import { MainLayout } from '@/components/layout/main-layout'
 // Lazy imports for pages to enable code splitting
 import HomePage from '@/app/page'
 import BoardPage from '@/app/board/page'
-import TaskDetailPage from '@/app/tasks/[taskId]/page'
 import DiffPage from '@/app/diff/[taskId]/page'
 import ReposPage from '@/app/repos/page'
 import SettingsPage from '@/app/settings/page'
@@ -42,13 +41,6 @@ const boardRoute = createRoute({
   getParentRoute: () => mainLayoutRoute,
   path: '/board',
   component: BoardPage,
-})
-
-// Task detail route
-const taskDetailRoute = createRoute({
-  getParentRoute: () => mainLayoutRoute,
-  path: '/tasks/$taskId',
-  component: TaskDetailPage,
 })
 
 // Diff route
@@ -88,7 +80,6 @@ const routeTree = rootRoute.addChildren([
   setupRoute,
   mainLayoutRoute.addChildren([
     boardRoute,
-    taskDetailRoute,
     diffRoute,
     settingsRoute,
   ]),

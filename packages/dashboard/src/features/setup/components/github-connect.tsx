@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, Github, Loader2, X, Key, ExternalLink, Eye, EyeOff } from 'lucide-react'
+import { Check, Github, Loader2, Key, ExternalLink, Eye, EyeOff } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -92,21 +92,14 @@ export function GitHubConnect({ disabled = false }: GitHubConnectProps) {
           </div>
           <div className="flex items-center gap-2">
             {githubConnected ? (
-              <>
-                <div className="flex items-center gap-1 text-green-600 dark:text-green-400">
-                  <Check className="size-4" />
-                  <span className="text-sm font-medium">Conectado</span>
-                </div>
                 <Button
-                  variant="ghost"
-                  size="icon"
+                  variant="outline"
+                  size="sm"
                   onClick={handleDisconnect}
-                  className="text-muted-foreground hover:text-destructive"
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
                 >
-                  <X className="size-4" />
-                  <span className="sr-only">Desconectar GitHub</span>
+                  Disconnect
                 </Button>
-              </>
             ) : (
               <Button
                 onClick={() => setShowConnectDialog(true)}

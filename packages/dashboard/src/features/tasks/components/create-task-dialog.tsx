@@ -81,7 +81,7 @@ export function CreateTaskDialog() {
         repo_url: selectedRepo.url || '',
         target_branch: selectedRepo.default_branch || 'main',
         context_files: [],
-        ...(agentType ? { agent_type: agentType as 'claude-code' | 'codex' | 'copilot' | 'gemini' } : {}),
+        ...(agentType ? { agent_type: agentType as 'claude-code' | 'codex' | 'gemini' | 'openrouter' } : {}),
         ...(agentModel ? { agent_model: agentModel } : {}),
       })
 

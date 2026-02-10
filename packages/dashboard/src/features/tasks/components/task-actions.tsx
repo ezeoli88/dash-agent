@@ -64,7 +64,6 @@ type ActionType =
   | 'delete'
   | 'extend'
   | 'retry'
-  | 'start_fresh'
   | 'view_pr'
   | 'request_changes'
   | 'mark_merged'
@@ -318,13 +317,6 @@ function getActionsForStatus(task: Task): ActionConfig[] {
         variant: 'default',
       },
       {
-        type: 'start_fresh',
-        label: 'Start Fresh',
-        icon: <RefreshCw className="h-4 w-4" />,
-        variant: 'outline',
-        isDestructive: true,
-      },
-      {
         type: 'delete',
         label: 'Delete Task',
         icon: <Trash2 className="h-4 w-4" />,
@@ -423,7 +415,7 @@ function RequestChangesDialog({
 export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
   const isCompact = variant === 'compact'
   const actions = getActionsForStatus(task)
-  const { execute, approve, approvePlan, cancel, extend, requestChanges, markPRMerged, markPRClosed, retry, cleanupWorktree, deleteTask } =
+  const { execute, approve, approvePlan, cancel, extend, requestChanges, markPRMerged, markPRClosed, retry, deleteTask } =
     useTaskActions(task.id)
   const startTaskMutation = useStartTask()
   const openEditorMutation = useOpenEditor(task.id)
@@ -442,20 +434,9 @@ export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
     markPRMerged.isPending ||
     markPRClosed.isPending ||
     retry.isPending ||
-    cleanupWorktree.isPending ||
     startTaskMutation.isPending ||
     openEditorMutation.isPending ||
     resolveConflictsMutation.isPending
-
-  // Handler for start_fresh: cleanup worktree then execute
-  const handleStartFresh = () => {
-    cleanupWorktree.mutate(undefined, {
-      onSuccess: () => {
-        // After successful cleanup, automatically execute the task
-        execute.mutate()
-      },
-    })
-  }
 
   // Helper to get the handler and pending state for each action type
   const getActionHandler = (type: ActionType) => {
@@ -464,8 +445,6 @@ export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
         return { handler: () => execute.mutate(), isPending: execute.isPending }
       case 'retry':
         return { handler: () => retry.mutate(), isPending: retry.isPending }
-      case 'start_fresh':
-        return { handler: handleStartFresh, isPending: cleanupWorktree.isPending || execute.isPending }
       case 'approve':
         return { handler: () => approve.mutate(), isPending: approve.isPending }
       case 'approve_plan':
@@ -604,7 +583,6 @@ export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
       // Destructive action with AlertDialog
       if (action.isDestructive) {
         const isMarkClosed = action.type === 'mark_closed'
-        const isStartFresh = action.type === 'start_fresh'
         const isDelete = action.type === 'delete'
 
         let dialogTitle = 'Cancel Task'
@@ -624,12 +602,6 @@ export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
           dialogDescription = 'Are you sure you want to mark this PR as closed? The task will be marked as failed.'
           confirmLabel = 'Close PR'
           pendingLabel = 'Closing...'
-        } else if (isStartFresh) {
-          dialogTitle = 'Start Fresh'
-          dialogDescription = 'This will discard all previous agent work and start from scratch. Are you sure?'
-          confirmLabel = 'Start Fresh'
-          pendingLabel = 'Cleaning up...'
-          cancelLabel = 'Cancel'
         }
 
         return (
@@ -689,7 +661,7 @@ export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
     })
 
   // Compact variant: flat flex layout, no Card wrapper
-  const showDiffButton = task.status !== 'canceled' && task.status !== 'draft' && task.status !== 'backlog'
+  const showDiffButton = task.status !== 'canceled' && task.status !== 'failed' && task.status !== 'draft' && task.status !== 'backlog'
 
   if (isCompact) {
     return (

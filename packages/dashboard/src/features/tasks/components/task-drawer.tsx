@@ -1,8 +1,6 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Link } from '@tanstack/react-router'
-import { ExternalLink } from 'lucide-react'
 import { VisuallyHidden } from 'radix-ui'
 import {
   Sheet,
@@ -11,7 +9,6 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet'
-import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatusBadge } from '@/components/shared/status-badge'
 import { toast } from 'sonner'
@@ -107,17 +104,6 @@ export function TaskDrawer() {
             <SheetHeader className="px-4 pt-4 pb-3 border-b space-y-3 flex-shrink-0">
               <div className="flex items-center justify-between pr-8">
                 <StatusBadge status={task.status} />
-                <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="sm" asChild>
-                    <Link
-                      to={`/tasks/${task.id}`}
-                      onClick={closeDrawer}
-                    >
-                      Detail
-                      <ExternalLink className="ml-1 h-3 w-3" />
-                    </Link>
-                  </Button>
-                </div>
               </div>
               <VisuallyHidden.Root>
                 <SheetTitle>{task.title}</SheetTitle>

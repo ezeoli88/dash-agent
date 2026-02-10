@@ -7,13 +7,13 @@ import { z } from 'zod';
 /**
  * Supported CLI agent types
  */
-export const AgentTypeSchema = z.enum(['claude-code', 'codex', 'copilot', 'gemini']);
+export const AgentTypeSchema = z.enum(['claude-code', 'codex', 'gemini', 'openrouter']);
 export type AgentType = z.infer<typeof AgentTypeSchema>;
 
 /**
  * Agent types list for UI iteration
  */
-export const AGENT_TYPES = ['claude-code', 'codex', 'copilot', 'gemini'] as const;
+export const AGENT_TYPES = ['claude-code', 'codex', 'gemini', 'openrouter'] as const;
 
 // ============================================================================
 // Agent Model Schemas

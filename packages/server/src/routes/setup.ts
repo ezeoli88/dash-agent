@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 import { createLogger } from '../utils/logger.js';
-import { validateAPIKey, validateOpenRouterKey } from '../services/ai-provider.service.js';
+import { validateAPIKey, validateOpenRouterKey, getOpenRouterModels } from '../services/ai-provider.service.js';
 import { detectInstalledAgents } from '../services/agent-detection.service.js';
 import {
   generateAuthUrl,
@@ -15,6 +15,7 @@ import {
   AgentTypeSchema,
 } from '@dash-agent/shared';
 import { settingsService } from '../services/settings.service.js';
+import { getAICredentials } from '../services/secrets.service.js';
 
 const logger = createLogger('routes:setup');
 const router = Router();
@@ -87,7 +88,7 @@ router.get('/settings', (_req: Request, res: Response, next: NextFunction): void
  * PATCH /setup/settings - Update application settings
  *
  * Request body:
- * - default_agent_type?: string (one of: 'claude-code', 'codex', 'copilot', 'gemini')
+ * - default_agent_type?: string (one of: 'claude-code', 'codex', 'gemini', 'openrouter')
  * - default_agent_model?: string
  *
  * Response:
@@ -211,6 +212,42 @@ router.post('/validate-openrouter-key', async (req: Request, res: Response, next
 
     // Return 200 even if key is invalid (it's a validation endpoint)
     res.json(validationResult);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// =============================================================================
+// OpenRouter Models Endpoint
+// =============================================================================
+
+/**
+ * GET /setup/openrouter-models - Get available OpenRouter models
+ *
+ * Requires stored OpenRouter credentials.
+ *
+ * Response:
+ * - models: OpenRouterModel[] (all models)
+ * - freeModels: OpenRouterModel[] (only free models)
+ */
+router.get('/openrouter-models', async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    logger.info('GET /setup/openrouter-models');
+
+    const credentials = getAICredentials();
+    if (!credentials || credentials.provider !== 'openrouter') {
+      res.status(400).json({ error: 'OpenRouter credentials not configured' });
+      return;
+    }
+
+    const allModels = await getOpenRouterModels(credentials.apiKey, false);
+    const freeModels = allModels.filter((m) => {
+      const promptPrice = parseFloat(m.pricing?.prompt || '1');
+      const completionPrice = parseFloat(m.pricing?.completion || '1');
+      return promptPrice === 0 && completionPrice === 0;
+    });
+
+    res.json({ models: allModels, freeModels });
   } catch (error) {
     next(error);
   }

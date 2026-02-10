@@ -64,7 +64,15 @@
       "Bash(claude:*)",
       "Bash(wmic process:*)",
       "Bash(powershell.exe:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Bash(git diff:*)",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:registry.npmjs.org)",
+      "Bash(npm view:*)",
+      "WebFetch(domain:sentry.engineering)",
+      "WebFetch(domain:deepwiki.com)",
+      "Bash(npm pack:*)",
+      "Bash([ -d \"public\" ])"
     ]
   }
 }

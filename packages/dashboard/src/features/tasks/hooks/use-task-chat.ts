@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import type { ChatMessageEvent, ToolActivityEvent } from '@dash-agent/shared'
 import { useTaskSSE } from './use-task-sse'
 import type { TaskStatus } from '../types'
@@ -13,6 +13,7 @@ export interface ChatEntry {
 interface UseTaskChatOptions {
   taskId: string
   enabled: boolean
+  taskStatus?: string
   onStatusChange?: (status: TaskStatus) => void
   onComplete?: (prUrl?: string) => void
   onError?: (message: string) => void
@@ -60,6 +61,19 @@ export function useTaskChat(options: UseTaskChatOptions) {
     onComplete: options.onComplete,
     onError: options.onError,
   })
+
+  // Reconnect SSE when task transitions from terminal → active (e.g., retry)
+  const prevStatusRef = useRef(options.taskStatus)
+  useEffect(() => {
+    const prev = prevStatusRef.current
+    prevStatusRef.current = options.taskStatus
+
+    const TERMINAL = ['done', 'failed', 'canceled']
+    if (prev && TERMINAL.includes(prev) && options.taskStatus && !TERMINAL.includes(options.taskStatus) && options.taskStatus !== 'draft') {
+      setEntries([])
+      sse.reconnect()
+    }
+  }, [options.taskStatus, sse])
 
   const addUserMessage = useCallback((content: string) => {
     const event: ChatMessageEvent = {

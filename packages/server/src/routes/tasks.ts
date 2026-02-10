@@ -821,7 +821,7 @@ router.post('/:id/cancel', requireTaskId, loadTask, (req: Request, res: Response
     if (!agentService.isAgentRunning(id!)) {
       // Agent process already exited but task is stuck in an active status.
       // Reset to failed so the user can retry.
-      const activeStatuses = ['planning', 'in_progress', 'coding', 'plan_review', 'approved', 'awaiting_review'];
+      const activeStatuses = ['planning', 'in_progress', 'coding', 'plan_review', 'approved', 'awaiting_review', 'merge_conflicts'];
       if (activeStatuses.includes(task.status)) {
         logger.info('No active agent but task is stuck in active status, resetting', { id, status: task.status });
         taskService.update(id!, { status: 'canceled', error: 'Task canceled by user (agent not running)' });

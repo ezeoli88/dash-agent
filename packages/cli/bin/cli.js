@@ -217,7 +217,7 @@ function parseArgs() {
   Usage: npx ai-agent-board [options]
 
   Options:
-    --port <number>   Server port (default: auto-detect)
+    --port <number>   Server port (default: 51767)
     --no-open         Don't open browser automatically
     --clear-cache     Delete cached binary and re-download
     --version, -v     Show version

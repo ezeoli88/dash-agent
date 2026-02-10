@@ -112,9 +112,9 @@ After any CLI-specific change:
 - `bin.ts` entry point for `bun build --compile` standalone binary
 
 ### CLI (packages/cli/)
-- Lightweight npm wrapper for `npx agent-board`
-- Downloads platform-specific binary from GitHub Releases
-- Caches binary in `~/.cache/agent-board/v{version}/`
+- npm package: `ai-agent-board` (run with `npx ai-agent-board`)
+- Downloads platform-specific ZIP from Cloudflare R2, verifies SHA256, extracts binary + public/ + sql-wasm.wasm
+- Caches binary in `~/.cache/agent-board/v{version}/{platform}/`
 
 ### Shared (packages/shared/)
 - **Zod** for schemas and validation
@@ -176,9 +176,65 @@ npm run build:dashboard
 npm run dev:server    # bun run --watch
 npm run dev:dashboard # vite
 
-# Build standalone binary (requires Bun)
-npm run build:binary         # current platform
-npm run build:binary:win     # Windows x64
-npm run build:binary:mac     # macOS x64
-npm run build:binary:linux   # Linux x64
+# Build standalone binaries (requires Bun, cross-compiles from any platform)
+npm run build:binary:linux-x64    # Linux x64
+npm run build:binary:macos-x64    # macOS x64
+npm run build:binary:macos-arm64  # macOS ARM64
+npm run build:binary:win-x64      # Windows x64
 ```
+
+## Release & Publishing Pipeline
+
+### Overview
+Releases are automated via GitHub Actions (`.github/workflows/release.yml`). Pushing a semver tag triggers:
+1. **build** - Compiles 4 platform binaries, bundles frontend assets + sql-wasm.wasm, creates ZIPs, generates manifest.json with SHA256 checksums
+2. **upload-r2** - Uploads ZIPs + manifest to Cloudflare R2 (`agent-board` bucket)
+3. **publish-npm** - Publishes `ai-agent-board` to npm via OIDC trusted publishing (no tokens needed)
+
+### How to Release
+When the user asks to release or deploy to npm, follow these steps:
+
+1. **Bump version** in `packages/cli/package.json` (this is the npm package version)
+2. **Commit** the version bump
+3. **Tag and push:**
+   ```bash
+   git tag v{VERSION}
+   git push origin main --tags
+   ```
+4. **Monitor** the workflow:
+   ```bash
+   gh run list -w release.yml --limit 3
+   gh run view {RUN_ID}           # check status
+   gh run view {RUN_ID} --log-failed  # if something fails
+   ```
+5. **Verify** after all 3 jobs pass:
+   ```bash
+   npx ai-agent-board@latest
+   ```
+
+### Version Bumping Rules
+- `packages/cli/package.json` version = release version (this is what npm publishes)
+- Tag must match: `v{version}` (e.g., `v0.2.0`)
+- Root `package.json` version is informational only (monorepo version)
+
+### If a Release Fails
+- **build fails**: Check compilation errors, fix, commit, delete tag, re-tag and push
+- **upload-r2 fails**: Check R2 secrets in GitHub repo settings
+- **publish-npm fails**:
+  - "already published": Version was already published - bump version and re-release
+  - OIDC errors: Check trusted publisher config at npmjs.com/package/ai-agent-board/access
+
+### Deleting and Re-creating a Tag
+If you need to re-release the same version (e.g., after fixing a build issue):
+```bash
+git push origin --delete v{VERSION}   # delete remote tag
+git tag -d v{VERSION}                 # delete local tag
+# ... fix and commit ...
+git tag v{VERSION}                    # re-create tag
+git push origin main --tags           # push
+```
+
+### Infrastructure
+- **Cloudflare R2 bucket**: `agent-board` (public URL: `https://pub-3e8e5cea43b3427fa24870c7a04e46dd.r2.dev`)
+- **npm package**: `ai-agent-board` (OIDC trusted publishing, no token rotation needed)
+- **GitHub secrets**: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, R2_PUBLIC_URL

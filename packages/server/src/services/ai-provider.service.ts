@@ -271,6 +271,7 @@ interface OpenRouterAPIModel {
     prompt: string;
     completion: string;
   };
+  supported_parameters?: string[];
 }
 
 /**
@@ -280,7 +281,7 @@ interface OpenRouterAPIModel {
  * @returns List of available models
  */
 async function fetchOpenRouterModels(apiKey: string): Promise<OpenRouterAPIModel[]> {
-  const response = await fetch(`${OPENROUTER_BASE_URL}/models`, {
+  const response = await fetch(`${OPENROUTER_BASE_URL}/models?supported_parameters=tools`, {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
@@ -295,7 +296,11 @@ async function fetchOpenRouterModels(apiKey: string): Promise<OpenRouterAPIModel
   }
 
   const data = await response.json() as { data: OpenRouterAPIModel[] };
-  return data.data || [];
+  const models = data.data || [];
+  // Extra safety: only return models that explicitly list 'tools' in supported_parameters
+  return models.filter((m) =>
+    !m.supported_parameters || m.supported_parameters.includes('tools')
+  );
 }
 
 /**

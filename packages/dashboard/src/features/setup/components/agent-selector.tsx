@@ -50,20 +50,20 @@ const AGENT_INFO: Record<
       text: 'text-emerald-600 dark:text-emerald-400',
     },
   },
-  copilot: {
-    name: 'Copilot',
-    icon: '\u{1F680}',
-    colorClasses: {
-      bg: 'bg-blue-100 dark:bg-blue-900/30',
-      text: 'text-blue-600 dark:text-blue-400',
-    },
-  },
   gemini: {
     name: 'Gemini',
     icon: '\u2728',
     colorClasses: {
       bg: 'bg-purple-100 dark:bg-purple-900/30',
       text: 'text-purple-600 dark:text-purple-400',
+    },
+  },
+  openrouter: {
+    name: 'OpenRouter',
+    icon: '\u{1F310}',
+    colorClasses: {
+      bg: 'bg-indigo-100 dark:bg-indigo-900/30',
+      text: 'text-indigo-600 dark:text-indigo-400',
     },
   },
 }
@@ -145,7 +145,7 @@ export function AgentSelector({ onAgentSelected, compact = false }: AgentSelecto
     return (
       <div className="flex items-center gap-2 rounded-lg border border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20 p-4 text-sm text-muted-foreground">
         <AlertCircle className="size-4 shrink-0 text-yellow-500" />
-        <span>No se detectaron agentes CLI instalados. Instala Claude Code, Codex o Gemini CLI para continuar.</span>
+        <span>No se detectaron agentes instalados. Instala Claude Code, Codex, Gemini CLI o conecta OpenRouter para continuar.</span>
       </div>
     )
   }

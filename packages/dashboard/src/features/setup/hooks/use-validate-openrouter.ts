@@ -1,6 +1,6 @@
 'use client'
 
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSetupStore } from '../stores/setup-store'
 import { apiClient } from '@/lib/api-client'
 import type { ValidateOpenRouterKeyResponse } from '../types'
@@ -22,6 +22,7 @@ interface ValidateAndConnectParams {
  * When connecting, it saves the API key encrypted on the server.
  */
 export function useValidateOpenRouter() {
+  const queryClient = useQueryClient()
   const setValidationState = useSetupStore((state) => state.setValidationState)
   const setAvailableModels = useSetupStore((state) => state.setAvailableModels)
   const setAIConnected = useSetupStore((state) => state.setAIConnected)
@@ -82,6 +83,9 @@ export function useValidateOpenRouter() {
         model
       )
       setValidationState('valid')
+
+      // Invalidate detected-agents so model selectors refresh with new OpenRouter models
+      queryClient.invalidateQueries({ queryKey: ['detected-agents'] })
     },
     onError: (error) => {
       setValidationState('invalid', error instanceof Error ? error.message : 'Connection failed')

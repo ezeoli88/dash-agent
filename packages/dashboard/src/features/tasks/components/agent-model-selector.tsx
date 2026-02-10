@@ -32,7 +32,7 @@ export function AgentModelSelector({ task, variant = 'full' }: AgentModelSelecto
   const setLastAgent = useTaskUIStore((state) => state.setLastAgent)
 
   // Determine if the selector should be editable
-  const isEditable = !isTerminalStatus(task.status) && !isActiveStatus(task.status)
+  const isEditable = (!isTerminalStatus(task.status) || task.status === 'failed') && !isActiveStatus(task.status)
 
   // Filter to only installed agents
   const installedAgents = (agents ?? []).filter((a) => a.installed)

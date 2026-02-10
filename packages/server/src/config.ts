@@ -50,7 +50,7 @@ export function loadConfig(): Config {
     githubToken: getEnvVar('GITHUB_TOKEN', false, ''),
     reposBaseDir: getEnvVar('REPOS_BASE_DIR', false, '/var/repos'),
     worktreesDir: getEnvVar('WORKTREES_DIR', false, '/tmp/agent-worktrees'),
-    port: parseInt(getEnvVar('PORT', false, '3000'), 10),
+    port: parseInt(getEnvVar('PORT', false, '51767'), 10),
     databasePath: getEnvVar('DATABASE_PATH', false, './data/agent-board.db'),
     logLevel: logLevel as Config['logLevel'],
   };

@@ -72,7 +72,7 @@ function Breadcrumb({ taskId, taskTitle }: { taskId: string; taskTitle?: string 
         Tasks
       </Link>
       <ChevronRight className="h-4 w-4" />
-      <Link to={`/tasks/${taskId}`} className="hover:text-foreground transition-colors">
+      <Link to="/board" className="hover:text-foreground transition-colors">
         {taskTitle || `Task ${taskId}`}
       </Link>
       <ChevronRight className="h-4 w-4" />

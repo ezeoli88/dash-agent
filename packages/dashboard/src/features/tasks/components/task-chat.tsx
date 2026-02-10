@@ -239,6 +239,7 @@ export function TaskChat({ task, readOnly = false, className }: TaskChatProps) {
   const { entries, isConnected, status, addUserMessage } = useTaskChat({
     taskId: task.id,
     enabled: hasHistory,
+    taskStatus: task.status,
     onStatusChange: handleStatusChange,
     onComplete: (prUrl) => {
       toast.success('Task completed!', {

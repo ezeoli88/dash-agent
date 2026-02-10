@@ -5,6 +5,8 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { createLogger } from '../utils/logger.js';
 import type { AgentType, DetectedAgent, AgentModel } from '@dash-agent/shared';
+import { hasSecret, getSecretMetadata, getAICredentials } from './secrets.service.js';
+import { getOpenRouterModels } from './ai-provider.service.js';
 
 const execFileAsync = promisify(execFile);
 const logger = createLogger('agent-detection');
@@ -79,29 +81,6 @@ const CLI_CONFIGS: CLIConfig[] = [
     authEnvVars: ['OPENAI_API_KEY'],
   },
   {
-    id: 'copilot',
-    name: 'Copilot',
-    command: 'copilot',
-    versionArgs: ['--version'],
-    authCheckArgs: ['-p', 'hi'],
-    models: [
-      { id: 'default', name: 'Default' },
-    ],
-    // Same as vibe-kanban: ~/.copilot/config.json
-    loginFile: '.copilot/config.json',
-    installIndicatorFiles: isWindows
-      ? [
-          ...(process.env.LOCALAPPDATA
-            ? [join(process.env.LOCALAPPDATA, 'github-copilot', 'hosts.json')]
-            : []),
-          '.config/github-copilot/hosts.json',
-        ]
-      : [
-          '.config/github-copilot/hosts.json',
-        ],
-    authEnvVars: ['GITHUB_TOKEN'],
-  },
-  {
     id: 'gemini',
     name: 'Gemini',
     command: 'gemini',
@@ -132,9 +111,14 @@ const CACHE_TTL_MS = 300_000; // 5 minutes
 
 let cache: { agents: DetectedAgent[]; timestamp: number } | null = null;
 
+// Separate cache for OpenRouter models (longer TTL since API call is expensive)
+const OPENROUTER_MODELS_CACHE_TTL_MS = 600_000; // 10 minutes
+let openRouterModelsCache: { models: AgentModel[]; timestamp: number } | null = null;
+
 function clearAgentCache(): void {
   cache = null;
-  logger.debug('Agent detection cache cleared');
+  openRouterModelsCache = null;
+  logger.debug('Agent detection cache cleared (including OpenRouter models)');
 }
 
 // ============================================================================
@@ -307,6 +291,70 @@ async function loadDynamicModels(config: CLIConfig): Promise<AgentModel[]> {
 }
 
 // ============================================================================
+// OpenRouter Detection
+// ============================================================================
+
+/**
+ * Gets detected models for OpenRouter.
+ * Fetches all available models from the OpenRouter API when credentials exist.
+ * Falls back to the single model stored in secret metadata if the API call fails.
+ */
+async function getOpenRouterDetectedModels(): Promise<AgentModel[]> {
+  // Check cache first
+  if (openRouterModelsCache && Date.now() - openRouterModelsCache.timestamp < OPENROUTER_MODELS_CACHE_TTL_MS) {
+    return openRouterModelsCache.models;
+  }
+
+  try {
+    // Try to fetch from OpenRouter API using stored credentials
+    const credentials = getAICredentials();
+    if (credentials && credentials.provider === 'openrouter') {
+      const openRouterModels = await getOpenRouterModels(credentials.apiKey, false);
+
+      // Map OpenRouterModel (id, name, pricing) to AgentModel (id, name, description)
+      const models: AgentModel[] = openRouterModels.map((m) => {
+        const isFree = m.pricing && parseFloat(m.pricing.prompt || '1') === 0 && parseFloat(m.pricing.completion || '1') === 0;
+        return {
+          id: m.id,
+          name: m.name,
+          description: isFree ? 'Free' : undefined,
+        };
+      });
+
+      if (models.length > 0) {
+        openRouterModelsCache = { models, timestamp: Date.now() };
+        logger.debug('OpenRouter models fetched from API', { count: models.length });
+        return models;
+      }
+    }
+  } catch (err) {
+    logger.warn('Failed to fetch OpenRouter models from API, falling back to metadata', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // Fallback: return the single model from secret metadata
+  try {
+    const meta = getSecretMetadata('ai_api_key', 'openrouter');
+    if (meta?.metadata) {
+      const model = meta.metadata['model'] as string | undefined;
+      const modelName = meta.metadata['modelName'] as string | undefined;
+      const modelDescription = meta.metadata['modelDescription'] as string | undefined;
+      if (model) {
+        return [{
+          id: model,
+          name: modelName ?? model,
+          description: modelDescription,
+        }];
+      }
+    }
+  } catch {
+    // Secrets service may not be initialized yet
+  }
+  return [];
+}
+
+// ============================================================================
 // Public API
 // ============================================================================
 
@@ -381,9 +429,31 @@ async function detectInstalledAgents(): Promise<DetectedAgent[]> {
 
   logger.info('Detecting installed agents');
 
-  const agents = await Promise.all(
+  // Detect CLI-based agents in parallel
+  const cliAgents = await Promise.all(
     CLI_CONFIGS.map((config) => detectAgent(config.id))
   );
+
+  // Detect OpenRouter (API-based, always "installed")
+  let openrouterAuthenticated = false;
+  try {
+    openrouterAuthenticated = hasSecret('ai_api_key', 'openrouter');
+  } catch {
+    // Secrets service may not be initialized yet
+  }
+
+  const openrouterModels = await getOpenRouterDetectedModels();
+
+  const openrouterAgent: DetectedAgent = {
+    id: 'openrouter',
+    name: 'OpenRouter',
+    installed: true, // Always true — API based
+    version: null,
+    authenticated: openrouterAuthenticated,
+    models: openrouterModels,
+  };
+
+  const agents = [...cliAgents, openrouterAgent];
 
   // Update cache
   cache = { agents, timestamp: Date.now() };

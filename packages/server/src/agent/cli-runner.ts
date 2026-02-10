@@ -68,12 +68,6 @@ function buildCLICommand(agentType: string, prompt: string, model?: string, plan
         ],
       };
 
-    case 'copilot':
-      return {
-        command: 'copilot',
-        args: ['-p', prompt, '--allow-all-tools'],
-      };
-
     case 'gemini':
       // Gemini's -p requires a string value (unlike Claude's boolean -p).
       // Full prompt is sent via stdin to avoid Windows command-line limits.
@@ -108,7 +102,7 @@ function tryParseJSON(line: string): Record<string, unknown> | null {
 
 /**
  * CLI-based agent runner that implements the IAgentRunner interface
- * by executing coding CLIs (Claude Code, Codex, Copilot, Gemini) as child processes.
+ * by executing coding CLIs (Claude Code, Codex, Gemini) as child processes.
  */
 export class CLIAgentRunner implements IAgentRunner {
   private process: ChildProcess | null = null;
@@ -154,6 +148,7 @@ export class CLIAgentRunner implements IAgentRunner {
       if (this.options.repository) promptOptions.repository = this.options.repository;
       if (this.options.planOnly !== undefined) promptOptions.planOnly = this.options.planOnly;
       if (this.options.approvedPlan !== undefined) promptOptions.approvedPlan = this.options.approvedPlan;
+      promptOptions.agentType = this.options.agentType;
       const prompt = buildCLIPrompt(this.options.task, promptOptions);
 
       // Build the CLI command
@@ -258,14 +253,14 @@ export class CLIAgentRunner implements IAgentRunner {
    */
   private spawnAndMonitor(cliCommand: CLICommand, prompt: string): Promise<AgentRunResult> {
     return new Promise<AgentRunResult>((resolve) => {
-      // On Windows, npm-installed CLIs (codex, copilot) are .cmd wrappers that need
+      // On Windows, npm-installed CLIs (codex) are .cmd wrappers that need
       // shell execution via cmd.exe. But cmd.exe cannot handle multi-line prompts
       // as command-line arguments (newlines break the command).
       // Workaround: write prompt to a temp file and use PowerShell to read it,
       // which handles multi-line strings natively.
       const needsWindowsShellWorkaround =
         process.platform === 'win32' &&
-        (cliCommand.command === 'codex' || cliCommand.command === 'copilot');
+        cliCommand.command === 'codex';
 
       let spawnCommand: string;
       let spawnArgs: string[];
@@ -285,9 +280,6 @@ export class CLIAgentRunner implements IAgentRunner {
             innerCmd = `$p | & codex exec --json --sandbox danger-full-access ${modelArg}-`;
             break;
           }
-          case 'copilot':
-            innerCmd = `& copilot -p $p --allow-all-tools`;
-            break;
           default:
             innerCmd = `& ${cliCommand.command} $p`;
         }
@@ -491,9 +483,6 @@ export class CLIAgentRunner implements IAgentRunner {
         break;
       case 'codex':
         this.parseCodexOutput(line);
-        break;
-      case 'copilot':
-        this.parseGenericOutput(line);
         break;
       case 'gemini':
         this.parseGeminiOutput(line);
@@ -995,31 +984,6 @@ export class CLIAgentRunner implements IAgentRunner {
         }
       }
     }
-  }
-
-  /**
-   * Parses generic text output (Copilot or any unsupported format).
-   */
-  private parseGenericOutput(line: string): void {
-    // Try JSON first in case the CLI outputs structured data
-    const parsed = tryParseJSON(line);
-
-    if (parsed) {
-      const message = (parsed.message ?? parsed.content ?? parsed.text) as string | undefined;
-      if (message) {
-        this.options.onLog('info', `Agent: ${message.substring(0, 1000)}`);
-        return;
-      }
-      // JSON without recognized message fields — log type if available
-      const type = parsed.type as string | undefined;
-      if (type) {
-        this.options.onLog('info', `CLI event (${type}): ${line.substring(0, 200)}`);
-        return;
-      }
-    }
-
-    // Fall back to raw text logging
-    this.options.onLog('info', `CLI: ${line}`);
   }
 
   /**

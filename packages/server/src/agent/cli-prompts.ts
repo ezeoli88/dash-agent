@@ -8,6 +8,25 @@ interface CLIPromptOptions {
   repository?: Repository | null;
   planOnly?: boolean;
   approvedPlan?: string;
+  agentType?: string;
+}
+
+/**
+ * Returns agent-specific execution instructions.
+ * Some models (e.g. Codex) tend to create implementation plans before coding.
+ * These instructions override that behavior to ensure direct execution.
+ */
+function buildAgentSpecificInstructions(agentType?: string): string {
+  if (agentType === 'codex' || agentType === 'openrouter') {
+    return `
+
+## IMPORTANT — Direct Execution Required
+- **DO NOT** create an implementation plan, outline, or strategy before coding
+- **DO NOT** list the steps you will take or describe your approach
+- **Start coding immediately** — read the relevant files and make changes right away
+- Your output should be tool calls and code changes, not planning text`;
+  }
+  return '';
 }
 
 /**
@@ -16,30 +35,30 @@ interface CLIPromptOptions {
  * so we need to combine all context into a single comprehensive prompt.
  */
 export function buildCLIPrompt(task: Task, options: CLIPromptOptions = {}): string {
-  const { isResume, reviewFeedback, isEmptyRepo, repository, planOnly, approvedPlan } = options;
+  const { isResume, reviewFeedback, isEmptyRepo, repository, planOnly, approvedPlan, agentType } = options;
 
   // If implementing an approved plan, build implementation prompt
   if (approvedPlan) {
-    return buildImplementationPrompt(task, approvedPlan, repository);
+    return buildImplementationPrompt(task, approvedPlan, repository, agentType);
   }
 
-  // If plan-only mode, build plan-only prompt
+  // If plan-only mode, build plan-only prompt (no anti-planning instructions here)
   if (planOnly) {
     return buildPlanOnlyPrompt(task, repository);
   }
 
   // If resuming with feedback, build a focused resume prompt
   if (isResume && reviewFeedback) {
-    return buildResumePrompt(task, reviewFeedback, repository);
+    return buildResumePrompt(task, reviewFeedback, repository, agentType);
   }
 
   // If empty repo, build initialization prompt
   if (isEmptyRepo) {
-    return buildEmptyRepoPrompt(task, repository);
+    return buildEmptyRepoPrompt(task, repository, agentType);
   }
 
   // Normal task prompt
-  return buildTaskPrompt(task, repository);
+  return buildTaskPrompt(task, repository, agentType);
 }
 
 /**
@@ -82,7 +101,7 @@ function buildRepositorySection(repository: Repository): string {
  * Builds the main task prompt that consolidates all context into a single
  * comprehensive prompt for CLI agent execution.
  */
-function buildTaskPrompt(task: Task, repository?: Repository | null): string {
+function buildTaskPrompt(task: Task, repository?: Repository | null, agentType?: string): string {
   const spec = task.final_spec || task.generated_spec || task.description;
 
   const contextSection =
@@ -102,6 +121,7 @@ Work on branch: \`${task.target_branch}\`
     : '';
 
   const repoSection = repository ? `\n${buildRepositorySection(repository)}\n` : '';
+  const agentInstructions = buildAgentSpecificInstructions(agentType);
 
   return `You are an autonomous coding agent. Implement the following task in the current repository.
 
@@ -129,16 +149,17 @@ ${branchSection}${repoSection}${contextSection}
 - **DO NOT** start dev servers or any process that listens on a port
 - **DO NOT** run \`npm run build\`, \`npm run test\`, \`npm run dev\`, or similar commands
 - **DO NOT** run \`npx\`, \`node\`, or any script that executes project code
-- Your job is ONLY to write code and commit — verification will be done separately`.trim();
+- Your job is ONLY to write code and commit — verification will be done separately${agentInstructions}`.trim();
 }
 
 /**
  * Builds a resume prompt for when the agent needs to address reviewer feedback
  * on a previously submitted task.
  */
-function buildResumePrompt(task: Task, feedback: string, repository?: Repository | null): string {
+function buildResumePrompt(task: Task, feedback: string, repository?: Repository | null, agentType?: string): string {
   const spec = task.final_spec || task.generated_spec || task.description;
   const repoSection = repository ? `\n${buildRepositorySection(repository)}\n` : '';
+  const agentInstructions = buildAgentSpecificInstructions(agentType);
 
   return `You are an autonomous coding agent. You previously worked on a task that received reviewer feedback. Address the feedback and complete the task.
 
@@ -170,16 +191,17 @@ ${feedback}
 - **DO NOT** start dev servers or any process that listens on a port
 - **DO NOT** run \`npm run build\`, \`npm run test\`, \`npm run dev\`, or similar commands
 - **DO NOT** run \`npx\`, \`node\`, or any script that executes project code
-- Your job is ONLY to write code and commit — verification will be done separately`.trim();
+- Your job is ONLY to write code and commit — verification will be done separately${agentInstructions}`.trim();
 }
 
 /**
  * Builds a prompt for initializing an empty repository from scratch
  * based on the task requirements.
  */
-function buildEmptyRepoPrompt(task: Task, repository?: Repository | null): string {
+function buildEmptyRepoPrompt(task: Task, repository?: Repository | null, agentType?: string): string {
   const spec = task.final_spec || task.generated_spec || task.description;
   const repoSection = repository ? `\n${buildRepositorySection(repository)}\n` : '';
+  const agentInstructions = buildAgentSpecificInstructions(agentType);
 
   return `You are an autonomous coding agent. This repository is completely empty — there are no files or commits yet. Your task is to create the initial project from scratch.
 
@@ -210,7 +232,7 @@ ${repoSection}
 - **DO NOT** start dev servers or any process that listens on a port
 - **DO NOT** run \`npm run build\`, \`npm run test\`, \`npm run dev\`, or similar commands
 - **DO NOT** run \`npx\`, \`node\`, or any script that executes project code
-- Your job is ONLY to write code and commit — verification will be done separately`.trim();
+- Your job is ONLY to write code and commit — verification will be done separately${agentInstructions}`.trim();
 }
 
 /**
@@ -265,7 +287,7 @@ Create a comprehensive, step-by-step implementation plan. You should:
  * Builds an implementation prompt that tells the agent to execute
  * a previously approved plan step by step.
  */
-function buildImplementationPrompt(task: Task, plan: string, repository?: Repository | null): string {
+function buildImplementationPrompt(task: Task, plan: string, repository?: Repository | null, agentType?: string): string {
   const spec = task.final_spec || task.generated_spec || task.description;
 
   const branchSection = task.target_branch
@@ -276,6 +298,7 @@ Work on branch: \`${task.target_branch}\`
     : '';
 
   const repoSection = repository ? `\n${buildRepositorySection(repository)}\n` : '';
+  const agentInstructions = buildAgentSpecificInstructions(agentType);
 
   return `You are an autonomous coding agent. You have a previously approved implementation plan. Your job is to implement it step by step.
 
@@ -308,7 +331,7 @@ ${plan}
 - **DO NOT** start dev servers or any process that listens on a port
 - **DO NOT** run \`npm run build\`, \`npm run test\`, \`npm run dev\`, or similar commands
 - **DO NOT** run \`npx\`, \`node\`, or any script that executes project code
-- Your job is ONLY to write code and commit — verification will be done separately`.trim();
+- Your job is ONLY to write code and commit — verification will be done separately${agentInstructions}`.trim();
 }
 
 export default {

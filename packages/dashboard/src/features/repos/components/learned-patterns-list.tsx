@@ -113,7 +113,7 @@ export function LearnedPatternsList({
                     <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                       <span>Aprendido de tarea</span>
                       <a
-                        href={`/tasks/${pattern.learned_from_task_id}`}
+                        href="/board"
                         className="inline-flex items-center gap-1 text-primary hover:underline"
                       >
                         #{pattern.learned_from_task_id.slice(0, 8)}
