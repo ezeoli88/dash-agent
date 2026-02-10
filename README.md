@@ -1,285 +1,210 @@
-# dash-agent
+<div align="center">
 
-Dashboard web para gestionar tareas de un agente IA autónomo. Permite crear tareas, monitorear su ejecución en tiempo real via SSE, enviar feedback al agente, revisar cambios (diff) y aprobar la creación de PRs.
+# ai-agent-board
 
-## Features
+**A visual dashboard for managing autonomous AI coding agents.**
 
-### Core Features
-- **Two-Agent Workflow** - PM Agent genera especificaciones detalladas, Dev Agent las ejecuta
-- **Board View** - Vista Kanban para gestionar tareas (To Do, In Progress, In Review, Done)
-- **Task Management** - Crear, editar, listar y gestionar tareas para el agente IA
-- **Real-time Logs** - Streaming de logs de ejecución via Server-Sent Events (SSE)
-- **Diff Viewer** - Revisar cambios de código antes de aprobarlos
-- **Feedback Loop** - Enviar feedback al agente durante la ejecución
-- **PR Creation** - Crear Pull Requests en GitHub automáticamente
-- **Dark Mode** - Soporte completo para tema claro/oscuro
+Kanban board &bull; Real-time logs &bull; Diff review &bull; One-click PRs
 
-### Advanced Features
-- **Empty Repository Support** - Crear proyectos desde cero en repositorios vacíos
-- **Spec Editing** - Editar y refinar especificaciones antes de ejecutar
-- **Multi-Repository** - Gestionar múltiples repositorios desde el dashboard
-- **Error Visibility** - Mensajes de error claros y visibles en la UI
+[![npm version](https://img.shields.io/npm/v/ai-agent-board?color=blue&label=npm)](https://www.npmjs.com/package/ai-agent-board)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen)](https://nodejs.org)
+[![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)]()
+
+</div>
+
+---
+
+## What is agent-board?
+
+`agent-board` is a local web dashboard that lets you **create tasks**, **assign them to AI coding agents**, and **monitor everything** from a Kanban-style interface — real-time execution logs, code diffs, and automatic PR creation on GitHub.
+
+It works with the coding CLIs you already have installed:
+
+| Agent | CLI Command | Status |
+|-------|-------------|--------|
+| **Claude Code** | `claude` | Supported |
+| **Codex** | `codex` | Supported |
+| **Copilot** | `copilot` | Supported |
+| **Gemini** | `gemini` | Supported |
 
 ## Quick Start
 
 ```bash
-# Clonar el repositorio
-git clone https://github.com/your-username/dash-agent.git
-cd dash-agent
-
-# Instalar dependencias
-npm install
-
-# Configurar variables de entorno
-cp packages/server/.env.example packages/server/.env
-# Editar .env con tu OPENAI_API_KEY y GITHUB_TOKEN
-
-# Iniciar en modo desarrollo
-npm run dev
+npx ai-agent-board
 ```
 
-El dashboard estará disponible en `http://localhost:3003` y el servidor en `http://localhost:3000`.
+That's it. The dashboard opens automatically in your browser. No configuration files, no Docker, no database setup.
 
-## Two-Agent Workflow
+> **Requirements:** Node.js >= 18. At least one supported AI coding CLI installed and authenticated.
 
-El sistema utiliza dos agentes especializados para dividir el trabajo:
-
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Usuario   │────▶│  PM Agent   │────▶│   Review    │────▶│  Dev Agent  │
-│  crea task  │     │ genera spec │     │  del spec   │     │  implementa │
-└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
-      │                                        │                    │
-      │                                        ▼                    ▼
-      │                                 ┌─────────────┐     ┌─────────────┐
-      │                                 │   Editar/   │     │  Crear PR   │
-      │                                 │  Regenerar  │     │             │
-      │                                 └─────────────┘     └─────────────┘
-```
-
-### Flujo de trabajo:
-
-1. **Usuario crea tarea** - Describe lo que necesita en lenguaje natural
-2. **PM Agent analiza** - Genera una especificación técnica detallada
-3. **Usuario revisa spec** - Puede editar, regenerar o aprobar
-4. **Dev Agent implementa** - Ejecuta la especificación aprobada
-5. **Review de cambios** - Usuario revisa el diff y aprueba PR
-
-### Estados de tarea:
-
-| Estado | Descripción | Columna Board |
-|--------|-------------|---------------|
-| `draft` | Tarea creada, esperando generar spec | To Do |
-| `refining` | PM Agent generando spec | To Do |
-| `pending_approval` | Spec lista para revisar | To Do |
-| `approved` | Spec aprobada, Dev Agent iniciando | In Progress |
-| `coding` | Dev Agent trabajando | In Progress |
-| `awaiting_review` | Cambios listos para revisar | In Review |
-| `pr_created` | PR creado en GitHub | In Review |
-| `done` | PR mergeado | Done |
-| `failed` | Error durante ejecución | Cancelled |
-
-## Project Structure
+### CLI Options
 
 ```
-dash-agent/
-├── packages/
-│   ├── cli/              # CLI entry point (futuro)
-│   ├── dashboard/        # Next.js frontend
-│   ├── server/           # Express backend API
-│   └── shared/           # Tipos y schemas compartidos
-├── package.json          # Root workspace
-├── CLAUDE.md             # Instrucciones para Claude
-└── integration-plan.md   # Plan de publicación npm
+npx ai-agent-board [options]
+
+  --port <number>   Server port (default: auto-detect)
+  --no-open         Don't open browser automatically
+  --clear-cache     Delete cached binary and re-download
+  --version, -v     Show version
+  --help, -h        Show help
 ```
 
-## Tech Stack
+## Features
 
-### Frontend (packages/dashboard/)
+### Kanban Board
 
-| Tecnología | Versión | Por qué esta elección |
-|------------|---------|----------------------|
-| **Next.js** | 16.1 | App Router moderno con React Server Components. Optimizaciones automáticas de imágenes, fuentes y bundles. Mejor SEO out-of-the-box. File-based routing simplifica la estructura del proyecto. |
-| **React** | 19.2 | Última versión estable con Concurrent Features habilitados. Mejoras significativas de rendimiento con el nuevo compilador. Suspense boundaries para mejor UX en loading states. |
-| **TypeScript** | 5.x (strict) | Type safety end-to-end elimina categorías enteras de bugs. IntelliSense superior en el IDE. Refactoring seguro. El modo strict previene errores comunes como `null` y `undefined`. |
-| **Tailwind CSS** | 4.x | Utility-first permite desarrollo rápido sin context-switching a archivos CSS. Purge automático genera bundles mínimos. La nueva versión 4 tiene mejor performance y CSS nesting nativo. |
-| **shadcn/ui** | - | No es una dependencia, es código copiado al proyecto. Componentes accesibles (ARIA) basados en Radix UI. Totalmente personalizables. Sin vendor lock-in. |
-| **TanStack Query** | 5.x | Cache automático con stale-while-revalidate. Deduplicación de requests idénticos. Refetch automático en window focus. Optimistic updates. DevTools excelentes. |
-| **Zustand** | 5.x | Estado cliente minimalista sin boilerplate. API simple (solo hooks). Middleware extensible. Persist to localStorage trivial. Mucho más simple que Redux para este caso de uso. |
-| **next-themes** | 0.4 | Dark mode sin flash en SSR. Detecta preferencia del sistema. Persiste elección del usuario. Integración perfecta con Tailwind. |
+Manage tasks across stages: **To Do** → **In Progress** → **In Review** → **Done**. Each task card shows its current status, assigned agent, and progress at a glance.
 
-### Backend (packages/server/)
+### Two-Agent Workflow
 
-| Tecnología | Versión | Por qué esta elección |
-|------------|---------|----------------------|
-| **Express** | 4.x | Framework maduro y battle-tested. Ecosistema extenso de middlewares. Curva de aprendizaje mínima. Suficientemente flexible para SSE y APIs REST. |
-| **TypeScript** | 5.x | Mismas ventajas que en frontend. Tipos compartidos con el paquete `shared` aseguran consistencia API. |
-| **sql.js** | 1.10 | SQLite compilado a WebAssembly. Zero dependencies nativas (no requiere Python/node-gyp). Funciona en cualquier plataforma. Base de datos embebida, no requiere servidor externo. Ideal para un CLI portable. |
-| **OpenAI SDK** | 6.x | SDK oficial con tipos TypeScript. Soporte nativo para streaming responses. Tool calling para function calling del agente. Retry automático con exponential backoff. |
-| **Octokit** | 5.x | SDK oficial de GitHub. Type-safe con autocompletado de endpoints. Pagination automática. Rate limiting handling incluido. |
-| **Zod** | 4.x | Validación runtime + inferencia TypeScript. Define el schema una vez, obtén tipo y validador. Mensajes de error claros. Composable para schemas complejos. |
-
-### Shared (packages/shared/)
-
-| Tecnología | Por qué esta elección |
-|------------|----------------------|
-| **Zod** | Single source of truth para tipos y validación. El frontend y backend comparten los mismos schemas. Cambios en la API se detectan en compile-time. |
-| **npm workspaces** | Solución nativa sin herramientas adicionales (no Lerna/Turborepo). Symlinks automáticos entre paquetes. `npm install` una vez para todo el monorepo. |
-
-### Decisiones Arquitectónicas
-
-#### Por qué Monorepo con Workspaces
+Tasks go through a structured pipeline:
 
 ```
-✓ Tipos compartidos entre frontend y backend
-✓ Un solo npm install para todo el proyecto
-✓ Cambios de API detectados en compile-time
-✓ Desarrollo local simplificado
-✓ Deploy coordinado de versiones
+ You describe a task        PM Agent generates        You review & edit        Dev Agent writes
+ in natural language   ───▶  a detailed spec    ───▶   the spec          ───▶  the code
+                                                                                    │
+                                                                                    ▼
+                                                                            Review diff & merge
 ```
 
-#### Por qué SSE en lugar de WebSockets
+1. **Create task** — describe what you need in plain language
+2. **PM Agent** — generates a detailed technical specification
+3. **Review spec** — edit, regenerate, or approve
+4. **Dev Agent** — implements the approved specification
+5. **Review & merge** — inspect the diff, then create a PR
+
+### Real-time Execution Logs
+
+Watch your AI agent work in real-time via Server-Sent Events (SSE). Every step, every file change, streamed directly to your browser.
+
+### Diff Viewer
+
+Review all code changes before they go anywhere. Inline diff viewer shows exactly what the agent modified, added, or removed.
+
+### GitHub Integration
+
+Create Pull Requests directly from the dashboard. Review PR comments, request changes, and track merge status — all without leaving the board.
+
+### Dark Mode
+
+Full light and dark theme support. Automatically follows your system preference.
+
+## How It Works
+
+`agent-board` runs a lightweight local server that:
+
+1. **Detects** which AI coding CLIs you have installed (Claude Code, Codex, Copilot, Gemini)
+2. **Orchestrates** task execution by invoking the CLI agents in sandboxed worktrees
+3. **Streams** real-time output to the browser via SSE
+4. **Manages** code changes with git worktrees — your main branch stays untouched
+5. **Creates** Pull Requests via the GitHub API when you approve changes
+
+All data is stored in a local SQLite database. Nothing leaves your machine except the API calls your AI coding CLIs already make and the GitHub API calls for PR creation.
+
+## Task Lifecycle
+
+| Status | Description | Board Column |
+|--------|-------------|:------------:|
+| `draft` | Task created, awaiting spec generation | To Do |
+| `refining` | PM Agent generating specification | To Do |
+| `pending_approval` | Spec ready for your review | To Do |
+| `approved` | Spec approved, Dev Agent starting | In Progress |
+| `coding` | Dev Agent working | In Progress |
+| `awaiting_review` | Changes ready for your review | In Review |
+| `pr_created` | Pull Request created on GitHub | In Review |
+| `done` | PR merged | Done |
+| `failed` | Error during execution | — |
+
+## Architecture
 
 ```
-✓ Unidireccional (server → client) es suficiente para logs
-✓ HTTP estándar, funciona con cualquier proxy/CDN
-✓ Reconexión automática nativa del browser
-✓ Más simple de implementar y debuggear
-✓ Menor overhead que WebSockets para este caso de uso
+┌─────────────────────────────────────────────────────┐
+│                   ai-agent-board                     │
+│                                                      │
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────┐ │
+│  │  Dashboard    │  │   Server     │  │  Shared    │ │
+│  │  React SPA   │◄─┤  Express API │  │  Types &   │ │
+│  │  Vite 7      │  │  Bun runtime │  │  Schemas   │ │
+│  │  TanStack    │  │  SQLite      │  │  Zod       │ │
+│  │  Tailwind 4  │  │  SSE         │  │            │ │
+│  └──────────────┘  └──────┬───────┘  └────────────┘ │
+│                           │                          │
+│                    ┌──────┴───────┐                   │
+│                    │  CLI Runner  │                   │
+│                    │  Orchestrator│                   │
+│                    └──────┬───────┘                   │
+│                           │                          │
+│              ┌────────────┼────────────┐             │
+│              ▼            ▼            ▼             │
+│          claude        codex       gemini    ...     │
+└─────────────────────────────────────────────────────┘
 ```
 
-#### Por qué SQLite (sql.js) en lugar de PostgreSQL/MySQL
+### Tech Stack
 
-```
-✓ Zero configuración - no hay servidor de DB que instalar
-✓ Portable - funciona igual en Windows/Mac/Linux
-✓ Suficiente para un dashboard de tareas (no es high-traffic)
-✓ Ideal para un CLI que se pueda distribuir vía npm
-✓ Sin dependencies nativas gracias a WebAssembly
-```
+| Layer | Technologies |
+|-------|-------------|
+| **Frontend** | React 19, Vite 7, TypeScript, Tailwind CSS 4, shadcn/ui, TanStack Router & Query, Zustand |
+| **Backend** | Express, Bun, TypeScript, sql.js (SQLite via WASM), SSE |
+| **Shared** | Zod schemas, TypeScript types, npm workspaces |
+| **CLI** | Lightweight npx wrapper, platform-specific binary distribution |
 
-#### Por qué shadcn/ui en lugar de Material UI/Chakra
+### Key Design Decisions
 
-```
-✓ Código es tuyo - copias los componentes, no instalas librería
-✓ Sin vendor lock-in - personaliza libremente
-✓ Basado en Radix - accesibilidad profesional
-✓ Tailwind nativo - consistente con el resto del proyecto
-✓ Bundle más pequeño - solo incluye lo que usas
-```
+- **SSE over WebSockets** — unidirectional streaming is sufficient for logs; simpler, works with any proxy/CDN, and browsers auto-reconnect
+- **SQLite (WASM)** — zero-config embedded database, no external server needed, cross-platform via WebAssembly
+- **Git worktrees** — agent works in isolated worktrees so your main branch is never at risk
+- **npx distribution** — single command to run, binary auto-downloaded and cached per platform
 
-## Commands
+## Development
 
 ```bash
-# Instalar dependencias
+# Clone and install
+git clone https://github.com/ezeoli88/dash-agent.git
+cd dash-agent
 npm install
 
-# Desarrollo (server + dashboard concurrentemente)
+# Run in development mode (server + dashboard)
 npm run dev
 
-# Build de producción
+# Build all packages
 npm run build
 
-# Build por paquete
+# Build specific packages
 npm run build:shared
 npm run build:server
 npm run build:dashboard
-
-# Dev por paquete
-npm run dev:server      # Solo backend (puerto 3000)
-npm run dev:dashboard   # Solo frontend (puerto 3003)
-
-# Linting
-npm run lint
 ```
 
-## Environment Variables
+The dashboard runs on **port 3003** (Vite dev server) and the server on **port 3000** (Bun). Vite proxies `/api` requests to the server automatically.
 
-### Server (packages/server/.env)
+### Environment Variables
+
+Create `packages/server/.env`:
 
 ```env
-# Requerido: API Key de OpenAI para el agente
-OPENAI_API_KEY=sk-your-openai-api-key
+# Required: for AI agent capabilities
+OPENAI_API_KEY=sk-...
 
-# Opcional: Token de GitHub para crear PRs
-GITHUB_TOKEN=ghp_your-github-token
+# Optional: for GitHub PR creation
+GITHUB_TOKEN=ghp_...
 
-# Configuración del servidor
+# Optional: server configuration
 PORT=3000
-
-# Base de datos
 DATABASE_PATH=./data/dash-agent.db
-
-# Repositorios
-REPOS_BASE_DIR=./repos
-WORKTREES_DIR=./worktrees
-
-# Logging
-LOG_LEVEL=info
 ```
-
-### Dashboard (packages/dashboard/.env.local)
-
-```env
-# URL del backend API
-NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
-```
-
-## API Endpoints
-
-### Task CRUD
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| GET | `/tasks` | Listar todas las tareas |
-| POST | `/tasks` | Crear nueva tarea |
-| GET | `/tasks/:id` | Obtener tarea por ID |
-| PATCH | `/tasks/:id` | Actualizar tarea |
-| DELETE | `/tasks/:id` | Eliminar tarea |
-
-### Two-Agent Workflow
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| POST | `/tasks/:id/generate-spec` | PM Agent genera especificación |
-| POST | `/tasks/:id/regenerate-spec` | Regenerar especificación |
-| PATCH | `/tasks/:id/spec` | Editar especificación manualmente |
-| POST | `/tasks/:id/approve-spec` | Aprobar spec e iniciar Dev Agent |
-
-### Execution & Feedback
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| POST | `/tasks/:id/execute` | Ejecutar/retry tarea |
-| POST | `/tasks/:id/cancel` | Cancelar ejecución |
-| POST | `/tasks/:id/feedback` | Enviar feedback al agente |
-| GET | `/tasks/:id/logs` | SSE stream de logs |
-
-### Review & PR
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| GET | `/tasks/:id/changes` | Obtener diff de cambios |
-| POST | `/tasks/:id/request-changes` | Solicitar cambios |
-| POST | `/tasks/:id/pr-merged` | Marcar PR como mergeado |
-| POST | `/tasks/:id/pr-closed` | Marcar PR como cerrado |
-| GET | `/tasks/:id/pr-comments` | Obtener comentarios del PR |
-
-### Repository Management
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| GET | `/repos` | Listar repositorios |
-| POST | `/repos` | Agregar repositorio |
-| DELETE | `/repos/:id` | Eliminar repositorio |
 
 ## Contributing
 
-1. Fork el repositorio
-2. Crear una rama (`git checkout -b feature/amazing-feature`)
-3. Commit cambios (`git commit -m 'Add amazing feature'`)
-4. Push a la rama (`git push origin feature/amazing-feature`)
-5. Abrir un Pull Request
+Contributions are welcome. Please open an issue first to discuss what you'd like to change.
+
+1. Fork the repository
+2. Create your branch (`git checkout -b feature/my-feature`)
+3. Commit your changes (`git commit -m 'Add my feature'`)
+4. Push to the branch (`git push origin feature/my-feature`)
+5. Open a Pull Request
 
 ## License
 
-MIT
-
----
-
-Built with [Next.js](https://nextjs.org/), [Express](https://expressjs.com/), and [OpenAI](https://openai.com/)
+[MIT](LICENSE) &copy; [Ezequiel Olivera](https://github.com/ezeoli88)
