@@ -1,6 +1,6 @@
 import initSqlJs, { Database as SqlJsDatabase } from 'sql.js';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
-import { dirname } from 'path';
+import { dirname, join } from 'path';
 import { getConfig } from '../config.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -32,7 +32,12 @@ export async function initDatabase(): Promise<SqlJsDatabase> {
   logger.info('Initializing SQL.js database', { path: dbPath });
 
   // Initialize SQL.js
-  const SQL = await initSqlJs();
+  const isBinaryMode = process.env['__BIN_MODE__'] === '1';
+  const SQL = await initSqlJs(
+    isBinaryMode
+      ? { locateFile: (file: string) => join(dirname(process.execPath), file) }
+      : undefined
+  );
 
   // Load existing database or create new one
   if (existsSync(dbPath)) {

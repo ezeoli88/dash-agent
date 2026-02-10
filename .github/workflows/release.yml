@@ -46,12 +46,12 @@ jobs:
           bun build packages/server/src/bin.ts --compile --target=bun-windows-x64 \
             --outfile dist/win-x64/agent-board.exe
 
-      - name: Copy frontend assets to each platform directory
+      - name: Copy frontend assets and WASM to each platform directory
         run: |
-          cp -r packages/dashboard/dist dist/linux-x64/public
-          cp -r packages/dashboard/dist dist/macos-x64/public
-          cp -r packages/dashboard/dist dist/macos-arm64/public
-          cp -r packages/dashboard/dist dist/win-x64/public
+          for plat in linux-x64 macos-x64 macos-arm64 win-x64; do
+            cp -r packages/dashboard/dist dist/$plat/public
+            cp node_modules/sql.js/dist/sql-wasm.wasm dist/$plat/
+          done
 
       - name: Create platform ZIPs
         run: |
