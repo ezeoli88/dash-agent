@@ -20,8 +20,8 @@ interface ApiErrorResponse {
   code?: string;
 }
 
-// Base URL from environment variables
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+// Base URL: use env var in dev, otherwise same origin (production/binary mode)
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 
 // Custom error class for API errors
 export class ApiClientError extends Error {
