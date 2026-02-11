@@ -11,6 +11,7 @@ import type {
   ApproveSpecResponse,
 } from '@/features/tasks/types';
 import type { ActionResponse, CleanupWorktreeResponse } from '@/types/api';
+import { getAuthToken } from './auth';
 
 // API error response from backend (matches shared ApiError schema)
 interface ApiErrorResponse {
@@ -89,8 +90,10 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
 
   const url = buildUrl(endpoint, params);
 
+  const authToken = getAuthToken();
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
+    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
     ...customHeaders,
   };
 

@@ -3,6 +3,7 @@
 import { useEffect, useCallback, useMemo, useRef, useSyncExternalStore } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { generateId } from '@/lib/utils'
+import { getAuthToken } from '@/lib/auth'
 import { taskKeys } from './query-keys'
 import { useTaskUIStore } from '../stores/task-ui-store'
 import type {
@@ -86,7 +87,9 @@ function createSSEConnectionManager() {
     setStatus('connecting');
 
     const baseUrl = import.meta.env.VITE_API_BASE_URL || window.location.origin;
-    const url = `${baseUrl}/api/tasks/${taskId}/logs`;
+    const authToken = getAuthToken();
+    const tokenParam = authToken ? `?token=${encodeURIComponent(authToken)}` : '';
+    const url = `${baseUrl}/api/tasks/${taskId}/logs${tokenParam}`;
 
     try {
       const es = new EventSource(url);

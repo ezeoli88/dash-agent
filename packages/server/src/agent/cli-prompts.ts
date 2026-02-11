@@ -9,6 +9,7 @@ interface CLIPromptOptions {
   planOnly?: boolean;
   approvedPlan?: string;
   agentType?: string;
+  workspacePath?: string;
 }
 
 /**
@@ -35,30 +36,30 @@ function buildAgentSpecificInstructions(agentType?: string): string {
  * so we need to combine all context into a single comprehensive prompt.
  */
 export function buildCLIPrompt(task: Task, options: CLIPromptOptions = {}): string {
-  const { isResume, reviewFeedback, isEmptyRepo, repository, planOnly, approvedPlan, agentType } = options;
+  const { isResume, reviewFeedback, isEmptyRepo, repository, planOnly, approvedPlan, agentType, workspacePath } = options;
 
   // If implementing an approved plan, build implementation prompt
   if (approvedPlan) {
-    return buildImplementationPrompt(task, approvedPlan, repository, agentType);
+    return buildImplementationPrompt(task, approvedPlan, repository, agentType, workspacePath);
   }
 
   // If plan-only mode, build plan-only prompt (no anti-planning instructions here)
   if (planOnly) {
-    return buildPlanOnlyPrompt(task, repository);
+    return buildPlanOnlyPrompt(task, repository, workspacePath);
   }
 
   // If resuming with feedback, build a focused resume prompt
   if (isResume && reviewFeedback) {
-    return buildResumePrompt(task, reviewFeedback, repository, agentType);
+    return buildResumePrompt(task, reviewFeedback, repository, agentType, workspacePath);
   }
 
   // If empty repo, build initialization prompt
   if (isEmptyRepo) {
-    return buildEmptyRepoPrompt(task, repository, agentType);
+    return buildEmptyRepoPrompt(task, repository, agentType, workspacePath);
   }
 
   // Normal task prompt
-  return buildTaskPrompt(task, repository, agentType);
+  return buildTaskPrompt(task, repository, agentType, workspacePath);
 }
 
 /**
@@ -98,10 +99,22 @@ function buildRepositorySection(repository: Repository): string {
 }
 
 /**
+ * Builds a workspace boundary section that tells the agent where it must work.
+ * Prevents the agent from navigating to unrelated directories.
+ */
+function buildWorkspaceSection(workspacePath?: string): string {
+  if (!workspacePath) return '';
+  return `
+## Working Directory
+Your working directory is: \`${workspacePath}\`
+All files you read, edit, or create MUST be within this directory. Do NOT navigate to, read, or modify files outside this directory.`;
+}
+
+/**
  * Builds the main task prompt that consolidates all context into a single
  * comprehensive prompt for CLI agent execution.
  */
-function buildTaskPrompt(task: Task, repository?: Repository | null, agentType?: string): string {
+function buildTaskPrompt(task: Task, repository?: Repository | null, agentType?: string, workspacePath?: string): string {
   const spec = task.final_spec || task.generated_spec || task.description;
 
   const contextSection =
@@ -114,10 +127,11 @@ ${task.context_files.map((f) => `- ${f}`).join('\n')}
       : '';
 
   const repoSection = repository ? `\n${buildRepositorySection(repository)}\n` : '';
+  const workspaceSection = buildWorkspaceSection(workspacePath);
   const agentInstructions = buildAgentSpecificInstructions(agentType);
 
   return `You are an autonomous coding agent. Implement the following task in the current repository.
-
+${workspaceSection}
 ## Task
 **Title:** ${task.title}
 
@@ -136,6 +150,7 @@ ${repoSection}${contextSection}
 - Make minimal changes: only modify what is necessary for the task
 
 ## FORBIDDEN — Do NOT do any of the following
+- **DO NOT** read, edit, or navigate to files outside your working directory
 - **DO NOT** run tests, builds, linters, or any verification commands
 - **DO NOT** start dev servers or any process that listens on a port
 - **DO NOT** run \`npm run build\`, \`npm run test\`, \`npm run dev\`, or similar commands
@@ -148,13 +163,14 @@ ${repoSection}${contextSection}
  * Builds a resume prompt for when the agent needs to address reviewer feedback
  * on a previously submitted task.
  */
-function buildResumePrompt(task: Task, feedback: string, repository?: Repository | null, agentType?: string): string {
+function buildResumePrompt(task: Task, feedback: string, repository?: Repository | null, agentType?: string, workspacePath?: string): string {
   const spec = task.final_spec || task.generated_spec || task.description;
   const repoSection = repository ? `\n${buildRepositorySection(repository)}\n` : '';
+  const workspaceSection = buildWorkspaceSection(workspacePath);
   const agentInstructions = buildAgentSpecificInstructions(agentType);
 
   return `You are an autonomous coding agent. You previously worked on a task that received reviewer feedback. Address the feedback and complete the task.
-
+${workspaceSection}
 ## Task Context
 **Title:** ${task.title}
 
@@ -177,6 +193,7 @@ ${feedback}
 - Make minimal additional changes beyond what is requested
 
 ## FORBIDDEN — Do NOT do any of the following
+- **DO NOT** read, edit, or navigate to files outside your working directory
 - **DO NOT** run tests, builds, linters, or any verification commands
 - **DO NOT** start dev servers or any process that listens on a port
 - **DO NOT** run \`npm run build\`, \`npm run test\`, \`npm run dev\`, or similar commands
@@ -189,13 +206,14 @@ ${feedback}
  * Builds a prompt for initializing an empty repository from scratch
  * based on the task requirements.
  */
-function buildEmptyRepoPrompt(task: Task, repository?: Repository | null, agentType?: string): string {
+function buildEmptyRepoPrompt(task: Task, repository?: Repository | null, agentType?: string, workspacePath?: string): string {
   const spec = task.final_spec || task.generated_spec || task.description;
   const repoSection = repository ? `\n${buildRepositorySection(repository)}\n` : '';
+  const workspaceSection = buildWorkspaceSection(workspacePath);
   const agentInstructions = buildAgentSpecificInstructions(agentType);
 
   return `You are an autonomous coding agent. This repository is completely empty — there are no files or commits yet. Your task is to create the initial project from scratch.
-
+${workspaceSection}
 ## Task
 **Title:** ${task.title}
 
@@ -218,6 +236,7 @@ ${repoSection}
 - Follow best practices for the chosen technology stack
 
 ## FORBIDDEN — Do NOT do any of the following
+- **DO NOT** read, edit, or navigate to files outside your working directory
 - **DO NOT** run tests, builds, linters, or any verification commands
 - **DO NOT** start dev servers or any process that listens on a port
 - **DO NOT** run \`npm run build\`, \`npm run test\`, \`npm run dev\`, or similar commands
@@ -230,7 +249,7 @@ ${repoSection}
  * Builds a plan-only prompt that instructs the agent to explore the codebase
  * and create a detailed implementation plan WITHOUT making any file changes.
  */
-function buildPlanOnlyPrompt(task: Task, repository?: Repository | null): string {
+function buildPlanOnlyPrompt(task: Task, repository?: Repository | null, workspacePath?: string): string {
   const spec = task.final_spec || task.generated_spec || task.description;
 
   const contextSection =
@@ -243,9 +262,10 @@ ${task.context_files.map((f) => `- ${f}`).join('\n')}
       : '';
 
   const repoSection = repository ? `\n${buildRepositorySection(repository)}\n` : '';
+  const workspaceSection = buildWorkspaceSection(workspacePath);
 
   return `You are an autonomous coding agent in PLAN-ONLY mode. Your job is to explore the codebase and create a detailed implementation plan for the following task. You must NOT make any changes to files — only read and analyze.
-
+${workspaceSection}
 ## Task
 **Title:** ${task.title}
 
@@ -267,6 +287,7 @@ Create a comprehensive, step-by-step implementation plan. You should:
    - Any potential risks or things to watch out for
 
 ## CRITICAL RULES
+- **DO NOT** read, edit, or navigate to files outside your working directory
 - **DO NOT** create, edit, write, or modify any files
 - **DO NOT** run any commands that modify the filesystem
 - **ONLY** use read-only operations: reading files, searching code, listing directories
@@ -278,14 +299,15 @@ Create a comprehensive, step-by-step implementation plan. You should:
  * Builds an implementation prompt that tells the agent to execute
  * a previously approved plan step by step.
  */
-function buildImplementationPrompt(task: Task, plan: string, repository?: Repository | null, agentType?: string): string {
+function buildImplementationPrompt(task: Task, plan: string, repository?: Repository | null, agentType?: string, workspacePath?: string): string {
   const spec = task.final_spec || task.generated_spec || task.description;
 
   const repoSection = repository ? `\n${buildRepositorySection(repository)}\n` : '';
+  const workspaceSection = buildWorkspaceSection(workspacePath);
   const agentInstructions = buildAgentSpecificInstructions(agentType);
 
   return `You are an autonomous coding agent. You have a previously approved implementation plan. Your job is to implement it step by step.
-
+${workspaceSection}
 ## Task
 **Title:** ${task.title}
 
@@ -309,6 +331,7 @@ ${plan}
 - Make minimal changes beyond what the plan specifies
 
 ## FORBIDDEN — Do NOT do any of the following
+- **DO NOT** read, edit, or navigate to files outside your working directory
 - **DO NOT** run tests, builds, linters, or any verification commands
 - **DO NOT** start dev servers or any process that listens on a port
 - **DO NOT** run \`npm run build\`, \`npm run test\`, \`npm run dev\`, or similar commands
