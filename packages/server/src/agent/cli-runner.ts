@@ -291,7 +291,13 @@ export class CLIAgentRunner implements IAgentRunner {
       } else {
         spawnCommand = cliCommand.command;
         spawnArgs = cliCommand.args;
-        // Native binaries (claude, gemini) don't need shell on any platform.
+        // Gemini CLI is npm-installed (.cmd wrapper on Windows, shell script on Unix).
+        // Unlike claude (native .exe binary), it needs shell execution to resolve
+        // the wrapper, especially in compiled binary mode where PATH resolution differs.
+        // Prompt is sent via stdin so no argument escaping issues with shell: true.
+        if (cliCommand.command === 'gemini') {
+          useShell = true;
+        }
       }
 
       // Build environment with API keys from secrets service
