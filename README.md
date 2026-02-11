@@ -4,7 +4,7 @@
 
 **A visual dashboard for managing autonomous AI coding agents.**
 
-Kanban board &bull; Real-time logs &bull; Diff review &bull; One-click PRs
+Kanban board &bull; Real-time chat &bull; Diff review &bull; One-click PRs
 
 [![npm version](https://img.shields.io/npm/v/ai-agent-board?color=blue&label=npm)](https://www.npmjs.com/package/ai-agent-board)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -17,16 +17,18 @@ Kanban board &bull; Real-time logs &bull; Diff review &bull; One-click PRs
 
 ## What is agent-board?
 
-`agent-board` is a local web dashboard that lets you **create tasks**, **assign them to AI coding agents**, and **monitor everything** from a Kanban-style interface — real-time execution logs, code diffs, and automatic PR creation on GitHub.
+`agent-board` is a local web dashboard that lets you **create tasks**, **assign them to AI coding agents**, and **monitor everything** from a Kanban-style interface — real-time execution logs, live chat with the agent, code diffs, and automatic PR creation.
 
-It works with the coding CLIs you already have installed:
+It auto-detects the coding CLIs you already have installed:
 
-| Agent | CLI Command | Status |
-|-------|-------------|--------|
-| **Claude Code** | `claude` | Supported |
-| **Codex** | `codex` | Supported |
-| **Copilot** | `copilot` | Supported |
-| **Gemini** | `gemini` | Supported |
+| Agent | Command | Notes |
+|-------|---------|-------|
+| **Claude Code** | `claude` | Requires Anthropic API key or CLI login |
+| **Codex** | `codex` | Requires OpenAI API key or CLI login |
+| **Gemini** | `gemini` | Requires Google API key or CLI login |
+| **OpenRouter** | _(API)_ | Use any model via OpenRouter API key |
+
+> No CLI installed? Use **OpenRouter** to access 100+ models through the API without any CLI setup.
 
 ## Quick Start
 
@@ -36,14 +38,14 @@ npx ai-agent-board
 
 That's it. The dashboard opens automatically in your browser. No configuration files, no Docker, no database setup.
 
-> **Requirements:** Node.js >= 18. At least one supported AI coding CLI installed and authenticated.
+> **Requirements:** Node.js >= 18. At least one supported AI coding CLI installed, or an OpenRouter API key.
 
 ### CLI Options
 
 ```
 npx ai-agent-board [options]
 
-  --port <number>   Server port (default: auto-detect)
+  --port <number>   Server port (default: 51767)
   --no-open         Don't open browser automatically
   --clear-cache     Delete cached binary and re-download
   --version, -v     Show version
@@ -54,37 +56,45 @@ npx ai-agent-board [options]
 
 ### Kanban Board
 
-Manage tasks across stages: **To Do** → **In Progress** → **In Review** → **Done**. Each task card shows its current status, assigned agent, and progress at a glance.
+Manage tasks across stages: **To Do** &rarr; **In Progress** &rarr; **In Review** &rarr; **Done**. Each task card shows its current status, assigned agent, and progress at a glance.
 
-### Two-Agent Workflow
+### Task Workflow
 
-Tasks go through a structured pipeline:
+Describe what you need, and the agent handles the rest:
 
 ```
- You describe a task        PM Agent generates        You review & edit        Dev Agent writes
- in natural language   ───▶  a detailed spec    ───▶   the spec          ───▶  the code
-                                                                                    │
-                                                                                    ▼
-                                                                            Review diff & merge
+ You describe a task        Agent works in an         You review the          Approve & create
+ in natural language   ───▶  isolated worktree   ───▶  code changes    ───▶   a Pull Request
 ```
 
-1. **Create task** — describe what you need in plain language
-2. **PM Agent** — generates a detailed technical specification
-3. **Review spec** — edit, regenerate, or approve
-4. **Dev Agent** — implements the approved specification
-5. **Review & merge** — inspect the diff, then create a PR
+1. **Create task** &mdash; describe what you need in plain language
+2. **Agent codes** &mdash; the AI agent works in an isolated git worktree, with full context of your repo's stack and conventions
+3. **Chat in real-time** &mdash; send feedback, redirect the approach, or approve the agent's plan mid-execution
+4. **Review & merge** &mdash; inspect the diff, then create a PR directly from the dashboard
 
-### Real-time Execution Logs
+### Real-time Chat
 
-Watch your AI agent work in real-time via Server-Sent Events (SSE). Every step, every file change, streamed directly to your browser.
+Chat with the agent while it works. Send feedback, ask questions, or redirect its approach &mdash; all streamed live via SSE. The agent can present an implementation plan for your approval before writing any code.
 
 ### Diff Viewer
 
 Review all code changes before they go anywhere. Inline diff viewer shows exactly what the agent modified, added, or removed.
 
-### GitHub Integration
+### Git Integration
 
-Create Pull Requests directly from the dashboard. Review PR comments, request changes, and track merge status — all without leaving the board.
+- **GitHub** &mdash; create PRs, review comments, request changes, and track merge status
+- **GitLab** &mdash; connect via Personal Access Token
+- **Merge conflict resolution** &mdash; open VS Code directly at the worktree to resolve conflicts
+
+### Repository Management
+
+- Scan your filesystem to discover local git repositories
+- Auto-detect tech stack and conventions per repo
+- Track learned patterns across tasks for smarter specs
+
+### Credential Management
+
+API keys and tokens are stored locally with encryption. Connect your providers from the Settings page &mdash; no `.env` files needed.
 
 ### Dark Mode
 
@@ -94,51 +104,51 @@ Full light and dark theme support. Automatically follows your system preference.
 
 `agent-board` runs a lightweight local server that:
 
-1. **Detects** which AI coding CLIs you have installed (Claude Code, Codex, Copilot, Gemini)
-2. **Orchestrates** task execution by invoking the CLI agents in sandboxed worktrees
-3. **Streams** real-time output to the browser via SSE
-4. **Manages** code changes with git worktrees — your main branch stays untouched
-5. **Creates** Pull Requests via the GitHub API when you approve changes
+1. **Detects** which AI coding CLIs you have installed (Claude Code, Codex, Gemini) or uses your OpenRouter API key
+2. **Assigns** a coding agent to work on your task in an isolated git worktree
+3. **Streams** real-time output, chat messages, and tool activity to the browser via SSE
+4. **Isolates** code changes in git worktrees &mdash; your main branch is never at risk
+5. **Creates** Pull Requests via the GitHub/GitLab API when you approve changes
 
-All data is stored in a local SQLite database. Nothing leaves your machine except the API calls your AI coding CLIs already make and the GitHub API calls for PR creation.
+All data is stored in a local SQLite database. Nothing leaves your machine except the API calls your AI coding CLIs already make and the git provider API calls for PR creation.
 
 ## Task Lifecycle
 
 | Status | Description | Board Column |
 |--------|-------------|:------------:|
-| `draft` | Task created, awaiting spec generation | To Do |
-| `refining` | PM Agent generating specification | To Do |
-| `pending_approval` | Spec ready for your review | To Do |
-| `approved` | Spec approved, Dev Agent starting | In Progress |
-| `coding` | Dev Agent working | In Progress |
-| `awaiting_review` | Changes ready for your review | In Review |
-| `pr_created` | Pull Request created on GitHub | In Review |
-| `done` | PR merged | Done |
-| `failed` | Error during execution | — |
+| `draft` | Task created, not yet started | To Do |
+| `coding` | Agent working on implementation | In Progress |
+| `plan_review` | Agent proposed a plan, waiting for your approval | In Progress |
+| `review` | Changes ready for review / PR created | In Review |
+| `merge_conflicts` | Merge conflicts detected, needs resolution | In Review |
+| `changes_requested` | You requested changes on the PR | In Review |
+| `done` | PR merged, task complete | Done |
+| `canceled` | Canceled by user or PR closed | &mdash; |
+| `failed` | Error during execution | &mdash; |
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   ai-agent-board                     │
-│                                                      │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────────┐ │
-│  │  Dashboard    │  │   Server     │  │  Shared    │ │
-│  │  React SPA   │◄─┤  Express API │  │  Types &   │ │
-│  │  Vite 7      │  │  Bun runtime │  │  Schemas   │ │
-│  │  TanStack    │  │  SQLite      │  │  Zod       │ │
-│  │  Tailwind 4  │  │  SSE         │  │            │ │
-│  └──────────────┘  └──────┬───────┘  └────────────┘ │
-│                           │                          │
-│                    ┌──────┴───────┐                   │
-│                    │  CLI Runner  │                   │
-│                    │  Orchestrator│                   │
-│                    └──────┬───────┘                   │
-│                           │                          │
-│              ┌────────────┼────────────┐             │
-│              ▼            ▼            ▼             │
-│          claude        codex       gemini    ...     │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                     ai-agent-board                        │
+│                                                           │
+│  ┌──────────────┐  ┌───────────────┐  ┌───────────────┐  │
+│  │  Dashboard    │  │    Server     │  │    Shared     │  │
+│  │  React 19     │◄─┤  Express API  │  │  Zod Schemas  │  │
+│  │  Vite 7       │  │  Bun runtime  │  │  TypeScript   │  │
+│  │  TanStack     │  │  SQLite WASM  │  │  Types        │  │
+│  │  Tailwind 4   │  │  SSE + Chat   │  │               │  │
+│  └──────────────┘  └───────┬───────┘  └───────────────┘  │
+│                            │                              │
+│               ┌────────────┴────────────┐                 │
+│               │    Agent Orchestrator   │                 │
+│               │   Task ──▶ AI Agent    │                 │
+│               └────────────┬────────────┘                 │
+│                            │                              │
+│            ┌───────────┬───┴───┬────────────┐             │
+│            ▼           ▼       ▼            ▼             │
+│        claude       codex   gemini     OpenRouter         │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ### Tech Stack
@@ -148,14 +158,14 @@ All data is stored in a local SQLite database. Nothing leaves your machine excep
 | **Frontend** | React 19, Vite 7, TypeScript, Tailwind CSS 4, shadcn/ui, TanStack Router & Query, Zustand |
 | **Backend** | Express, Bun, TypeScript, sql.js (SQLite via WASM), SSE |
 | **Shared** | Zod schemas, TypeScript types, npm workspaces |
-| **CLI** | Lightweight npx wrapper, platform-specific binary distribution |
+| **CLI** | Lightweight npx wrapper, platform-specific binary distribution via Cloudflare R2 |
 
 ### Key Design Decisions
 
-- **SSE over WebSockets** — unidirectional streaming is sufficient for logs; simpler, works with any proxy/CDN, and browsers auto-reconnect
-- **SQLite (WASM)** — zero-config embedded database, no external server needed, cross-platform via WebAssembly
-- **Git worktrees** — agent works in isolated worktrees so your main branch is never at risk
-- **npx distribution** — single command to run, binary auto-downloaded and cached per platform
+- **SSE over WebSockets** &mdash; unidirectional streaming is sufficient for logs and chat; simpler, works with any proxy, and browsers auto-reconnect
+- **SQLite (WASM)** &mdash; zero-config embedded database, no external server needed, cross-platform via WebAssembly
+- **Git worktrees** &mdash; agent works in isolated worktrees so your main branch is never at risk
+- **npx distribution** &mdash; single command to run, binary auto-downloaded and cached per platform
 
 ## Development
 
@@ -168,32 +178,34 @@ npm install
 # Run in development mode (server + dashboard)
 npm run dev
 
-# Build all packages
+# Build all packages (shared → server → dashboard)
 npm run build
 
 # Build specific packages
 npm run build:shared
 npm run build:server
 npm run build:dashboard
+
+# Build standalone binaries
+npm run build:binary:linux-x64
+npm run build:binary:macos-x64
+npm run build:binary:macos-arm64
+npm run build:binary:win-x64
 ```
 
-The dashboard runs on **port 3003** (Vite dev server) and the server on **port 3000** (Bun). Vite proxies `/api` requests to the server automatically.
+The dashboard dev server runs on **port 3003** and the backend on **port 51767**. Vite proxies `/api` requests to the server automatically.
 
 ### Environment Variables
 
-Create `packages/server/.env`:
+Most configuration is handled through the **Settings** page in the dashboard. Environment variables are optional and mainly useful for development:
 
 ```env
-# Required: for AI agent capabilities
-OPENAI_API_KEY=sk-...
-
-# Optional: for GitHub PR creation
-GITHUB_TOKEN=ghp_...
-
-# Optional: server configuration
-PORT=3000
-DATABASE_PATH=./data/dash-agent.db
+PORT=51767                          # Server port (default: 51767)
+DATABASE_PATH=./data/agent-board.db # SQLite database path
+LOG_LEVEL=info                      # debug | info | warn | error
 ```
+
+AI keys and git tokens are managed through the dashboard UI with encrypted local storage &mdash; no `.env` file needed for normal usage.
 
 ## Contributing
 
