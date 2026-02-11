@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { generateId } from '@/lib/utils'
 import type { ChatMessageEvent, ToolActivityEvent } from '@dash-agent/shared'
 import { useTaskSSE } from './use-task-sse'
 import type { TaskStatus } from '../types'
@@ -77,7 +78,7 @@ export function useTaskChat(options: UseTaskChatOptions) {
 
   const addUserMessage = useCallback((content: string) => {
     const event: ChatMessageEvent = {
-      id: crypto.randomUUID(),
+      id: generateId(),
       role: 'user',
       content,
       timestamp: new Date().toISOString(),

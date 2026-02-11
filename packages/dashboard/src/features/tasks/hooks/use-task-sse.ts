@@ -2,6 +2,7 @@
 
 import { useEffect, useCallback, useMemo, useRef, useSyncExternalStore } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { generateId } from '@/lib/utils'
 import { taskKeys } from './query-keys'
 import { useTaskUIStore } from '../stores/task-ui-store'
 import type {
@@ -100,7 +101,7 @@ function createSSEConnectionManager() {
         try {
           const parsed = JSON.parse(event.data) as SSELogEvent['data'];
           onLog({
-            id: crypto.randomUUID(),
+            id: generateId(),
             timestamp: parsed.timestamp,
             level: parsed.level,
             message: parsed.message,
@@ -138,7 +139,7 @@ function createSSEConnectionManager() {
           const parsed = JSON.parse(event.data) as SSEAwaitingReviewEvent['data'];
           // Add as a special log entry
           onLog({
-            id: crypto.randomUUID(),
+            id: generateId(),
             timestamp: new Date().toISOString(),
             level: 'agent',
             message: parsed.message,
@@ -304,7 +305,7 @@ export function useTaskSSE(options: UseTaskSSEOptions) {
 
   const addLog = useCallback((entry: Omit<LogEntry, 'id'>) => {
     addTaskLog(taskId, {
-      id: crypto.randomUUID(),
+      id: generateId(),
       ...entry
     });
   }, [taskId, addTaskLog]);

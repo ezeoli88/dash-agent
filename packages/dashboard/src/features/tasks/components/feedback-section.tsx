@@ -14,7 +14,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { cn } from '@/lib/utils'
+import { cn, generateId } from '@/lib/utils'
 import { FeedbackForm } from './feedback-form'
 import { FeedbackHistory, type FeedbackMessage } from './feedback-history'
 import type { Task, LogEntry } from '../types'
@@ -52,7 +52,7 @@ export function FeedbackSection({
   const handleFeedbackSent = useCallback((messageText: string) => {
     // Add user message to history
     const userMessage: FeedbackMessage = {
-      id: crypto.randomUUID(),
+      id: generateId(),
       type: 'user',
       message: messageText,
       timestamp: new Date().toISOString(),
@@ -151,7 +151,7 @@ export function FeedbackSectionInline({
 
   const handleFeedbackSent = useCallback((messageText: string) => {
     const userMessage: FeedbackMessage = {
-      id: crypto.randomUUID(),
+      id: generateId(),
       type: 'user',
       message: messageText,
       timestamp: new Date().toISOString(),
