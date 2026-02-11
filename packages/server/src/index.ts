@@ -13,6 +13,8 @@ import reposRouter from './routes/repos.js';
 import dataRouter from './routes/data.js';
 import secretsRouter from './routes/secrets.js';
 import { getPRCommentsService } from './services/pr-comments.service.js';
+import { generateStartupToken } from './services/auth.service.js';
+import { setAuthToken, requireAuth } from './middleware/auth.middleware.js';
 
 /**
  * Timeout for graceful shutdown before forcing exit (in milliseconds).
@@ -29,14 +31,49 @@ interface ErrorResponse {
 }
 
 /**
+ * Checks if an origin is allowed for CORS.
+ * Allows localhost, loopback, and RFC 1918 private IPs.
+ */
+function isAllowedOrigin(origin: string): boolean {
+  const url = new URL(origin);
+  const hostname = url.hostname;
+  // Allow localhost, 127.0.0.1, [::1]
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') return true;
+  // Allow RFC 1918 private IPs: 10.x.x.x, 172.16-31.x.x, 192.168.x.x
+  const parts = hostname.split('.').map(Number);
+  if (parts.length === 4 && parts.every(p => !isNaN(p))) {
+    const [a, b] = parts as [number, number, number, number];
+    if (a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+  }
+  return false;
+}
+
+/**
  * Creates and configures the Express application.
  */
-function createApp(): express.Application {
+function createApp(authToken?: string): express.Application {
   const app = express();
 
-  // Enable CORS for all origins
+  // CORS: restrict to localhost and private network origins
   app.use(cors({
-    origin: true,
+    origin: (origin, callback) => {
+      // Allow requests with no Origin header (same-origin, curl, etc.)
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      try {
+        if (isAllowedOrigin(origin)) {
+          callback(null, true);
+        } else {
+          callback(new Error(`CORS blocked: ${origin}`));
+        }
+      } catch {
+        callback(new Error(`CORS blocked: invalid origin`));
+      }
+    },
     credentials: true,
   }));
 
@@ -60,6 +97,11 @@ function createApp(): express.Application {
       timestamp: new Date().toISOString(),
     });
   });
+
+  // Auth middleware — protects all /api routes except health
+  if (authToken) {
+    app.use('/api', requireAuth);
+  }
 
   // Mount routes
   app.use('/api/tasks', tasksRouter);
@@ -149,7 +191,7 @@ async function findAvailablePort(startPort: number, maxAttempts = 10): Promise<n
 /**
  * Starts the HTTP server.
  */
-export async function main(): Promise<number> {
+export async function main(): Promise<{ port: number; token: string }> {
   logger.info('Starting Agent Board API');
 
   // Load configuration
@@ -164,8 +206,23 @@ export async function main(): Promise<number> {
   await initDatabase();
   runMigrations();
 
+  // Auth: enabled by default in binary mode, disabled in dev mode.
+  // Override with AUTH_ENABLED=1 (dev) or AUTH_DISABLED=1 (binary).
+  const isBinaryMode = process.env['__BIN_MODE__'] === '1';
+  const authEnabled = isBinaryMode
+    ? process.env['AUTH_DISABLED'] !== '1'
+    : process.env['AUTH_ENABLED'] === '1';
+  const authToken = authEnabled ? generateStartupToken() : undefined;
+
+  if (authToken) {
+    setAuthToken(authToken);
+    logger.info('Authentication enabled');
+  } else {
+    logger.info('Authentication disabled (dev mode)');
+  }
+
   // Create and start Express app
-  const app = createApp();
+  const app = createApp(authToken);
 
   const actualPort = await findAvailablePort(config.port);
   if (actualPort !== config.port) {
@@ -208,12 +265,17 @@ export async function main(): Promise<number> {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 
-  return actualPort;
+  return { port: actualPort, token: authToken || '' };
 }
 
 // Start the application (unless imported by bin.ts)
 if (!process.env['__BIN_MODE__']) {
-  main().catch((error: Error) => {
+  main().then(({ port, token }) => {
+    if (token) {
+      logger.info(`Auth token: ${token}`);
+      logger.info(`Open: http://localhost:${port}?token=${token}`);
+    }
+  }).catch((error: Error) => {
     logger.errorWithStack('Failed to start application', error);
     process.exit(1);
   });
