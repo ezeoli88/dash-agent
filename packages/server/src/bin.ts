@@ -35,10 +35,11 @@ async function run(): Promise<void> {
   // Dynamic import to ensure __BIN_MODE__ is set before index.ts loads
   const { main } = await import('./index.js');
 
-  const port = await main();
+  const { port, token } = await main();
   const lanIP = getLanIP();
-  const localUrl = `http://localhost:${port}`;
-  const lanUrl = `http://${lanIP}:${port}`;
+  const tokenParam = token ? `?token=${token}` : '';
+  const localUrl = `http://localhost:${port}${tokenParam}`;
+  const lanUrl = `http://${lanIP}:${port}${tokenParam}`;
 
   console.log('');
   console.log('  ┌──────────────────────────────────────────┐');
@@ -47,6 +48,11 @@ async function run(): Promise<void> {
   console.log('');
   console.log(`  Local:   ${localUrl}`);
   console.log(`  Network: ${lanUrl}`);
+  if (token) {
+    console.log(`  Auth:    Enabled (token in URL)`);
+  } else {
+    console.log(`  Auth:    DISABLED`);
+  }
   console.log('');
   console.log('  Press Ctrl+C to stop');
   console.log('');

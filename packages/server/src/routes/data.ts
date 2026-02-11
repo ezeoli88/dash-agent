@@ -9,6 +9,17 @@ const logger = createLogger('routes:data');
 const router = Router();
 
 // =============================================================================
+// SQL Injection Protection - Column & Table Whitelists
+// =============================================================================
+
+const TABLE_COLUMN_WHITELIST: Record<string, ReadonlySet<string>> = {
+  tasks: new Set(['id', 'title', 'description', 'repo_url', 'target_branch', 'context_files', 'build_command', 'status', 'pr_url', 'error', 'created_at', 'updated_at', 'repository_id', 'user_input', 'generated_spec', 'generated_spec_at', 'final_spec', 'spec_approved_at', 'was_spec_edited', 'branch_name', 'pr_number', 'agent_type', 'agent_model', 'changes_data', 'conflict_files']),
+  task_logs: new Set(['id', 'task_id', 'timestamp', 'level', 'message']),
+  repositories: new Set(['id', 'name', 'url', 'default_branch', 'detected_stack', 'conventions', 'learned_patterns', 'created_at', 'updated_at']),
+};
+const VALID_TABLE_NAMES = new Set(Object.keys(TABLE_COLUMN_WHITELIST));
+
+// =============================================================================
 // Types & Schemas
 // =============================================================================
 
@@ -44,6 +55,9 @@ interface ExportData {
  * Gets all rows from a table as an array of objects.
  */
 function getAllFromTable(tableName: string): Record<string, unknown>[] {
+  if (!VALID_TABLE_NAMES.has(tableName)) {
+    throw new Error(`Invalid table name: ${tableName}`);
+  }
   const db = getDatabase();
   const result = db.exec(`SELECT * FROM ${tableName}`);
 
@@ -65,6 +79,9 @@ function getAllFromTable(tableName: string): Record<string, unknown>[] {
  * Clears all data from a table.
  */
 function clearTable(tableName: string): void {
+  if (!VALID_TABLE_NAMES.has(tableName)) {
+    throw new Error(`Invalid table name: ${tableName}`);
+  }
   const db = getDatabase();
   db.run(`DELETE FROM ${tableName}`);
   logger.info(`Cleared table: ${tableName}`);
@@ -88,13 +105,26 @@ function toSqlValue(value: unknown): SqlValue {
  */
 function insertIntoTable(tableName: string, rows: Record<string, unknown>[]): number {
   if (rows.length === 0) return 0;
+  if (!VALID_TABLE_NAMES.has(tableName)) {
+    throw new Error(`Invalid table name: ${tableName}`);
+  }
 
+  const allowedColumns = TABLE_COLUMN_WHITELIST[tableName];
   const db = getDatabase();
   let inserted = 0;
 
   for (const row of rows) {
-    const columns = Object.keys(row);
-    const values = Object.values(row).map(toSqlValue);
+    const columns = Object.keys(row).filter(col => {
+      if (!allowedColumns!.has(col)) {
+        logger.warn(`Skipping invalid column "${col}" for table "${tableName}"`);
+        return false;
+      }
+      return true;
+    });
+
+    if (columns.length === 0) continue;
+
+    const values = columns.map(col => toSqlValue(row[col]));
     const placeholders = columns.map(() => '?').join(', ');
 
     try {

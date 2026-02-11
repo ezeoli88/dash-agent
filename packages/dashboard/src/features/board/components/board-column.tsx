@@ -1,5 +1,6 @@
 'use client'
 
+import { useDroppable } from '@dnd-kit/core'
 import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -17,18 +18,24 @@ interface BoardColumnProps {
 /**
  * Column component for the Kanban board.
  * Displays a header with title and task count, followed by a scrollable list of cards.
+ * Acts as a drop target for draggable task cards.
  */
 export function BoardColumn({ config, tasks }: BoardColumnProps) {
   const { id, title, color, bgColor, borderColor } = config
   const count = tasks.length
   const openCreateModal = useTaskUIStore((state) => state.openCreateModal)
 
+  const { setNodeRef, isOver } = useDroppable({ id })
+
   return (
     <div
+      ref={setNodeRef}
       className={cn(
         'flex h-full min-w-[280px] max-w-[320px] flex-col rounded-lg border',
+        'transition-[box-shadow,background-color] duration-200',
         borderColor,
-        bgColor
+        bgColor,
+        isOver && id === 'inProgress' && 'ring-2 ring-blue-500 bg-blue-500/5',
       )}
     >
       {/* Column Header */}

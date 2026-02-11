@@ -149,6 +149,7 @@ export class CLIAgentRunner implements IAgentRunner {
       if (this.options.planOnly !== undefined) promptOptions.planOnly = this.options.planOnly;
       if (this.options.approvedPlan !== undefined) promptOptions.approvedPlan = this.options.approvedPlan;
       promptOptions.agentType = this.options.agentType;
+      promptOptions.workspacePath = this.options.workspacePath;
       const prompt = buildCLIPrompt(this.options.task, promptOptions);
 
       // Build the CLI command

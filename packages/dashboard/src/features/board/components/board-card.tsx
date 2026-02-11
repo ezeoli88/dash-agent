@@ -1,5 +1,6 @@
 'use client'
 
+import { useDraggable } from '@dnd-kit/core'
 import { Loader2, MessageSquare, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatRelativeTime, truncateText } from '@/lib/formatters'
@@ -9,17 +10,29 @@ import type { Task } from '@/features/tasks/types'
 
 interface BoardCardProps {
   task: Task
+  /** When true, renders as a drag overlay clone (no drag hooks attached) */
+  isOverlay?: boolean
 }
 
 /**
  * Card component for displaying a task in the Kanban board.
  * Shows task ID, title, status badge, and relative time.
  * Clicking the card navigates to the task detail page.
+ * Draft tasks are draggable to the "In Progress" column.
  */
-export function BoardCard({ task }: BoardCardProps) {
+export function BoardCard({ task, isOverlay }: BoardCardProps) {
   const openDrawer = useTaskUIStore((state) => state.openDrawer)
   const hasUnreadComments = useTaskUIStore((state) => state.hasUnreadComments(task.id))
   const unreadCount = useTaskUIStore((state) => state.getUnreadCount(task.id))
+
+  const isDraft = task.status === 'draft'
+
+  // useDraggable is always called (hook rules), but disabled for non-draft or overlay cards
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: task.id,
+    data: { task },
+    disabled: !isDraft || isOverlay === true,
+  })
 
   // Statuses that show a spinner (agent is working)
   const isWorking = task.status === 'refining' || task.status === 'coding' || task.status === 'approved'
@@ -28,6 +41,8 @@ export function BoardCard({ task }: BoardCardProps) {
   const isFailed = task.status === 'failed'
 
   const handleClick = () => {
+    // Avoid opening drawer when finishing a drag gesture
+    if (isDragging) return
     openDrawer(task.id)
   }
 
@@ -40,17 +55,24 @@ export function BoardCard({ task }: BoardCardProps) {
 
   return (
     <div
+      ref={setNodeRef}
       role="button"
       tabIndex={0}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
+      {...listeners}
+      {...attributes}
       className={cn(
         'group relative rounded-lg border bg-card p-3 shadow-sm',
-        'cursor-pointer transition-all duration-200 ease-out',
+        'transition-all duration-200 ease-out',
         'hover:border-accent hover:shadow-md hover:-translate-y-0.5',
         'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
         isWorking && 'border-primary/50',
-        isFailed && 'border-destructive/50'
+        isFailed && 'border-destructive/50',
+        // Drag-specific styles
+        isDraft && !isOverlay ? 'cursor-grab' : 'cursor-pointer',
+        isDragging && !isOverlay && 'opacity-50',
+        isOverlay && 'shadow-lg ring-2 ring-primary/50 cursor-grabbing',
       )}
     >
       {/* Working indicator */}
