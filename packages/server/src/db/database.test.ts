@@ -148,10 +148,10 @@ describe('database', () => {
       await initDatabase();
 
       // initSqlJs was called with a config containing locateFile
-      const callArg = mockInitSqlJs.mock.calls[0]?.[0];
+      const callArg = (mockInitSqlJs.mock.calls as unknown[][])[0]?.[0] as Record<string, unknown> | undefined;
       expect(callArg).toBeDefined();
       expect(callArg).toHaveProperty('locateFile');
-      expect(typeof callArg.locateFile).toBe('function');
+      expect(typeof callArg!.locateFile).toBe('function');
 
       // Clean up env
       delete process.env['__BIN_MODE__'];
@@ -164,7 +164,7 @@ describe('database', () => {
       await initDatabase();
 
       // initSqlJs was called with undefined (no config)
-      const callArg = mockInitSqlJs.mock.calls[0]?.[0];
+      const callArg = (mockInitSqlJs.mock.calls as unknown[][])[0]?.[0];
       expect(callArg).toBeUndefined();
     });
 
