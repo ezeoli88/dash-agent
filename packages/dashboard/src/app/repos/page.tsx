@@ -16,7 +16,8 @@ export default function ReposPage() {
   const router = useRouter()
 
   // Scan local repos automatically
-  const { data: localReposData, isLoading: isScanning } = useLocalRepos(true)
+  const { data: localReposData, isLoading: isScanning, error: scanError } = useLocalRepos(true)
+  console.log('[ReposPage] mount', { isScanning, hasData: !!localReposData, repos: localReposData?.repos?.length, scanPath: localReposData?.scan_path })
   const addLocalRepo = useAddLocalRepo()
   const { setSelectedRepo } = useRepoStore()
 
@@ -91,6 +92,13 @@ export default function ReposPage() {
           </div>
         )}
 
+        {/* Scan error */}
+        {scanError && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center text-sm text-destructive">
+            Error al escanear repositorios: {scanError.message}
+          </div>
+        )}
+
         {/* Repos loaded */}
         {!isScanning && localReposData && (
           <div className="space-y-4">
@@ -135,7 +143,10 @@ export default function ReposPage() {
             {/* No repos at all */}
             {allRepos.length === 0 && (
               <div className="rounded-lg border bg-muted/50 p-6 text-center text-sm text-muted-foreground">
-                No se encontraron repositorios Git en la ruta escaneada.
+                No se encontraron repositorios en{' '}
+                <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                  {localReposData?.scan_path}
+                </code>
               </div>
             )}
 

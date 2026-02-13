@@ -31,9 +31,11 @@ export class LocalScanService {
     logger.info('Scanning for local repos', { scanPath });
 
     const repos: LocalRepository[] = [];
+    let totalDirsChecked = 0;
 
     try {
       const entries = await readdir(scanPath, { withFileTypes: true });
+      totalDirsChecked = entries.length;
 
       for (const entry of entries) {
         if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
@@ -61,6 +63,8 @@ export class LocalScanService {
 
     // Sort alphabetically
     repos.sort((a, b) => a.name.localeCompare(b.name));
+
+    logger.info('Scan complete', { scanPath, reposFound: repos.length, totalDirsChecked });
 
     return { repos, scan_path: scanPath, total: repos.length };
   }
@@ -147,22 +151,40 @@ export class LocalScanService {
 
   /**
    * Get the default scan path.
-   * In binary mode, uses AGENT_BOARD_USER_DIR (the directory where the user ran npx).
-   * Otherwise, finds the git workspace root and goes one level up.
+   * Finds the git workspace root from the user directory and goes one level up
+   * so that sibling repos are visible.
    */
   private getDefaultScanPath(): string {
-    // In binary mode, use the directory where the user invoked the CLI
-    const userDir = process.env['AGENT_BOARD_USER_DIR'];
-    if (userDir) {
-      return userDir;
-    }
+    const envDir = process.env['AGENT_BOARD_USER_DIR'];
+    const baseDir = envDir || process.cwd();
+
+    logger.info('Resolving default scan path', {
+      baseDir,
+      AGENT_BOARD_USER_DIR: envDir ?? '(not set)',
+      source: envDir ? 'AGENT_BOARD_USER_DIR' : 'process.cwd()',
+    });
 
     try {
-      const gitRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf-8' }).trim();
+      const gitRoot = execSync('git rev-parse --show-toplevel', {
+        cwd: baseDir,
+        encoding: 'utf-8',
+      }).trim();
+
+      logger.info('Git root detected', { gitRoot });
+
       // Go one level up from the git root so sibling repos are visible
-      return resolve(gitRoot, '..');
-    } catch {
-      return process.cwd();
+      const scanPath = resolve(gitRoot, '..');
+
+      logger.info('Default scan path resolved', { scanPath });
+
+      return scanPath;
+    } catch (error) {
+      // Not inside a git repo — scan the directory itself
+      logger.info('Git root detection failed, falling back to baseDir', {
+        baseDir,
+        error: getErrorMessage(error),
+      });
+      return baseDir;
     }
   }
 }

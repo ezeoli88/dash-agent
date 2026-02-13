@@ -220,6 +220,15 @@ export async function main(): Promise<{ port: number; token: string }> {
   // Auth: enabled by default in binary mode, disabled in dev mode.
   // Override with AUTH_ENABLED=1 (dev) or AUTH_DISABLED=1 (binary).
   const isBinaryMode = process.env['__BIN_MODE__'] === '1';
+
+  // Log scan path configuration for debugging
+  logger.info('Repo scan configuration', {
+    AGENT_BOARD_USER_DIR: process.env['AGENT_BOARD_USER_DIR'] ?? '(not set)',
+    LOCAL_SCAN_DIR: process.env['LOCAL_SCAN_DIR'] ?? '(not set)',
+    cwd: process.cwd(),
+    isBinaryMode,
+  });
+
   const authEnabled = isBinaryMode
     ? process.env['AUTH_DISABLED'] !== '1'
     : process.env['AUTH_ENABLED'] === '1';
