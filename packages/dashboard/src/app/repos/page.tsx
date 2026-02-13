@@ -7,8 +7,8 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useLocalRepos, useAddLocalRepo } from '@/features/repos/hooks/use-local-repos'
-import { useRepos } from '@/features/repos/hooks/use-repos'
 import { useRepoStore } from '@/features/repos/stores/repo-store'
+import { apiClient } from '@/lib/api-client'
 import type { LocalRepository } from '@/features/repos/types'
 import { useSecretsStatus } from '@/features/setup/hooks/use-secrets-status'
 
@@ -17,7 +17,6 @@ export default function ReposPage() {
 
   // Scan local repos automatically
   const { data: localReposData, isLoading: isScanning } = useLocalRepos(true)
-  const { data: existingRepos } = useRepos()
   const addLocalRepo = useAddLocalRepo()
   const { setSelectedRepo } = useRepoStore()
 
@@ -35,7 +34,8 @@ export default function ReposPage() {
 
   const handleContinue = useCallback(async () => {
     const repo = allRepos.find((r) => r.path === selectedPath)
-    if (repo) {
+    if (!repo) return
+    try {
       const created = await addLocalRepo.mutateAsync({
         name: repo.name,
         path: repo.path,
@@ -43,8 +43,16 @@ export default function ReposPage() {
         remote_url: repo.remote_url,
       })
       setSelectedRepo(created)
+      router.navigate({ to: '/board' })
+    } catch {
+      // Repo might already exist (409) — fetch existing and navigate
+      const repos = await apiClient.get<{ id: string; name: string; url: string }[]>('/repos')
+      const existing = repos.find((r) => r.url === `file://${repo.path}`)
+      if (existing) {
+        setSelectedRepo(existing as any)
+        router.navigate({ to: '/board' })
+      }
     }
-    router.navigate({ to: '/board' })
   }, [allRepos, selectedPath, addLocalRepo, setSelectedRepo, router])
 
   return (
@@ -131,15 +139,6 @@ export default function ReposPage() {
               </div>
             )}
 
-            {/* Continue (for returning users who already have repos) */}
-            {existingRepos && existingRepos.length > 0 && (
-              <div className="flex items-center gap-3 pt-2">
-                <Button onClick={() => router.navigate({ to: '/board' })} size="sm">
-                  Continuar al board
-                  <ArrowRight className="size-4 ml-2" />
-                </Button>
-              </div>
-            )}
           </div>
         )}
       </div>

@@ -53,7 +53,7 @@ function isAllowedOrigin(origin: string): boolean {
 /**
  * Creates and configures the Express application.
  */
-function createApp(authToken?: string): express.Application {
+function createApp(authToken?: string, startupId?: string): express.Application {
   const app = express();
 
   // CORS: restrict to localhost and private network origins
@@ -76,6 +76,17 @@ function createApp(authToken?: string): express.Application {
     },
     credentials: true,
   }));
+
+  // API response headers — prevent browser caching and expose server startup ID
+  app.use('/api', (_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    if (startupId) {
+      res.setHeader('X-Server-ID', startupId);
+    }
+    next();
+  });
 
   // Parse JSON request bodies
   app.use(express.json());
@@ -222,7 +233,8 @@ export async function main(): Promise<{ port: number; token: string }> {
   }
 
   // Create and start Express app
-  const app = createApp(authToken);
+  const startupId = crypto.randomUUID();
+  const app = createApp(authToken, startupId);
 
   const actualPort = await findAvailablePort(config.port);
   if (actualPort !== config.port) {

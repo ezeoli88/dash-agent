@@ -6,33 +6,24 @@ import { useRepos } from './use-repos'
 import { useRepo } from './use-repo'
 
 /**
- * Hook to manage the currently selected repository context
- * Syncs the selected repo from the store with the fetched data
+ * Hook to manage the currently selected repository context.
+ *
+ * The repo selection lives ONLY in Zustand (in-memory, not persisted).
+ * The only place a repo gets selected is the /repos page via handleContinue
+ * or the sidebar RepoList. No auto-select — if nothing is selected,
+ * MainLayout redirects to /repos.
  */
 export function useRepoContext() {
   const { selectedRepoId, selectedRepo, setSelectedRepo } = useRepoStore()
   const { data: repos, isLoading: isLoadingRepos } = useRepos()
   const { data: repoDetail, isLoading: isLoadingDetail } = useRepo(selectedRepoId)
 
-  // Sync selected repo when data changes
+  // Sync selected repo detail from server (keeps local object fresh)
   useEffect(() => {
     if (selectedRepoId && repoDetail) {
       setSelectedRepo(repoDetail)
-    } else if (selectedRepoId && repos) {
-      // Fall back to list data if detail hasn't loaded yet
-      const repo = repos.find((r) => r.id === selectedRepoId)
-      if (repo) {
-        setSelectedRepo(repo)
-      }
     }
-  }, [selectedRepoId, repoDetail, repos, setSelectedRepo])
-
-  // Auto-select first repo if none selected and repos are loaded
-  useEffect(() => {
-    if (!selectedRepoId && repos && repos.length > 0 && repos[0]) {
-      setSelectedRepo(repos[0])
-    }
-  }, [selectedRepoId, repos, setSelectedRepo])
+  }, [selectedRepoId, repoDetail, setSelectedRepo])
 
   return {
     selectedRepo,

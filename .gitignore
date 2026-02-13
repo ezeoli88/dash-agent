@@ -82,3 +82,7 @@ ehthumbs.db
 # Claude Code (keep .claude config but ignore sensitive data)
 .claude/cache/
 .claude/logs/
+
+# Clojure tooling caches
+.clj-kondo/
+.lsp/
