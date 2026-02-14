@@ -32,7 +32,25 @@ export function isLocalRepoUrl(url: string): boolean {
  * @returns The local filesystem path
  */
 export function localRepoPath(url: string): string {
-  return url.replace(/^file:\/\/\/?/, '');
+  const path = url.replace(/^file:\/\//, '');
+
+  // Windows absolute paths: C:/... or C:\...
+  if (/^[a-zA-Z]:[\\/]/.test(path)) {
+    return path;
+  }
+
+  // Windows absolute paths with leading slash: /C:/... or /C:\...
+  if (/^\/[a-zA-Z]:[\\/]/.test(path)) {
+    return path.slice(1);
+  }
+
+  // Unix absolute paths should keep the leading slash after removing file://
+  if (path.startsWith('/')) {
+    return path;
+  }
+
+  // Fallback for malformed file:// URLs like file://home/user/repo
+  return `/${path}`;
 }
 
 /**

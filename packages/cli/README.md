@@ -15,6 +15,9 @@ Kanban board &bull; Real-time chat &bull; Diff review &bull; One-click PRs
 
 ---
 
+<img width="1919" height="912" alt="Captura de pantalla 2026-02-11 122853" src="https://github.com/user-attachments/assets/50ef263e-56f0-4e8d-8adf-a19340853c18" />
+
+
 ## What is agent-board?
 
 `agent-board` is a local web dashboard that lets you **create tasks**, **assign them to AI coding agents**, and **monitor everything** from a Kanban-style interface — real-time execution logs, live chat with the agent, code diffs, and automatic PR creation.

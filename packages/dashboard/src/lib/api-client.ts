@@ -100,11 +100,26 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
   const config: RequestInit = {
     ...restOptions,
     headers,
+    cache: 'no-store',
     body: body ? JSON.stringify(body) : undefined,
   };
 
   try {
     const response = await fetch(url, config);
+
+    // Detect server restarts via startup ID header
+    const serverId = response.headers.get('X-Server-ID');
+    if (serverId) {
+      const storedId = localStorage.getItem('agent-board-server-id');
+      if (storedId && storedId !== serverId) {
+        // Server restarted — store new ID and notify the app
+        localStorage.setItem('agent-board-server-id', serverId);
+        window.dispatchEvent(new Event('server-restart'));
+      } else if (!storedId) {
+        // First request — just store the ID
+        localStorage.setItem('agent-board-server-id', serverId);
+      }
+    }
 
     // Handle non-OK responses
     if (!response.ok) {

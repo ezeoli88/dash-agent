@@ -74,6 +74,8 @@ export interface SetupWorktreeResult {
   reused: boolean;
   /** The branch name */
   branchName: string;
+  /** The resolved base branch used to prepare the worktree */
+  targetBranch: string;
   /** Whether the repository is empty (no commits) */
   isEmptyRepo: boolean;
 }
@@ -315,6 +317,103 @@ export class GitService {
   }
 
   /**
+   * Checks whether a git remote value points to a local filesystem path
+   * (including file://, absolute/relative paths, and UNC paths).
+   */
+  private isLocalPathRemote(remoteUrl: string): boolean {
+    const value = remoteUrl.trim();
+    if (!value) return false;
+    if (isLocalRepoUrl(value)) return true;
+
+    // Windows absolute path: C:\repo or C:/repo
+    if (/^[a-zA-Z]:[\\/]/.test(value)) return true;
+    // UNC path: \\server\share
+    if (/^\\\\/.test(value)) return true;
+    // Relative path: ./repo or ../repo
+    if (/^\.\.?([\\/]|$)/.test(value)) return true;
+    // Unix absolute path: /home/user/repo
+    if (value.startsWith('/')) return true;
+
+    return false;
+  }
+
+  /**
+   * Resolves and validates the remote URL to be used for PR creation.
+   * For local file:// repositories, syncs worktree origin from source repo origin.
+   *
+   * @param worktreePath - Path to the task worktree
+   * @param repoUrl - Task repo URL (can be file:// for local repos)
+   * @returns Resolved remote origin URL to use for fetch/push/PR
+   */
+  async prepareWorktreeRemoteForPR(worktreePath: string, repoUrl: string): Promise<string> {
+    const currentRemote = (await this.getRemoteUrl(worktreePath))?.trim() ?? '';
+
+    // Non-local repo: keep current origin as source of truth.
+    if (!isLocalRepoUrl(repoUrl)) {
+      return currentRemote;
+    }
+
+    const sourcePath = localRepoPath(repoUrl);
+    if (!(await directoryExists(sourcePath))) {
+      throw new Error(
+        `No se pudo crear PR porque el repositorio local ya no existe en ${sourcePath}. ` +
+        'Volvé a seleccionar el repositorio local o recreá la tarea.'
+      );
+    }
+
+    const sourceRemoteResult = await execGit(['remote', 'get-url', 'origin'], sourcePath);
+
+    if (sourceRemoteResult.exitCode !== 0) {
+      const stderrLower = sourceRemoteResult.stderr.toLowerCase();
+      const missingOrigin =
+        stderrLower.includes('no such remote') ||
+        stderrLower.includes('no existe') && stderrLower.includes('origin');
+
+      if (!missingOrigin) {
+        throw new Error(
+          `No se pudo crear PR porque la ruta local (${sourcePath}) no es un repositorio Git válido. ` +
+          'Revisá la ruta seleccionada en Repos y volvé a intentar.'
+        );
+      }
+    }
+
+    const sourceRemote = sourceRemoteResult.exitCode === 0 ? sourceRemoteResult.stdout.trim() : '';
+
+    if (!sourceRemote) {
+      throw new Error(
+        `No se pudo crear PR porque el repositorio local (${sourcePath}) no tiene un remote "origin". ` +
+        'Configura origin a GitHub o GitLab y reintenta.'
+      );
+    }
+
+    if (this.isLocalPathRemote(sourceRemote)) {
+      throw new Error(
+        `No se pudo crear PR porque el remote origin del repositorio local apunta a una ruta local (${sourceRemote}). ` +
+        'Configura origin a GitHub o GitLab y reintenta.'
+      );
+    }
+
+    // Agent Board only supports PR/MR APIs for GitHub.com and GitLab.com.
+    if (!sourceRemote.includes('github.com') && !sourceRemote.includes('gitlab.com')) {
+      throw new Error(
+        `No se pudo crear PR porque Agent Board solo soporta GitHub/GitLab y el remote origin actual es: ${sourceRemote}`
+      );
+    }
+
+    // Keep worktree origin in sync with the source repo's origin.
+    if (!currentRemote || currentRemote !== sourceRemote) {
+      await execGitOrThrow(['remote', 'set-url', 'origin', sourceRemote], worktreePath);
+      logger.info('Worktree origin synchronized from local source repo', {
+        worktreePath,
+        sourcePath,
+        sourceRemote,
+      });
+    }
+
+    return sourceRemote;
+  }
+
+  /**
    * Checks if a bare repository is empty (has no commits).
    * An empty repository has no branches and no commits.
    *
@@ -538,6 +637,9 @@ export class GitService {
         if (!isEmptyRepo) {
           await this.fetchRepo(bareRepoPath, targetBranch, repoUrl);
 
+          // Validate target branch exists; auto-detect if not
+          targetBranch = await this.resolveTargetBranch(bareRepoPath, targetBranch);
+
           // Merge latest changes from targetBranch to keep branch up to date
           // The local targetBranch ref was updated by fetchRepo to match origin
           logger.debug('Merging latest changes into existing worktree', { targetBranch });
@@ -568,6 +670,7 @@ export class GitService {
           worktreePath,
           reused: true,
           branchName,
+          targetBranch,
           isEmptyRepo,
         };
       } else {
@@ -667,6 +770,7 @@ export class GitService {
       worktreePath: createResult.worktreePath,
       reused: false,
       branchName,
+      targetBranch: createResult.targetBranch,
       isEmptyRepo: createResult.isEmptyRepo,
     };
   }
@@ -688,13 +792,16 @@ export class GitService {
     taskId: string,
     repoUrl: string,
     targetBranch: string = 'main'
-  ): Promise<{ worktreePath: string; isEmptyRepo: boolean }> {
+  ): Promise<{ worktreePath: string; targetBranch: string; isEmptyRepo: boolean }> {
     validateTaskId(taskId);
     logger.info('Creating worktree for task', { taskId, repoUrl, targetBranch });
 
     // Ensure bare repo exists and is up to date (including the target branch)
     const bareRepoPath = await this.ensureBareRepo(repoUrl);
     await this.fetchRepo(bareRepoPath, targetBranch, repoUrl);
+
+    // Validate target branch exists; auto-detect if not
+    targetBranch = await this.resolveTargetBranch(bareRepoPath, targetBranch);
 
     // Check if repository is empty
     const isEmptyRepo = await this.isEmptyRepo(bareRepoPath);
@@ -792,7 +899,7 @@ export class GitService {
     });
 
     logger.info('Worktree created successfully', { taskId, worktreePath, branchName, isEmptyRepo });
-    return { worktreePath, isEmptyRepo };
+    return { worktreePath, targetBranch, isEmptyRepo };
   }
 
   /**
@@ -1274,6 +1381,75 @@ export class GitService {
   }
 
   /**
+   * Resolves the best available ref to use as diff base.
+   * Prefers a local branch, then falls back to the remote-tracking ref.
+   */
+  private async resolveDiffBaseRef(
+    worktreePath: string,
+    baseBranch?: string
+  ): Promise<string | undefined> {
+    if (!baseBranch) {
+      return undefined;
+    }
+
+    const localBranchCheck = await execGit(['rev-parse', '--verify', baseBranch], worktreePath);
+    if (localBranchCheck.exitCode === 0) {
+      return baseBranch;
+    }
+
+    const remoteTrackingRef = `origin/${baseBranch}`;
+    const remoteBranchCheck = await execGit(
+      ['rev-parse', '--verify', remoteTrackingRef],
+      worktreePath
+    );
+    if (remoteBranchCheck.exitCode === 0) {
+      logger.debug('Using remote-tracking branch as diff base', {
+        baseBranch,
+        remoteTrackingRef,
+      });
+      return remoteTrackingRef;
+    }
+
+    // Fallback: auto-detect the actual default branch via the bare repo
+    try {
+      const commonDirResult = await execGit(['rev-parse', '--git-common-dir'], worktreePath);
+      if (commonDirResult.exitCode === 0) {
+        const bareRepoPath = path.resolve(worktreePath, commonDirResult.stdout.trim());
+        const resolvedBranch = await this.resolveTargetBranch(bareRepoPath, baseBranch);
+        if (resolvedBranch !== baseBranch) {
+          // Verify the resolved branch is usable for diff in the worktree context
+          const resolvedCheck = await execGit(['rev-parse', '--verify', resolvedBranch], worktreePath);
+          if (resolvedCheck.exitCode === 0) {
+            logger.info('Using auto-detected default branch for diff', {
+              requestedBranch: baseBranch,
+              resolvedBranch,
+            });
+            return resolvedBranch;
+          }
+        }
+      }
+    } catch {
+      // fallback detection failed, fall through to warning
+    }
+
+    logger.warn('Base branch ref not found for diff operations', { baseBranch });
+    return undefined;
+  }
+
+  /**
+   * Resolves a commit-based fallback ref for diff operations when the base branch
+   * cannot be resolved. This keeps diffs visible for at least the latest commit.
+   */
+  private async resolveFallbackCommitBaseRef(worktreePath: string): Promise<string | undefined> {
+    const parentCheck = await execGit(['rev-parse', '--verify', 'HEAD~1'], worktreePath);
+    if (parentCheck.exitCode === 0) {
+      logger.info('Using fallback commit base for diff operations', { fallbackRef: 'HEAD~1' });
+      return 'HEAD~1';
+    }
+    return undefined;
+  }
+
+  /**
    * Gets the diff of changes in a worktree.
    * When baseBranch is provided, includes committed changes against that branch.
    *
@@ -1285,13 +1461,13 @@ export class GitService {
     let diff = '';
 
     // Get committed changes against base branch (the main diff)
-    if (baseBranch) {
-      const branchCheck = await execGit(['rev-parse', '--verify', baseBranch], worktreePath);
-      if (branchCheck.exitCode === 0) {
-        const committedResult = await execGit(['diff', baseBranch, 'HEAD'], worktreePath);
-        if (committedResult.stdout) {
-          diff += committedResult.stdout + '\n';
-        }
+    const resolvedBaseRef =
+      (await this.resolveDiffBaseRef(worktreePath, baseBranch))
+      ?? (await this.resolveFallbackCommitBaseRef(worktreePath));
+    if (resolvedBaseRef) {
+      const committedResult = await execGit(['diff', resolvedBaseRef, 'HEAD'], worktreePath);
+      if (committedResult.stdout) {
+        diff += committedResult.stdout + '\n';
       }
     }
 
@@ -1324,19 +1500,17 @@ export class GitService {
    * @returns Array of changed file information with content
    */
   async getChangedFiles(worktreePath: string, baseBranch: string = 'main'): Promise<ChangedFile[]> {
-    // Check if base branch exists
-    const baseBranchExists = await execGit(
-      ['rev-parse', '--verify', baseBranch],
-      worktreePath
-    );
+    const resolvedBaseRef =
+      (await this.resolveDiffBaseRef(worktreePath, baseBranch))
+      ?? (await this.resolveFallbackCommitBaseRef(worktreePath));
 
     // Use git diff against the base branch to capture ALL changes (committed + uncommitted)
     // This works even after the agent has committed changes
     // For empty repos where baseBranch doesn't exist, we'll rely on git status
     let diffResult: { exitCode: number; stdout: string; stderr: string };
-    if (baseBranchExists.exitCode === 0) {
+    if (resolvedBaseRef) {
       diffResult = await execGit(
-        ['diff', '--name-status', baseBranch, 'HEAD'],
+        ['diff', '--name-status', resolvedBaseRef, 'HEAD'],
         worktreePath
       );
     } else {
@@ -1415,9 +1589,9 @@ export class GitService {
 
       // Use appropriate numstat command based on whether base branch exists
       let numstatResult: { exitCode: number; stdout: string; stderr: string };
-      if (baseBranchExists.exitCode === 0) {
+      if (resolvedBaseRef) {
         numstatResult = await execGit(
-          ['diff', '--numstat', baseBranch, 'HEAD', '--', filePath],
+          ['diff', '--numstat', resolvedBaseRef, 'HEAD', '--', filePath],
           worktreePath
         );
       } else {
@@ -1465,8 +1639,8 @@ export class GitService {
 
           case 'deleted':
             // For empty repos, this case shouldn't happen, but handle gracefully
-            if (baseBranchExists.exitCode === 0) {
-              oldContent = await this.getFileContentAtRef(worktreePath, filePath, baseBranch) ?? undefined;
+            if (resolvedBaseRef) {
+              oldContent = await this.getFileContentAtRef(worktreePath, filePath, resolvedBaseRef) ?? undefined;
             } else {
               oldContent = ''; // No previous content in empty repo
             }
@@ -1479,8 +1653,8 @@ export class GitService {
 
           case 'modified':
             // For empty repos, treat as added (no previous content)
-            if (baseBranchExists.exitCode === 0) {
-              oldContent = await this.getFileContentAtRef(worktreePath, filePath, baseBranch) ?? undefined;
+            if (resolvedBaseRef) {
+              oldContent = await this.getFileContentAtRef(worktreePath, filePath, resolvedBaseRef) ?? undefined;
             } else {
               oldContent = ''; // No previous content in empty repo
             }
@@ -1522,10 +1696,75 @@ export class GitService {
       totalFiles: changedFiles.length,
       withContent: changedFiles.filter(f => f.oldContent !== undefined || f.newContent !== undefined).length,
       baseBranch,
-      baseBranchExists: baseBranchExists.exitCode === 0,
+      baseRef: resolvedBaseRef ?? null,
     });
 
     return changedFiles;
+  }
+
+  /**
+   * Validates that the target branch exists in the bare repo.
+   * If not, auto-detects the actual default branch.
+   */
+  private async resolveTargetBranch(bareRepoPath: string, requestedBranch: string): Promise<string> {
+    // Check if requested branch exists
+    const branchCheck = await execGit(
+      ['show-ref', '--verify', '--quiet', `refs/heads/${requestedBranch}`],
+      bareRepoPath
+    );
+
+    if (branchCheck.exitCode === 0) {
+      return requestedBranch; // Branch exists, use it
+    }
+
+    logger.warn('Target branch not found in bare repo, auto-detecting default branch', {
+      requestedBranch,
+      bareRepoPath,
+    });
+
+    // Try reading HEAD symbolic ref
+    try {
+      const headRef = await execGitOrThrow(['symbolic-ref', 'HEAD'], bareRepoPath);
+      const headRefTrimmed = headRef.trim(); // e.g. "refs/heads/main"
+      if (headRefTrimmed.startsWith('refs/heads/')) {
+        const headBranch = headRefTrimmed.replace('refs/heads/', '');
+        // Verify HEAD branch actually exists as a ref
+        const headBranchCheck = await execGit(
+          ['show-ref', '--verify', '--quiet', `refs/heads/${headBranch}`],
+          bareRepoPath
+        );
+        if (headBranchCheck.exitCode === 0) {
+          logger.info('Using HEAD branch as fallback', { requestedBranch, resolvedBranch: headBranch });
+          return headBranch;
+        }
+      }
+    } catch {
+      // HEAD symbolic ref failed, try listing branches
+    }
+
+    // List all branches and pick the first one
+    try {
+      const branchListOutput = await execGitOrThrow(['branch', '--list', '--format=%(refname:short)'], bareRepoPath);
+      const branches = branchListOutput.trim().split('\n').filter(Boolean);
+      const firstBranch = branches[0];
+      if (firstBranch) {
+        logger.info('Using first available branch as fallback', {
+          requestedBranch,
+          resolvedBranch: firstBranch,
+          availableBranches: branches,
+        });
+        return firstBranch;
+      }
+    } catch {
+      // branch list failed
+    }
+
+    // No branches found at all - return as-is, isEmptyRepo will handle it
+    logger.warn('No branches found in bare repo, returning requested branch as-is', {
+      requestedBranch,
+      bareRepoPath,
+    });
+    return requestedBranch;
   }
 
   /**

@@ -53,7 +53,7 @@ function isAllowedOrigin(origin: string): boolean {
 /**
  * Creates and configures the Express application.
  */
-function createApp(authToken?: string): express.Application {
+function createApp(authToken?: string, startupId?: string): express.Application {
   const app = express();
 
   // CORS: restrict to localhost and private network origins
@@ -76,6 +76,17 @@ function createApp(authToken?: string): express.Application {
     },
     credentials: true,
   }));
+
+  // API response headers — prevent browser caching and expose server startup ID
+  app.use('/api', (_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    if (startupId) {
+      res.setHeader('X-Server-ID', startupId);
+    }
+    next();
+  });
 
   // Parse JSON request bodies
   app.use(express.json());
@@ -199,6 +210,8 @@ export async function main(): Promise<{ port: number; token: string }> {
   logger.info('Configuration loaded', {
     port: config.port,
     databasePath: config.databasePath,
+    reposBaseDir: config.reposBaseDir,
+    worktreesDir: config.worktreesDir,
     logLevel: config.logLevel,
   });
 
@@ -209,6 +222,15 @@ export async function main(): Promise<{ port: number; token: string }> {
   // Auth: enabled by default in binary mode, disabled in dev mode.
   // Override with AUTH_ENABLED=1 (dev) or AUTH_DISABLED=1 (binary).
   const isBinaryMode = process.env['__BIN_MODE__'] === '1';
+
+  // Log scan path configuration for debugging
+  logger.info('Repo scan configuration', {
+    AGENT_BOARD_USER_DIR: process.env['AGENT_BOARD_USER_DIR'] ?? '(not set)',
+    LOCAL_SCAN_DIR: process.env['LOCAL_SCAN_DIR'] ?? '(not set)',
+    cwd: process.cwd(),
+    isBinaryMode,
+  });
+
   const authEnabled = isBinaryMode
     ? process.env['AUTH_DISABLED'] !== '1'
     : process.env['AUTH_ENABLED'] === '1';
@@ -222,7 +244,8 @@ export async function main(): Promise<{ port: number; token: string }> {
   }
 
   // Create and start Express app
-  const app = createApp(authToken);
+  const startupId = crypto.randomUUID();
+  const app = createApp(authToken, startupId);
 
   const actualPort = await findAvailablePort(config.port);
   if (actualPort !== config.port) {

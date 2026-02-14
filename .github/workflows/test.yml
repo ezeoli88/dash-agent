@@ -1,0 +1,54 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  test-server:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared package
+        run: npm run build:shared
+
+      - name: Run server tests with coverage
+        run: npm run test:coverage --workspace=packages/server
+
+      - name: Check per-file coverage gates
+        run: node packages/server/scripts/check-coverage.mjs
+
+  test-dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared package
+        run: npm run build:shared
+
+      - name: Run dashboard tests with coverage
+        run: npm run test:coverage --workspace=packages/dashboard
+
+      - name: Check per-file coverage gates
+        run: node packages/dashboard/scripts/check-coverage.mjs

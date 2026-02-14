@@ -1,5 +1,7 @@
 'use client'
 
+import { useEffect } from 'react'
+import { useRouter } from '@tanstack/react-router'
 import { Header } from './header'
 import { useRepoContext } from '@/features/repos/hooks/use-repo-context'
 
@@ -8,8 +10,15 @@ interface MainLayoutProps {
 }
 
 export function MainLayout({ children }: MainLayoutProps) {
-  // Hydrate selected repo from persisted ID on app load
-  useRepoContext()
+  const router = useRouter()
+  const { selectedRepoId, hasRepos, isLoading } = useRepoContext()
+
+  // Redirect to repo selection when no repo is selected or no repos available
+  useEffect(() => {
+    if (!isLoading && (!hasRepos || !selectedRepoId)) {
+      router.navigate({ to: '/repos' })
+    }
+  }, [isLoading, hasRepos, selectedRepoId, router])
 
   return (
     <div className="relative min-h-screen bg-gradient-page">

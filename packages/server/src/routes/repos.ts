@@ -57,7 +57,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     logger.info('Repositories listed', { count: repositories.length });
 
-    res.json(repositories);
+    res.set('Cache-Control', 'no-store').json(repositories);
   } catch (error) {
     logger.errorWithStack('Failed to list repositories', error as Error);
     res.status(500).json({

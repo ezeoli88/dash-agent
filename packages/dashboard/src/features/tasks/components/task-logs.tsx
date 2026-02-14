@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Copy, Trash2, ArrowDownToLine } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { useBrowserNotifications } from '@/hooks/use-browser-notifications'
 import { useTaskUIStore } from '../stores/task-ui-store'
 import { useTaskSSE } from '../hooks/use-task-sse'
 import { LogEntry, LogEntryHighlighted } from './log-entry'
@@ -34,6 +35,7 @@ export function TaskLogs({
   const { isAutoScrollEnabled, toggleAutoScroll } = useTaskUIStore()
   const agentInfo = getAgentDisplayInfo(task.agent_type)
   const agentLabel = getAgentLabel(task.agent_type, task.agent_model)
+  const { sendNotification } = useBrowserNotifications()
 
   // Determine if logs should be active
   const isActiveTask = task.status === 'planning' || task.status === 'in_progress' || task.status === 'refining' || task.status === 'coding'
@@ -45,16 +47,37 @@ export function TaskLogs({
     taskId: task.id,
     enabled: shouldConnect,
     onStatusChange: (status) => {
-      console.log('Status changed:', status)
+      const notifications: Record<string, { toast: string; notification: string }> = {
+        review: { toast: 'PR ready for review!', notification: 'PR Ready for Review' },
+        plan_review: { toast: 'Plan ready for approval!', notification: 'Plan Ready for Approval' },
+        pending_approval: { toast: 'Spec ready for approval!', notification: 'Spec Ready for Approval' },
+        failed: { toast: 'Task failed', notification: 'Task Failed' },
+      }
+      const entry = notifications[status]
+      if (entry) {
+        toast.info(entry.toast, { description: task.title })
+        sendNotification(entry.notification, {
+          body: task.title,
+          tag: `task-${status}-${task.id}`,
+        })
+      }
     },
     onComplete: (prUrl) => {
       toast.success('Task completed!', {
         description: prUrl ? `PR available at: ${prUrl}` : 'Task finished successfully',
       })
+      sendNotification('Task Completed', {
+        body: task.title,
+        tag: `task-complete-${task.id}`,
+      })
     },
     onError: (message) => {
       toast.error('Task error', {
         description: message,
+      })
+      sendNotification('Task Failed', {
+        body: `${task.title} - ${message}`,
+        tag: `task-error-${task.id}`,
       })
     },
     onTimeoutWarning: (message) => {

@@ -1,6 +1,7 @@
 import { createRouter, createRoute, createRootRoute, Outlet, redirect } from '@tanstack/react-router'
 import { Providers } from '@/components/shared/providers'
 import { MainLayout } from '@/components/layout/main-layout'
+import { getAuthToken } from '@/lib/auth'
 
 // Lazy imports for pages to enable code splitting
 import HomePage from '@/app/page'
@@ -22,6 +23,29 @@ const rootRoute = createRootRoute({
 const mainLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: 'main-layout',
+  beforeLoad: async () => {
+    // Check if repos are available before rendering any main page
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin
+    const authToken = getAuthToken()
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+    }
+
+    let repos: unknown[] = []
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/repos`, { headers, cache: 'no-store' })
+      if (response.ok) {
+        repos = await response.json()
+      }
+    } catch {
+      // Network error - redirect to repos
+    }
+
+    if (!repos || repos.length === 0) {
+      throw redirect({ to: '/repos' })
+    }
+  },
   component: () => (
     <MainLayout>
       <Outlet />

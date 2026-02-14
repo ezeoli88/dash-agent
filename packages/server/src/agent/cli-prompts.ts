@@ -105,9 +105,18 @@ function buildRepositorySection(repository: Repository): string {
 function buildWorkspaceSection(workspacePath?: string): string {
   if (!workspacePath) return '';
   return `
-## Working Directory
+## CRITICAL — Workspace Boundary (MUST OBEY)
 Your working directory is: \`${workspacePath}\`
-All files you read, edit, or create MUST be within this directory. Do NOT navigate to, read, or modify files outside this directory.`;
+
+**ABSOLUTE RULE — NO EXCEPTIONS:**
+- EVERY file path you use (Read, Edit, Write, Bash, Glob, Grep) MUST start with \`${workspacePath}\`
+- NEVER use paths outside this directory — not even parent directories
+- NEVER traverse upward (e.g., \`../\`, \`cd ..\`, or removing path segments)
+- NEVER run commands like \`find\`, \`ls\`, or \`cat\` on paths outside \`${workspacePath}\`
+- The worktree IS the repository — all project files are here. There is nothing useful above this directory.
+- If you read a \`.git\` file pointing elsewhere, DO NOT follow that path — it is internal infrastructure
+
+**If you access ANY path that does not start with \`${workspacePath}\`, the task WILL be terminated.**`;
 }
 
 /**

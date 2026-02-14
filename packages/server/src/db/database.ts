@@ -11,6 +11,29 @@ let db: SqlJsDatabase | null = null;
 let dbPath: string = '';
 
 /**
+ * Resolves the SQL.js WASM file path in binary mode.
+ * The release bundle must place `sql-wasm.wasm` next to the executable.
+ */
+function resolveBinaryWasmPath(file: string): string {
+  const candidates = [
+    join(dirname(process.execPath), file),
+    join(process.cwd(), file),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error(
+    `Missing runtime file "${file}". Expected next to the executable.\n` +
+      `Looked in:\n- ${candidates.join('\n- ')}\n` +
+      `Use the bundle command (not only binary build) so sql-wasm.wasm is copied.`
+  );
+}
+
+/**
  * Initializes the SQL.js database.
  * This must be called before getDatabase().
  */
@@ -35,7 +58,7 @@ export async function initDatabase(): Promise<SqlJsDatabase> {
   const isBinaryMode = process.env['__BIN_MODE__'] === '1';
   const SQL = await initSqlJs(
     isBinaryMode
-      ? { locateFile: (file: string) => join(dirname(process.execPath), file) }
+      ? { locateFile: (file: string) => resolveBinaryWasmPath(file) }
       : undefined
   );
 

@@ -43,6 +43,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
+import { useBrowserNotifications } from '@/hooks/use-browser-notifications'
 import { useTaskActions } from '../hooks/use-task-actions'
 import { useStartTask } from '../hooks/use-start-task'
 import { useOpenEditor } from '../hooks/use-open-editor'
@@ -418,6 +419,7 @@ export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
   const { execute, approve, approvePlan, cancel, extend, requestChanges, markPRMerged, markPRClosed, retry, deleteTask } =
     useTaskActions(task.id)
   const startTaskMutation = useStartTask()
+  const { requestPermission } = useBrowserNotifications()
   const openEditorMutation = useOpenEditor(task.id)
   const resolveConflictsMutation = useResolveConflicts(task.id)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
@@ -442,9 +444,9 @@ export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
   const getActionHandler = (type: ActionType) => {
     switch (type) {
       case 'execute':
-        return { handler: () => execute.mutate(), isPending: execute.isPending }
+        return { handler: () => { requestPermission(); execute.mutate() }, isPending: execute.isPending }
       case 'retry':
-        return { handler: () => retry.mutate(), isPending: retry.isPending }
+        return { handler: () => { requestPermission(); retry.mutate() }, isPending: retry.isPending }
       case 'approve':
         return { handler: () => approve.mutate(), isPending: approve.isPending }
       case 'approve_plan':
@@ -461,7 +463,7 @@ export function TaskActions({ task, variant = 'full' }: TaskActionsProps) {
         return { handler: () => markPRClosed.mutate(), isPending: markPRClosed.isPending }
       case 'start':
         return {
-          handler: () => startTaskMutation.mutate(task.id),
+          handler: () => { requestPermission(); startTaskMutation.mutate(task.id) },
           isPending: startTaskMutation.isPending,
         }
       case 'open_editor':
