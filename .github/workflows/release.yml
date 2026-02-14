@@ -148,8 +148,7 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Install latest npm (OIDC requires >= 11.5.1)
-        run: npm install -g npm@latest
-
       - name: Publish CLI package
-        run: cd packages/cli && npm publish --provenance --access public
+        run: cd packages/cli && npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
