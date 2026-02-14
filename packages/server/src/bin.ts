@@ -28,6 +28,31 @@ function getLanIP(): string {
   return 'localhost';
 }
 
+/**
+ * Keeps the terminal open briefly on Windows when startup fails from double-click.
+ */
+async function pauseBeforeExitOnWindows(): Promise<void> {
+  if (process.platform !== 'win32') return;
+  if (process.argv.includes('--no-pause-on-error')) return;
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return;
+
+  process.stdout.write('\nPress Enter to close (auto-close in 30s)...\n');
+
+  await new Promise<void>((resolve) => {
+    const timeout = setTimeout(() => {
+      process.stdin.pause();
+      resolve();
+    }, 30_000);
+
+    process.stdin.resume();
+    process.stdin.once('data', () => {
+      clearTimeout(timeout);
+      process.stdin.pause();
+      resolve();
+    });
+  });
+}
+
 async function run(): Promise<void> {
   // Check for --no-open flag
   const noOpen = process.argv.includes('--no-open');
@@ -78,7 +103,8 @@ async function run(): Promise<void> {
   }
 }
 
-run().catch((error: Error) => {
+run().catch(async (error: Error) => {
   console.error('Failed to start agent-board:', error.message);
+  await pauseBeforeExitOnWindows();
   process.exit(1);
 });

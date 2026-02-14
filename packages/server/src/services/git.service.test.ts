@@ -71,6 +71,13 @@ const TASK_IDS = {
     id1: '00000000-000e-0001-0001-000000000001',
     id2: '00000000-000e-0001-0001-000000000002',
   },
+  prepareWorktreeRemoteForPR: {
+    id1: '00000000-000e-0002-0001-000000000001',
+    id2: '00000000-000e-0002-0001-000000000002',
+    id3: '00000000-000e-0002-0001-000000000003',
+    id4: '00000000-000e-0002-0001-000000000004',
+    id5: '00000000-000e-0002-0001-000000000005',
+  },
   getRemoteUrl: {
     id1: '00000000-000f-0001-0001-000000000001',
   },
@@ -104,10 +111,13 @@ const TASK_IDS = {
   },
   getDiffEdge: {
     id1: '00000000-0017-0001-0001-000000000001',
+    id2: '00000000-0017-0001-0001-000000000002',
+    id3: '00000000-0017-0001-0001-000000000003',
   },
   getChangedFilesEdge: {
     id1: '00000000-0018-0001-0001-000000000001',
     id2: '00000000-0018-0001-0001-000000000002',
+    id3: '00000000-0018-0001-0001-000000000003',
   },
   cleanupWithRemoveBranch: {
     id1: '00000000-0019-0001-0001-000000000001',
@@ -825,6 +835,72 @@ describe('GitService', () => {
     });
   });
 
+  describe('prepareWorktreeRemoteForPR', () => {
+    const TID = TASK_IDS.prepareWorktreeRemoteForPR;
+
+    it('syncs worktree origin from local source origin when source has hosted remote', async () => {
+      const { sourceDir, repoUrl } = await createTestRepoWithBare('prepare-pr-sync');
+      const sourceRemote = 'https://github.com/acme/repo.git';
+      git(`remote add origin "${sourceRemote}"`, sourceDir);
+
+      const result = await service.setupWorktree(TID.id1, repoUrl, 'main');
+      const staleLocalRemote = path.join(TEST_ROOT, 'stale-local-remote').replace(/\\/g, '/');
+      git(`remote set-url origin "${staleLocalRemote}"`, result.worktreePath);
+
+      const resolved = await service.prepareWorktreeRemoteForPR(result.worktreePath, repoUrl);
+      const finalRemote = await service.getRemoteUrl(result.worktreePath);
+
+      expect(resolved).toBe(sourceRemote);
+      expect(finalRemote).toBe(sourceRemote);
+    });
+
+    it('throws a clear error when local source origin points to local path', async () => {
+      const { sourceDir, repoUrl } = await createTestRepoWithBare('prepare-pr-local-origin');
+      const localRemote = path.join(TEST_ROOT, 'local-origin-target').replace(/\\/g, '/');
+      git(`remote add origin "${localRemote}"`, sourceDir);
+
+      const result = await service.setupWorktree(TID.id2, repoUrl, 'main');
+
+      await expect(
+        service.prepareWorktreeRemoteForPR(result.worktreePath, repoUrl)
+      ).rejects.toThrow('apunta a una ruta local');
+    });
+
+    it('throws a clear error when local source has no origin remote', async () => {
+      const { repoUrl } = await createTestRepoWithBare('prepare-pr-no-origin');
+      const result = await service.setupWorktree(TID.id3, repoUrl, 'main');
+
+      await expect(
+        service.prepareWorktreeRemoteForPR(result.worktreePath, repoUrl)
+      ).rejects.toThrow('no tiene un remote "origin"');
+    });
+
+    it('throws a clear error when local source path no longer exists', async () => {
+      const { repoUrl } = await createTestRepoWithBare('prepare-pr-missing-source');
+      const result = await service.setupWorktree(TID.id4, repoUrl, 'main');
+
+      const missingRepoUrl = `file://${path.join(TEST_ROOT, 'missing-local-source').replace(/\\/g, '/')}`;
+      await expect(
+        service.prepareWorktreeRemoteForPR(result.worktreePath, missingRepoUrl)
+      ).rejects.toThrow('ya no existe');
+    });
+
+    it('throws a clear error when local source path is not a git repository', async () => {
+      const { repoUrl } = await createTestRepoWithBare('prepare-pr-not-git');
+      const result = await service.setupWorktree(TID.id3, repoUrl, 'main');
+
+      const notGitDir = path.join(TEST_ROOT, 'not-a-git-repo');
+      await mkdir(notGitDir, { recursive: true });
+      // Place an invalid .git marker so Git does not traverse to parent repos.
+      await writeFile(path.join(notGitDir, '.git'), 'not-a-gitdir\n', 'utf-8');
+      const notGitRepoUrl = `file://${notGitDir.replace(/\\/g, '/')}`;
+
+      await expect(
+        service.prepareWorktreeRemoteForPR(result.worktreePath, notGitRepoUrl)
+      ).rejects.toThrow('no es un repositorio Git válido');
+    });
+  });
+
   // ==========================================================================
   // Tier 3 -- Edge Cases
   // ==========================================================================
@@ -1142,6 +1218,36 @@ describe('GitService', () => {
       // Should still include unstaged changes but NOT committed diff
       expect(diff).toContain('Unstaged Changes');
     });
+
+    it('falls back to HEAD~1 when baseBranch does not exist but there are committed changes', async () => {
+      const { repoUrl } = await createTestRepoWithBare('diff-head-parent-fallback');
+      const result = await service.setupWorktree(TID.id3, repoUrl, 'main');
+
+      await writeFile(path.join(result.worktreePath, 'README.md'), '# Modified via parent fallback\n', 'utf-8');
+      git('add -A', result.worktreePath);
+      git('commit -m "modify for parent fallback"', result.worktreePath);
+
+      const diff = await service.getDiff(result.worktreePath, 'nonexistent-branch');
+      expect(diff).toContain('Modified via parent fallback');
+      expect(diff).not.toBe('No changes detected');
+    });
+
+    it('falls back to origin/<branch> when local base branch is missing', async () => {
+      const { repoUrl } = await createTestRepoWithBare('diff-origin-fallback');
+      const result = await service.setupWorktree(TID.id2, repoUrl, 'main');
+
+      await writeFile(path.join(result.worktreePath, 'README.md'), '# Modified via origin fallback\n', 'utf-8');
+      git('add -A', result.worktreePath);
+      git('commit -m "modify for origin fallback"', result.worktreePath);
+
+      // Ensure remote-tracking ref exists and then remove local branch ref.
+      await service.fetchInWorktree(result.worktreePath, 'main');
+      git('branch -D main', result.worktreePath);
+
+      const diff = await service.getDiff(result.worktreePath, 'main');
+      expect(diff).toContain('Modified via origin fallback');
+      expect(diff).not.toBe('No changes detected');
+    });
   });
 
   describe('getChangedFiles edge cases', () => {
@@ -1173,6 +1279,27 @@ describe('GitService', () => {
       const files = await service.getChangedFiles(result.worktreePath, 'nonexistent-branch');
       // Should still return files (via --root diff or status)
       expect(Array.isArray(files)).toBe(true);
+    });
+
+    it('falls back to origin/<branch> for accurate status and content', async () => {
+      const { repoUrl } = await createTestRepoWithBare('changed-origin-fallback');
+      const result = await service.setupWorktree(TID.id3, repoUrl, 'main');
+
+      await writeFile(path.join(result.worktreePath, 'README.md'), '# Modified via origin fallback\n', 'utf-8');
+      git('add -A', result.worktreePath);
+      git('commit -m "modify for changed-files origin fallback"', result.worktreePath);
+
+      // Ensure remote-tracking ref exists and then remove local branch ref.
+      await service.fetchInWorktree(result.worktreePath, 'main');
+      git('branch -D main', result.worktreePath);
+
+      const files = await service.getChangedFiles(result.worktreePath, 'main');
+      const changedReadme = files.find((f) => f.path === 'README.md');
+
+      expect(changedReadme).toBeDefined();
+      expect(changedReadme!.status).toBe('modified');
+      expect(changedReadme!.oldContent).toContain('# Test Repo');
+      expect(changedReadme!.newContent).toContain('Modified via origin fallback');
     });
   });
 

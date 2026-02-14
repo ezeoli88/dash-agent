@@ -10,6 +10,7 @@ export interface LocalRepository {
   name: string;
   path: string;
   current_branch: string;
+  default_branch?: string;
   remote_url: string | null;
   has_package_json: boolean;
   language: string | null;
@@ -81,6 +82,18 @@ export class LocalScanService {
       // fallback
     }
 
+    // Detect default branch (prefer remote HEAD, fallback to current branch)
+    let defaultBranch: string | undefined;
+    try {
+      const remoteHead = execSync('git symbolic-ref refs/remotes/origin/HEAD', { cwd: repoPath, encoding: 'utf-8' }).trim();
+      // remoteHead looks like "refs/remotes/origin/main"
+      if (remoteHead) {
+        defaultBranch = remoteHead.replace('refs/remotes/origin/', '');
+      }
+    } catch {
+      // No remote HEAD set - leave defaultBranch undefined, frontend will fallback to current_branch
+    }
+
     // Get remote URL
     let remoteUrl: string | null = null;
     try {
@@ -101,7 +114,7 @@ export class LocalScanService {
     // Detect language hint
     const language = await this.detectLanguage(repoPath, hasPackageJson);
 
-    return {
+    const result: LocalRepository = {
       name,
       path: repoPath,
       current_branch: currentBranch,
@@ -109,6 +122,12 @@ export class LocalScanService {
       has_package_json: hasPackageJson,
       language,
     };
+
+    if (defaultBranch) {
+      result.default_branch = defaultBranch;
+    }
+
+    return result;
   }
 
   /**

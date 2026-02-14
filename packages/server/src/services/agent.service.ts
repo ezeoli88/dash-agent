@@ -138,6 +138,14 @@ export class AgentService {
 
       const workspacePath = worktreeResult.worktreePath;
 
+      // Keep task target_branch aligned with the actual branch resolved by GitService.
+      // This prevents downstream diff/PR operations from using stale branch names.
+      if (task.target_branch !== worktreeResult.targetBranch) {
+        taskService.update(taskId, { target_branch: worktreeResult.targetBranch });
+        task.target_branch = worktreeResult.targetBranch;
+        this.log(taskId, 'info', `Target branch resolved: ${task.target_branch}`);
+      }
+
       if (worktreeResult.reused) {
         this.log(taskId, 'info', `Reusing existing worktree at: ${workspacePath}`);
         if (isResume) {
@@ -609,6 +617,10 @@ export class AgentService {
         throw new Error('Worktree not found for task');
       }
 
+      // For local file:// repos, ensure the worktree origin points to the source
+      // repo's hosted remote (GitHub/GitLab) before fetch/push/PR creation.
+      await this.gitService.prepareWorktreeRemoteForPR(workspacePath, task.repo_url);
+
       if (prAlreadyExists) {
         this.log(taskId, 'info', 'Approval received, pushing changes to existing PR');
       } else {
@@ -749,7 +761,9 @@ ${filesDescription || 'No file changes detected.'}
       const errorMessage = getErrorMessage(error);
 
       // Detect GitLab auth failures and provide a helpful message
-      let userMessage = `Failed to create PR: ${errorMessage}`;
+      let userMessage = errorMessage.startsWith('No se pudo crear PR')
+        ? errorMessage
+        : `Failed to create PR: ${errorMessage}`;
       if (errorMessage.includes('gitlab.com') && (errorMessage.includes('Access denied') || errorMessage.includes('Authentication failed'))) {
         userMessage = 'Push a GitLab falló: token de GitLab no configurado o inválido. Configuralo en Settings > Conexiones.';
       } else if (errorMessage.includes('github.com') && (errorMessage.includes('Access denied') || errorMessage.includes('Authentication failed'))) {
@@ -786,6 +800,9 @@ ${filesDescription || 'No file changes detected.'}
     if (!workspacePath) {
       throw new Error('Worktree not found for task');
     }
+
+    // Keep origin aligned with the source repo remote for local file:// tasks.
+    await this.gitService.prepareWorktreeRemoteForPR(workspacePath, task.repo_url);
 
     const branchName = await this.gitService.getCurrentBranch(workspacePath);
     this.log(taskId, 'info', `Pushing branch: ${branchName}`);

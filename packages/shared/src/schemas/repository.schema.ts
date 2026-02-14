@@ -194,6 +194,7 @@ export const LocalRepositorySchema = z.object({
   name: z.string(),
   path: z.string(),
   current_branch: z.string(),
+  default_branch: z.string().optional(),
   remote_url: z.string().nullable(),
   has_package_json: z.boolean(),
   language: z.string().nullable(),

@@ -40,7 +40,7 @@ export default function ReposPage() {
       const created = await addLocalRepo.mutateAsync({
         name: repo.name,
         path: repo.path,
-        default_branch: repo.current_branch,
+        default_branch: repo.default_branch ?? repo.current_branch,
         remote_url: repo.remote_url,
       })
       setSelectedRepo(created)

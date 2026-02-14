@@ -682,6 +682,22 @@ describe('tasks routes', () => {
       expect(response.status).toBe(200);
       expect(response.body.status).toBe('approved');
     });
+
+    it('returns 400 with typed error when local repo has no origin', async () => {
+      const app = createApp();
+      mocks.taskService.getById.mockReturnValue(buildTask('awaiting_review'));
+      mocks.agentService.approveAndCreatePR.mockRejectedValue(
+        new Error('No se pudo crear PR porque el repositorio local (C:/repo) no tiene un remote "origin". Configura origin a GitHub o GitLab y reintenta.')
+      );
+
+      const response = await request(app).post(`/api/tasks/${TEST_TASK_ID}/approve`).send({});
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe('PR creation blocked');
+      expect(response.body.code).toBe('LOCAL_REPO_NO_ORIGIN');
+      expect(response.body.message).toContain('no tiene un remote "origin"');
+      expect(response.body.hint).toContain('Configura el remote origin');
+    });
   });
 
   describe('POST /tasks/:id/request-changes', () => {
@@ -922,6 +938,50 @@ describe('tasks routes', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.error).toBe('No changes available');
+    });
+
+    it('falls back to persisted changes_data when live worktree read fails', async () => {
+      const app = createApp();
+      const changesData = JSON.stringify({
+        files: [{ path: 'src/persisted.ts', status: 'modified', additions: 3, deletions: 1 }],
+        diff: 'persisted diff',
+      });
+      mocks.taskService.getById.mockReturnValue({
+        ...buildTask('awaiting_review'),
+        changes_data: changesData,
+      });
+      mocks.gitService.getWorktreePath.mockReturnValue('/tmp/worktree');
+      mocks.gitService.getChangedFiles.mockRejectedValue(new Error('fatal: not a git repository'));
+      mocks.gitService.getDiff.mockResolvedValue('No changes detected');
+
+      const response = await request(app).get(`/api/tasks/${TEST_TASK_ID}/changes`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.files).toHaveLength(1);
+      expect(response.body.files[0].path).toBe('src/persisted.ts');
+      expect(response.body.diff).toBe('persisted diff');
+    });
+
+    it('falls back to persisted changes_data when live worktree is unexpectedly empty', async () => {
+      const app = createApp();
+      const changesData = JSON.stringify({
+        files: [{ path: 'src/from-db.ts', status: 'added', additions: 7, deletions: 0 }],
+        diff: 'db diff',
+      });
+      mocks.taskService.getById.mockReturnValue({
+        ...buildTask('awaiting_review'),
+        changes_data: changesData,
+      });
+      mocks.gitService.getWorktreePath.mockReturnValue('/tmp/worktree');
+      mocks.gitService.getChangedFiles.mockResolvedValue([]);
+      mocks.gitService.getDiff.mockResolvedValue('No changes detected');
+
+      const response = await request(app).get(`/api/tasks/${TEST_TASK_ID}/changes`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.files).toHaveLength(1);
+      expect(response.body.files[0].path).toBe('src/from-db.ts');
+      expect(response.body.diff).toBe('db diff');
     });
   });
 

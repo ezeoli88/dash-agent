@@ -3,10 +3,31 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from '@tanstack/react-router'
 import { taskKeys } from './query-keys'
-import { tasksApi } from '@/lib/api-client'
+import { ApiClientError, tasksApi } from '@/lib/api-client'
 import { toast } from 'sonner'
 import { useTaskUIStore } from '../stores/task-ui-store'
 import type { ActionResponse, RequestChangesResponse, PRMergedResponse, PRClosedResponse, CleanupWorktreeResponse } from '@/types/api'
+
+export function getApproveTaskErrorMessage(error: Error): string {
+  if (error instanceof ApiClientError) {
+    switch (error.code) {
+      case 'LOCAL_REPO_NO_ORIGIN':
+        return 'No se pudo crear el PR: el repo local no tiene remote origin. Configuralo a GitHub/GitLab y reintenta.'
+      case 'LOCAL_REPO_ORIGIN_IS_LOCAL':
+        return 'No se pudo crear el PR: el remote origin apunta a una ruta local. Debe apuntar a GitHub o GitLab.'
+      case 'LOCAL_REPO_PATH_NOT_FOUND':
+        return 'No se pudo crear el PR: la ruta del repo local no existe. Vuelve a seleccionarlo desde Repos.'
+      case 'LOCAL_REPO_INVALID':
+        return 'No se pudo crear el PR: la carpeta seleccionada no es un repositorio Git valido.'
+      case 'REMOTE_PROVIDER_NOT_SUPPORTED':
+        return 'No se pudo crear el PR: el remote origin debe ser GitHub o GitLab.'
+      default:
+        break
+    }
+  }
+
+  return `Failed to approve task: ${error.message}`
+}
 
 export function useTaskActions(taskId: string) {
   const queryClient = useQueryClient()
@@ -38,7 +59,7 @@ export function useTaskActions(taskId: string) {
       invalidateTask()
     },
     onError: (error: Error) => {
-      toast.error(`Failed to approve task: ${error.message}`)
+      toast.error(getApproveTaskErrorMessage(error))
     },
   })
 

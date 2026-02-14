@@ -42,6 +42,68 @@ function isValidUUID(id: string): boolean {
   return UUID_REGEX.test(id);
 }
 
+interface ClientPRCreationError {
+  status: number;
+  error: string;
+  code: string;
+  message: string;
+  hint?: string;
+}
+
+function mapPRCreationErrorForClient(errorMessage: string): ClientPRCreationError | null {
+  const common = {
+    status: 400,
+    error: 'PR creation blocked',
+  };
+
+  if (errorMessage.includes('no tiene un remote "origin"')) {
+    return {
+      ...common,
+      code: 'LOCAL_REPO_NO_ORIGIN',
+      message: errorMessage,
+      hint: 'Configura el remote origin a GitHub/GitLab en el repositorio local y reintenta.',
+    };
+  }
+
+  if (errorMessage.includes('apunta a una ruta local')) {
+    return {
+      ...common,
+      code: 'LOCAL_REPO_ORIGIN_IS_LOCAL',
+      message: errorMessage,
+      hint: 'El remote origin debe apuntar a GitHub/GitLab, no a otra carpeta local.',
+    };
+  }
+
+  if (errorMessage.includes('ya no existe')) {
+    return {
+      ...common,
+      code: 'LOCAL_REPO_PATH_NOT_FOUND',
+      message: errorMessage,
+      hint: 'Volvé a seleccionar el repositorio local correcto en la aplicación.',
+    };
+  }
+
+  if (errorMessage.includes('no es un repositorio Git válido')) {
+    return {
+      ...common,
+      code: 'LOCAL_REPO_INVALID',
+      message: errorMessage,
+      hint: 'Seleccioná una carpeta que sea un repositorio Git válido.',
+    };
+  }
+
+  if (errorMessage.includes('solo soporta GitHub/GitLab')) {
+    return {
+      ...common,
+      code: 'REMOTE_PROVIDER_NOT_SUPPORTED',
+      message: errorMessage,
+      hint: 'Usa un remote origin de GitHub o GitLab para crear PR/MR desde Agent Board.',
+    };
+  }
+
+  return null;
+}
+
 /**
  * Gets AI provider configuration from secrets service or request headers (fallback).
  */
@@ -871,6 +933,12 @@ router.post('/:id/approve', requireTaskId, loadTask, async (req: Request, res: R
       pr_url: prUrl,
     });
   } catch (error) {
+    const errorMessage = getErrorMessage(error);
+    const mapped = mapPRCreationErrorForClient(errorMessage);
+    if (mapped) {
+      res.status(mapped.status).json(mapped);
+      return;
+    }
     next(error);
   }
 });
@@ -1175,50 +1243,82 @@ router.get('/:id/changes', requireTaskId, loadTask, async (req: Request, res: Re
     const { id } = req.params;
     logger.debug('GET /tasks/:id/changes', { id, targetBranch: task.target_branch });
 
-    // Try live worktree first
-    const gitService = getGitService();
-    const workspacePath = gitService.getWorktreePath(id!);
-
-    if (workspacePath) {
-      const [files, diff] = await Promise.all([
-        gitService.getChangedFiles(workspacePath, task.target_branch),
-        gitService.getDiff(workspacePath, task.target_branch),
-      ]);
-
-      logger.info('Serving changes from live worktree', {
-        taskId: id,
-        fileCount: files.length,
-        filesWithContent: files.filter(f => f.oldContent !== undefined || f.newContent !== undefined).length,
-        diffLength: diff.length,
-      });
-
-      res.json({
-        files: files.map((f) => ({
-          path: f.path,
-          status: f.status,
-          additions: f.additions,
-          deletions: f.deletions,
-          oldContent: f.oldContent,
-          newContent: f.newContent,
-        })),
-        diff,
-      });
-      return;
-    }
-
-    // Fallback to persisted changes data in DB
-    if (task.changes_data) {
+    const getPersistedChanges = (): unknown | null => {
+      if (!task.changes_data) {
+        return null;
+      }
       try {
         logger.info('Serving changes from persisted data', {
           taskId: id,
           dataSize: task.changes_data.length,
         });
-        const parsed = JSON.parse(task.changes_data);
-        res.json(parsed);
-        return;
+        return JSON.parse(task.changes_data);
       } catch {
         logger.warn('Failed to parse persisted changes_data', { id });
+        return null;
       }
+    };
+
+    // Try live worktree first
+    const gitService = getGitService();
+    const workspacePath = gitService.getWorktreePath(id!);
+
+    if (workspacePath) {
+      try {
+        const [files, diff] = await Promise.all([
+          gitService.getChangedFiles(workspacePath, task.target_branch),
+          gitService.getDiff(workspacePath, task.target_branch),
+        ]);
+
+        logger.info('Serving changes from live worktree', {
+          taskId: id,
+          fileCount: files.length,
+          filesWithContent: files.filter(f => f.oldContent !== undefined || f.newContent !== undefined).length,
+          diffLength: diff.length,
+        });
+
+        const isLiveEmpty = files.length === 0 && (!diff || diff === 'No changes detected');
+        if (!isLiveEmpty) {
+          res.json({
+            files: files.map((f) => ({
+              path: f.path,
+              status: f.status,
+              additions: f.additions,
+              deletions: f.deletions,
+              oldContent: f.oldContent,
+              newContent: f.newContent,
+            })),
+            diff,
+          });
+          return;
+        }
+
+        logger.warn('Live worktree returned empty changes, trying persisted fallback', { taskId: id, workspacePath });
+        const persisted = getPersistedChanges();
+        if (persisted) {
+          res.json(persisted);
+          return;
+        }
+      } catch (liveError) {
+        logger.warn('Failed to read live worktree changes, trying persisted fallback', {
+          taskId: id,
+          workspacePath,
+          error: getErrorMessage(liveError),
+        });
+
+        const persisted = getPersistedChanges();
+        if (persisted) {
+          res.json(persisted);
+          return;
+        }
+      }
+    }
+
+    // Fallback to persisted changes data in DB
+    const persisted = getPersistedChanges();
+    if (persisted) {
+      res.json(persisted);
+      return;
     }
 
     logger.warn('No changes data available', {

@@ -54,6 +54,7 @@ const mocks = vi.hoisted(() => {
     getDiff: vi.fn(),
     fetchInWorktree: vi.fn(),
     getConflictingFiles: vi.fn(),
+    prepareWorktreeRemoteForPR: vi.fn(),
   };
 
   const sseEmitter = {
@@ -163,6 +164,7 @@ describe('AgentService', () => {
       worktreePath: 'C:/tmp/worktree',
       reused: false,
       branchName: 'feature/task',
+      targetBranch: 'main',
       isEmptyRepo: false,
     });
     mocks.createRunner.mockReturnValue(mocks.runner);
@@ -173,6 +175,7 @@ describe('AgentService', () => {
     });
     mocks.gitService.getWorktreePath.mockReturnValue(undefined);
     mocks.gitService.worktreeExists.mockResolvedValue(false);
+    mocks.gitService.prepareWorktreeRemoteForPR.mockResolvedValue('https://github.com/acme/repo.git');
   });
 
   it('rejects startAgent when task status is not executable', async () => {

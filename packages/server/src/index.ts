@@ -210,6 +210,8 @@ export async function main(): Promise<{ port: number; token: string }> {
   logger.info('Configuration loaded', {
     port: config.port,
     databasePath: config.databasePath,
+    reposBaseDir: config.reposBaseDir,
+    worktreesDir: config.worktreesDir,
     logLevel: config.logLevel,
   });
 

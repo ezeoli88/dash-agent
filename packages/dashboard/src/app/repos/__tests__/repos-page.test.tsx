@@ -149,7 +149,7 @@ describe('ReposPage', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(/No se encontraron repositorios Git en la ruta escaneada/i)
+        screen.getByText(/No se encontraron repositorios en/i)
       ).toBeInTheDocument()
     })
   })
