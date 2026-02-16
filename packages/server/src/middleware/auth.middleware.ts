@@ -20,6 +20,14 @@ export function getAuthToken(): string | null {
 }
 
 /**
+ * Checks if a request originates from a loopback address (same machine).
+ */
+export function isLoopbackRequest(req: Request): boolean {
+  const ip = req.ip || req.socket?.remoteAddress || '';
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+}
+
+/**
  * Express middleware that requires a valid auth token.
  * Checks Authorization: Bearer <token> header first, then ?token=<token> query param
  * (needed for EventSource/SSE which doesn't support custom headers).
@@ -27,6 +35,12 @@ export function getAuthToken(): string | null {
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   if (!serverToken) {
     // Auth not configured (shouldn't happen, but fail open in this edge case)
+    next();
+    return;
+  }
+
+  // Loopback bypass (set by upstream middleware for MCP routes)
+  if ((req as Request & { _authBypassed?: boolean })._authBypassed) {
     next();
     return;
   }

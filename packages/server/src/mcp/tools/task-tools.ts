@@ -2,7 +2,9 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { taskService } from "../../services/task.service.js";
 import { getAgentService } from "../../services/agent.service.js";
+import { getRepoService } from "../../services/repo.service.js";
 import { CreateTaskSchema, UpdateTaskSchema } from "../../schemas/task.schema.js";
+import { detectInstalledAgents } from "../../services/agent-detection.service.js";
 import { createLogger } from "../../utils/logger.js";
 import { getErrorMessage } from "../../utils/errors.js";
 import { mcpError, mcpValidationError, mcpInternalError, McpErrorCode } from "../errors.js";
@@ -33,7 +35,31 @@ export function registerTaskTools(server: McpServer): void {
     },
     async (args) => {
       try {
-        const result = CreateTaskSchema.safeParse(args);
+        // Resolve repo_url from repository_id so the task has the full URL
+        const repoService = getRepoService();
+        const repo = await repoService.getRepositoryById(args.repository_id);
+        if (!repo) {
+          return mcpError(McpErrorCode.REPOSITORY_NOT_FOUND, `Repository not found (id: ${args.repository_id})`, "Use list_repositories to see registered repos, or add_repository to register one.");
+        }
+
+        // Auto-detect agent_type and agent_model if not provided
+        let { agent_type, agent_model } = args;
+        if (!agent_type) {
+          const agents = await detectInstalledAgents();
+          const available = agents.find((a) => a.installed && a.authenticated);
+          if (available) {
+            agent_type = available.id;
+            agent_model = available.models[0]?.id;
+            logger.info("Auto-selected agent", { agent_type, agent_model });
+          }
+        }
+
+        const result = CreateTaskSchema.safeParse({
+          ...args,
+          repo_url: repo.url,
+          agent_type,
+          agent_model,
+        });
         if (!result.success) {
           return mcpValidationError(result.error.issues);
         }

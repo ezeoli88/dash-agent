@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useCallback, useMemo } from 'react'
-import { AlertTriangle, Check, FolderSearch, GitBranch, Loader2, HardDrive, ArrowRight } from 'lucide-react'
-import { useRouter } from '@tanstack/react-router'
+import { AlertTriangle, Check, FolderSearch, GitBranch, Loader2, HardDrive, ArrowRight, Plug } from 'lucide-react'
+import { useRouter, Link } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -103,10 +103,25 @@ export default function ReposPage() {
       <div className="mx-auto w-full max-w-4xl">
         {/* Header */}
         <div className="mb-12 text-center">
-          <h1 className="mb-3 text-4xl font-bold tracking-tight">dash-agent</h1>
+          <h1 className="mb-3 text-4xl font-bold tracking-tight">AI Agent Board</h1>
           <p className="text-lg text-muted-foreground">
             Selecciona tus repositorios
           </p>
+        </div>
+
+        {/* MCP setup banner */}
+        <div className="mb-6 rounded-lg border border-primary/30 bg-primary/5 p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Plug className="size-5 text-primary shrink-0" />
+              <p className="text-sm text-muted-foreground">
+                Ahora puedes conectarte por MCP a Agent Board. Busca tu plataforma favorita y configura la conexion en un click.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" asChild className="shrink-0 ml-4">
+              <Link to="/mcp-setup">Configurar MCP</Link>
+            </Button>
+          </div>
         </div>
 
         {/* Git provider warning */}
@@ -239,6 +254,7 @@ export default function ReposPage() {
 
           </div>
         )}
+
       </div>
     </div>
   )

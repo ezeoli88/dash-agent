@@ -164,4 +164,15 @@ export function getConfig(): Config {
   return configInstance;
 }
 
+// Runtime port (set after findAvailablePort resolves)
+let runtimePort: number | null = null;
+
+export function setRuntimePort(port: number): void {
+  runtimePort = port;
+}
+
+export function getRuntimePort(): number | null {
+  return runtimePort;
+}
+
 export default getConfig;

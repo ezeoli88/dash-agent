@@ -9,6 +9,7 @@ import BoardPage from '@/app/board/page'
 import DiffPage from '@/app/diff/[taskId]/page'
 import ReposPage from '@/app/repos/page'
 import SettingsPage from '@/app/settings/page'
+import McpSetupPage from '@/app/mcp-setup/page'
 
 // Root route - wraps everything with Providers
 const rootRoute = createRootRoute({
@@ -97,11 +98,19 @@ const settingsRoute = createRoute({
   component: SettingsPage,
 })
 
+// MCP Setup route (standalone - no repo guard, accessible from /repos)
+const mcpSetupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/mcp-setup',
+  component: McpSetupPage,
+})
+
 // Build route tree
 const routeTree = rootRoute.addChildren([
   indexRoute,
   reposRoute,
   setupRoute,
+  mcpSetupRoute,
   mainLayoutRoute.addChildren([
     boardRoute,
     diffRoute,

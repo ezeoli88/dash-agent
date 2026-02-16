@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 import { createLogger } from '../utils/logger.js';
+import { getRuntimePort } from '../config.js';
 import { validateAPIKey, validateOpenRouterKey, getOpenRouterModels } from '../services/ai-provider.service.js';
 import { detectInstalledAgents } from '../services/agent-detection.service.js';
 import {
@@ -398,6 +399,42 @@ router.delete('/github', (_req: Request, res: Response, next: NextFunction): voi
     res.json({
       success: true,
       message: 'GitHub disconnected. Please clear your local storage.',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// =============================================================================
+// MCP Configuration Endpoint
+// =============================================================================
+
+/**
+ * GET /setup/mcp-config - Get MCP server configuration for IDE/CLI setup
+ *
+ * Returns the current server URL, port, and auth token so users can
+ * configure their IDE/CLI to connect via MCP.
+ *
+ * Response:
+ * - url: string (full MCP endpoint URL)
+ * - port: number
+ * - token: string | null
+ * - authEnabled: boolean
+ */
+router.get('/mcp-config', (_req: Request, res: Response, next: NextFunction): void => {
+  try {
+    logger.info('GET /setup/mcp-config');
+
+    const port = getRuntimePort();
+
+    // Build URL using the request's host header for correct hostname
+    const protocol = _req.protocol;
+    const host = _req.hostname;
+    const url = `${protocol}://${host}:${port}/api/mcp`;
+
+    res.json({
+      url,
+      port,
     });
   } catch (error) {
     next(error);

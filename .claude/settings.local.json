@@ -74,5 +74,8 @@
       "Bash(npm pack:*)",
       "Bash([ -d \"public\" ])"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "agent-board"
+  ]
 }

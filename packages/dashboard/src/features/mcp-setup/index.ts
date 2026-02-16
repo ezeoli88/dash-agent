@@ -1,0 +1,1 @@
+export { McpSetupContent } from './components'
