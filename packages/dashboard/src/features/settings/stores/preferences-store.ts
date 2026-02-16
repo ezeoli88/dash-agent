@@ -1,28 +1,39 @@
-'use client'
+"use client";
 
-import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
-import type { SpecLanguage, UserPreferences } from '../types'
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 /**
- * Preferences store state interface
+ * Theme options
  */
-interface PreferencesState {
-  // Preferences data
-  preferences: UserPreferences
+export type Theme = "light" | "dark" | "system";
 
-  // Actions
-  setSpecLanguage: (language: SpecLanguage) => void
-
-  // Reset
-  resetPreferences: () => void
+/**
+ * User preferences interface
+ */
+export interface UserPreferences {
+  theme: Theme;
 }
 
 /**
  * Default preferences
  */
 const DEFAULT_PREFERENCES: UserPreferences = {
-  specLanguage: 'es',
+  theme: "system",
+};
+
+/**
+ * Preferences store state interface
+ */
+interface PreferencesState {
+  // Preferences data
+  preferences: UserPreferences;
+
+  // Actions
+  setTheme: (theme: Theme) => void;
+
+  // Reset
+  resetPreferences: () => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -32,11 +43,11 @@ export const usePreferencesStore = create<PreferencesState>()(
       preferences: DEFAULT_PREFERENCES,
 
       // Actions
-      setSpecLanguage: (language) =>
+      setTheme: (theme) =>
         set((state) => ({
           preferences: {
             ...state.preferences,
-            specLanguage: language,
+            theme,
           },
         })),
 
@@ -47,7 +58,7 @@ export const usePreferencesStore = create<PreferencesState>()(
         }),
     }),
     {
-      name: 'dash-agent-preferences',
-    }
-  )
-)
+      name: "dash-agent-preferences",
+    },
+  ),
+);

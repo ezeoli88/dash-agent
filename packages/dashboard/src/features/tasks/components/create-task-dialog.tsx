@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Loader2, Plus } from 'lucide-react'
+import { Loader2, Play, Plus } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -19,9 +19,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTaskUIStore } from '../stores/task-ui-store'
 import { useCreateTask } from '../hooks/use-create-task'
+import { taskKeys } from '../hooks/query-keys'
+import { tasksApi } from '@/lib/api-client'
 import { useRepoStore } from '@/features/repos/stores/repo-store'
 import { useDetectedAgents } from '@/features/setup/hooks/use-detected-agents'
 import { useSettings } from '@/features/setup/hooks/use-settings'
@@ -29,7 +32,9 @@ import { getAgentDisplayInfo } from '../utils/agent-display'
 
 export function CreateTaskDialog() {
   const { isCreateModalOpen, closeCreateModal } = useTaskUIStore()
+  const openDrawer = useTaskUIStore((state) => state.openDrawer)
   const createTaskMutation = useCreateTask()
+  const queryClient = useQueryClient()
   const { selectedRepoId, selectedRepo } = useRepoStore()
   const { data: agents } = useDetectedAgents()
   const { data: settings } = useSettings()
@@ -40,6 +45,7 @@ export function CreateTaskDialog() {
   const setLastAgent = useTaskUIStore((state) => state.setLastAgent)
   const [agentType, setAgentType] = useState<string>(lastAgentType ?? '')
   const [agentModel, setAgentModel] = useState<string>(lastAgentModel ?? '')
+  const [isExecuting, setIsExecuting] = useState(false)
 
   // Agent derived values
   const installedAgents = (agents ?? []).filter((a) => a.installed)
@@ -62,6 +68,18 @@ export function CreateTaskDialog() {
     }
   }, [agentType, selectedAgentModels, agentModel])
 
+  const buildTaskPayload = () => ({
+    repository_id: selectedRepoId!,
+    user_input: userInput.trim(),
+    title: userInput.trim().slice(0, 100),
+    description: userInput.trim(),
+    repo_url: selectedRepo?.url || '',
+    target_branch: selectedRepo?.default_branch || 'main',
+    context_files: [] as string[],
+    ...(agentType ? { agent_type: agentType as 'claude-code' | 'codex' | 'gemini' | 'openrouter' } : {}),
+    ...(agentModel ? { agent_model: agentModel } : {}),
+  })
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -71,28 +89,15 @@ export function CreateTaskDialog() {
     }
 
     try {
-      // Create task in draft status using the active repo from the store
-      await createTaskMutation.mutateAsync({
-        repository_id: selectedRepoId,
-        user_input: userInput.trim(),
-        // Provide legacy fields with defaults based on repo
-        title: userInput.trim().slice(0, 100),
-        description: userInput.trim(),
-        repo_url: selectedRepo.url || '',
-        target_branch: selectedRepo.default_branch || 'main',
-        context_files: [],
-        ...(agentType ? { agent_type: agentType as 'claude-code' | 'codex' | 'gemini' | 'openrouter' } : {}),
-        ...(agentModel ? { agent_model: agentModel } : {}),
-      })
+      await createTaskMutation.mutateAsync(buildTaskPayload())
 
-      // Persist agent preference for next time
       if (agentType) {
         setLastAgent(agentType, agentModel || null)
       }
 
-      toast.success('Task created', {
-        description: 'You can generate the spec when ready.',
-      })
+      toast.success("Task created", {
+        description: "The task is ready to execute.",
+      });
 
       closeCreateModal()
       setUserInput('')
@@ -104,14 +109,55 @@ export function CreateTaskDialog() {
     }
   }
 
+  const handleCreateAndExecute = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!selectedRepoId || !selectedRepo) {
+      toast.error("No repository selected. Please select a repository first.");
+      return;
+    }
+
+    setIsExecuting(true);
+    try {
+      const task = await createTaskMutation.mutateAsync(buildTaskPayload());
+
+      if (agentType) {
+        setLastAgent(agentType, agentModel || null);
+      }
+
+      // Execute the task immediately
+      await tasksApi.execute(task.id);
+
+      // Invalidate queries so the board reflects the new status
+      await queryClient.invalidateQueries({ queryKey: taskKeys.all });
+
+      toast.success("Task created and executing", {
+        description: "The agent is now working on your task.",
+      });
+
+      closeCreateModal();
+      setUserInput("");
+
+      // Open the task drawer so the user can follow progress
+      openDrawer(task.id);
+    } catch (error) {
+      console.error("Failed to create & execute task:", error);
+      toast.error("Failed to create & execute task", {
+        description: error instanceof Error ? error.message : "An unexpected error occurred",
+      });
+    } finally {
+      setIsExecuting(false);
+    }
+  };
+
   const handleOpenChange = (open: boolean) => {
-    if (!open && !createTaskMutation.isPending) {
+    if (!open && !createTaskMutation.isPending && !isExecuting) {
       closeCreateModal()
       setUserInput('')
     }
   }
 
-  const isSubmitting = createTaskMutation.isPending
+  const isSubmitting = createTaskMutation.isPending || isExecuting
 
   return (
     <Dialog open={isCreateModalOpen} onOpenChange={handleOpenChange}>
@@ -122,7 +168,7 @@ export function CreateTaskDialog() {
             New Task
           </DialogTitle>
           <DialogDescription>
-            Describe what you need. The task will be created in &quot;To Do&quot; status and you can generate the spec when ready.
+            Describe what you need. The task will be created and you can start execution when ready.
           </DialogDescription>
         </DialogHeader>
 
@@ -200,7 +246,7 @@ export function CreateTaskDialog() {
           <div className="flex justify-end gap-3">
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               onClick={() => handleOpenChange(false)}
               disabled={isSubmitting}
             >
@@ -208,9 +254,10 @@ export function CreateTaskDialog() {
             </Button>
             <Button
               type="submit"
+              variant="outline"
               disabled={!selectedRepoId || !userInput.trim() || isSubmitting}
             >
-              {isSubmitting ? (
+              {createTaskMutation.isPending && !isExecuting ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   Creating...
@@ -219,6 +266,23 @@ export function CreateTaskDialog() {
                 <>
                   <Plus className="h-4 w-4 mr-2" />
                   Create Task
+                </>
+              )}
+            </Button>
+            <Button
+              type="button"
+              disabled={!selectedRepoId || !userInput.trim() || isSubmitting}
+              onClick={handleCreateAndExecute}
+            >
+              {isExecuting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creating & executing...
+                </>
+              ) : (
+                <>
+                  <Play className="h-4 w-4 mr-2" />
+                  Create & Execute
                 </>
               )}
             </Button>

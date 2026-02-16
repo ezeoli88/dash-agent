@@ -25,13 +25,24 @@ Backend API para Agent Board: gestiona tareas de desarrollo, ejecuta agentes de 
 - `dist/`: build output (no editar manualmente).
 
 ## Flujos funcionales clave
-1. Flujo nuevo PM + Dev Agent:
+1. Flujo nuevo (recomendado - chat mode):
+   - `draft -> planning/coding -> awaiting_review/review -> pr_created -> done`
+   - Inicio directo: `POST /tasks/:id/start` (crea branch y ejecuta agente)
+   - Feedback durante ejecución: `POST /tasks/:id/feedback`
+   - Aprobación de plan: `POST /tasks/:id/feedback` con mensaje de aprobación
+2. Flujo legado (deprecado):
    - `draft -> refining -> pending_approval -> approved -> planning/coding -> awaiting_review/review -> pr_created -> done`
-2. Flujo legado directo:
+   - Endpoints deprecated (retornan 410 Gone):
+     - `POST /tasks/:id/generate-spec`
+     - `POST /tasks/:id/regenerate-spec`
+     - `PATCH /tasks/:id/spec`
+     - `POST /tasks/:id/approve-spec`
+   - Usar `POST /tasks/:id/start` como alternativa
+3. Flujo legado directo (sin PM Agent):
    - `backlog -> planning -> in_progress -> awaiting_review -> pr_created -> done`
-3. Cambios solicitados:
+4. Cambios solicitados:
    - `pr_created/review -> changes_requested -> execute (resume)`
-4. Conflictos de merge:
+5. Conflictos de merge:
    - `merge_conflicts -> resolve-conflicts -> approved -> push/create PR`
 
 Notas:

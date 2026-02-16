@@ -7,11 +7,9 @@ import type {
   PRMergedResponse,
   PRClosedResponse,
   PRCommentsResponse,
-  GenerateSpecResponse,
-  ApproveSpecResponse,
-} from '@/features/tasks/types';
-import type { ActionResponse, CleanupWorktreeResponse } from '@/types/api';
-import { getAuthToken } from './auth';
+} from "@/features/tasks/types";
+import type { ActionResponse, CleanupWorktreeResponse } from "@/types/api";
+import { getAuthToken } from "./auth";
 
 // API error response from backend (matches shared ApiError schema)
 interface ApiErrorResponse {
@@ -22,7 +20,8 @@ interface ApiErrorResponse {
 }
 
 // Base URL: use env var in dev, otherwise same origin (production/binary mode)
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || window.location.origin;
 
 // Custom error class for API errors
 export class ApiClientError extends Error {
@@ -30,9 +29,14 @@ export class ApiClientError extends Error {
   public readonly code?: string;
   public readonly details?: Record<string, string[]>;
 
-  constructor(message: string, statusCode: number, code?: string, details?: Record<string, string[]>) {
+  constructor(
+    message: string,
+    statusCode: number,
+    code?: string,
+    details?: Record<string, string[]>,
+  ) {
     super(message);
-    this.name = 'ApiClientError';
+    this.name = "ApiClientError";
     this.statusCode = statusCode;
     this.code = code;
     this.details = details;
@@ -40,13 +44,16 @@ export class ApiClientError extends Error {
 }
 
 // Request options type
-interface RequestOptions extends Omit<RequestInit, 'body'> {
+interface RequestOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
   params?: Record<string, string | number | boolean | undefined>;
 }
 
 // Build URL with query parameters
-function buildUrl(endpoint: string, params?: Record<string, string | number | boolean | undefined>): string {
+function buildUrl(
+  endpoint: string,
+  params?: Record<string, string | number | boolean | undefined>,
+): string {
   const url = new URL(`/api${endpoint}`, API_BASE_URL);
 
   if (params) {
@@ -64,35 +71,38 @@ function buildUrl(endpoint: string, params?: Record<string, string | number | bo
  * Gets AI configuration from localStorage
  */
 function getAIConfigHeaders(): Record<string, string> {
-  if (typeof window === 'undefined') return {};
+  if (typeof window === "undefined") return {};
 
   try {
-    const setupConfig = localStorage.getItem('dash-agent-setup-config');
+    const setupConfig = localStorage.getItem("dash-agent-setup-config");
     if (setupConfig) {
       const config = JSON.parse(setupConfig);
       if (config.aiProvider && config.aiApiKey) {
         return {
-          'X-AI-Provider': config.aiProvider,
-          'X-AI-API-Key': config.aiApiKey,
+          "X-AI-Provider": config.aiProvider,
+          "X-AI-API-Key": config.aiApiKey,
         };
       }
     }
   } catch (e) {
-    console.error('Failed to get AI config from localStorage:', e);
+    console.error("Failed to get AI config from localStorage:", e);
   }
 
   return {};
 }
 
 // Generic fetch wrapper
-async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
+async function request<T>(
+  endpoint: string,
+  options: RequestOptions = {},
+): Promise<T> {
   const { body, params, headers: customHeaders, ...restOptions } = options;
 
   const url = buildUrl(endpoint, params);
 
   const authToken = getAuthToken();
   const headers: HeadersInit = {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
     ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
     ...customHeaders,
   };
@@ -100,7 +110,7 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
   const config: RequestInit = {
     ...restOptions,
     headers,
-    cache: 'no-store',
+    cache: "no-store",
     body: body ? JSON.stringify(body) : undefined,
   };
 
@@ -108,16 +118,16 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
     const response = await fetch(url, config);
 
     // Detect server restarts via startup ID header
-    const serverId = response.headers.get('X-Server-ID');
+    const serverId = response.headers.get("X-Server-ID");
     if (serverId) {
-      const storedId = localStorage.getItem('agent-board-server-id');
+      const storedId = localStorage.getItem("agent-board-server-id");
       if (storedId && storedId !== serverId) {
         // Server restarted — store new ID and notify the app
-        localStorage.setItem('agent-board-server-id', serverId);
-        window.dispatchEvent(new Event('server-restart'));
+        localStorage.setItem("agent-board-server-id", serverId);
+        window.dispatchEvent(new Event("server-restart"));
       } else if (!storedId) {
         // First request — just store the ID
-        localStorage.setItem('agent-board-server-id', serverId);
+        localStorage.setItem("agent-board-server-id", serverId);
       }
     }
 
@@ -144,10 +154,12 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
       }
 
       throw new ApiClientError(
-        errorData?.message || errorData?.error || `HTTP Error: ${response.status} ${response.statusText}`,
+        errorData?.message ||
+          errorData?.error ||
+          `HTTP Error: ${response.status} ${response.statusText}`,
         response.status,
         errorData?.code,
-        details
+        details,
       );
     }
 
@@ -164,8 +176,8 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
 
     // Network or other errors
     throw new ApiClientError(
-      error instanceof Error ? error.message : 'An unknown error occurred',
-      0
+      error instanceof Error ? error.message : "An unknown error occurred",
+      0,
     );
   }
 }
@@ -174,74 +186,74 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
 export const apiClient = {
   // Generic methods
   get: <T>(endpoint: string, options?: RequestOptions) =>
-    request<T>(endpoint, { ...options, method: 'GET' }),
+    request<T>(endpoint, { ...options, method: "GET" }),
 
   post: <T>(endpoint: string, body?: unknown, options?: RequestOptions) =>
-    request<T>(endpoint, { ...options, method: 'POST', body }),
+    request<T>(endpoint, { ...options, method: "POST", body }),
 
   put: <T>(endpoint: string, body?: unknown, options?: RequestOptions) =>
-    request<T>(endpoint, { ...options, method: 'PUT', body }),
+    request<T>(endpoint, { ...options, method: "PUT", body }),
 
   patch: <T>(endpoint: string, body?: unknown, options?: RequestOptions) =>
-    request<T>(endpoint, { ...options, method: 'PATCH', body }),
+    request<T>(endpoint, { ...options, method: "PATCH", body }),
 
   delete: <T>(endpoint: string, options?: RequestOptions) =>
-    request<T>(endpoint, { ...options, method: 'DELETE' }),
+    request<T>(endpoint, { ...options, method: "DELETE" }),
 
   // Task-specific endpoints
   tasks: {
-    getAll: (params?: { status?: string; search?: string; repository_id?: string }) =>
-      apiClient.get<Task[]>('/tasks', { params }),
+    getAll: (params?: {
+      status?: string;
+      search?: string;
+      repository_id?: string;
+    }) => apiClient.get<Task[]>("/tasks", { params }),
 
-    getById: (id: string) =>
-      apiClient.get<Task>(`/tasks/${id}`),
+    getById: (id: string) => apiClient.get<Task>(`/tasks/${id}`),
 
-    create: (data: CreateTaskInput) =>
-      apiClient.post<Task>('/tasks', data),
+    create: (data: CreateTaskInput) => apiClient.post<Task>("/tasks", data),
 
     update: (id: string, data: UpdateTaskInput) =>
       apiClient.patch<Task>(`/tasks/${id}`, data),
 
-    delete: (id: string) =>
-      apiClient.delete<void>(`/tasks/${id}`),
+    delete: (id: string) => apiClient.delete<void>(`/tasks/${id}`),
 
     // Task actions
-    start: (id: string) =>
-      apiClient.post<Task>(`/tasks/${id}/start`),
+    start: (id: string) => apiClient.post<Task>(`/tasks/${id}/start`),
 
-    cancel: (id: string) =>
-      apiClient.post<Task>(`/tasks/${id}/cancel`),
+    cancel: (id: string) => apiClient.post<Task>(`/tasks/${id}/cancel`),
 
-    retry: (id: string) =>
-      apiClient.post<Task>(`/tasks/${id}/retry`),
+    retry: (id: string) => apiClient.post<Task>(`/tasks/${id}/retry`),
 
     // Get task logs
-    getLogs: (id: string) =>
-      apiClient.get<string[]>(`/tasks/${id}/logs`),
+    getLogs: (id: string) => apiClient.get<string[]>(`/tasks/${id}/logs`),
   },
 };
 
 // Standalone tasksApi for use with TanStack Query hooks
 export const tasksApi = {
-  getAll: async (filters?: { status?: string[]; search?: string; repository_id?: string }) => {
-    const params: Record<string, string | undefined> = {}
+  getAll: async (filters?: {
+    status?: string[];
+    search?: string;
+    repository_id?: string;
+  }) => {
+    const params: Record<string, string | undefined> = {};
 
     if (filters?.status && filters.status.length > 0) {
-      params.status = filters.status.join(',')
+      params.status = filters.status.join(",");
     }
     if (filters?.search) {
-      params.search = filters.search
+      params.search = filters.search;
     }
     if (filters?.repository_id) {
-      params.repository_id = filters.repository_id
+      params.repository_id = filters.repository_id;
     }
 
-    return apiClient.get<Task[]>('/tasks', { params })
+    return apiClient.get<Task[]>("/tasks", { params });
   },
 
   getById: (id: string) => apiClient.get<Task>(`/tasks/${id}`),
 
-  create: (data: CreateTaskInput) => apiClient.post<Task>('/tasks', data),
+  create: (data: CreateTaskInput) => apiClient.post<Task>("/tasks", data),
 
   update: (id: string, data: UpdateTaskInput) =>
     apiClient.patch<Task>(`/tasks/${id}`, data),
@@ -251,42 +263,7 @@ export const tasksApi = {
   getLogs: (id: string) => apiClient.get<string[]>(`/tasks/${id}/logs`),
 
   // ==========================================================================
-  // Two-Agent Workflow Endpoints
-  // ==========================================================================
-
-  /** Generate spec using PM Agent (status: draft -> refining -> pending_approval) */
-  generateSpec: (id: string, additionalContext?: string) => {
-    const aiHeaders = getAIConfigHeaders();
-    return apiClient.post<{ status: string; message: string }>(
-      `/tasks/${id}/generate-spec`,
-      additionalContext ? { additional_context: additionalContext } : {},
-      { headers: aiHeaders }
-    );
-  },
-
-  /** Regenerate spec with different approach (status: pending_approval -> refining -> pending_approval) */
-  regenerateSpec: (id: string, additionalContext?: string) => {
-    const aiHeaders = getAIConfigHeaders();
-    return apiClient.post<{ status: string; message: string }>(
-      `/tasks/${id}/regenerate-spec`,
-      additionalContext ? { additional_context: additionalContext } : {},
-      { headers: aiHeaders }
-    );
-  },
-
-  /** Update the spec (user editing) */
-  updateSpec: (id: string, spec: string) =>
-    apiClient.patch<Task>(`/tasks/${id}/spec`, { spec }),
-
-  /** Approve spec and start Dev Agent (status: pending_approval -> approved -> coding) */
-  approveSpec: (id: string, finalSpec?: string) =>
-    apiClient.post<ApproveSpecResponse>(
-      `/tasks/${id}/approve-spec`,
-      finalSpec ? { final_spec: finalSpec } : {}
-    ),
-
-  // ==========================================================================
-  // Legacy + Updated Task Actions
+  // Task Actions
   // ==========================================================================
 
   /** Approve plan and start implementation (status: plan_review -> coding) */
@@ -294,10 +271,12 @@ export const tasksApi = {
     apiClient.post<ActionResponse>(`/tasks/${id}/approve-plan`),
 
   /** Execute task (start Dev Agent or legacy agent) */
-  execute: (id: string) => apiClient.post<ActionResponse>(`/tasks/${id}/execute`),
+  execute: (id: string) =>
+    apiClient.post<ActionResponse>(`/tasks/${id}/execute`),
 
   /** Approve and create PR (status: awaiting_review/review -> pr_created) */
-  approve: (id: string) => apiClient.post<ActionResponse>(`/tasks/${id}/approve`),
+  approve: (id: string) =>
+    apiClient.post<ActionResponse>(`/tasks/${id}/approve`),
 
   /** Cancel running agent */
   cancel: (id: string) => apiClient.post<ActionResponse>(`/tasks/${id}/cancel`),
@@ -311,7 +290,9 @@ export const tasksApi = {
 
   // PR-related action endpoints
   requestChanges: (id: string, feedback: string) =>
-    apiClient.post<RequestChangesResponse>(`/tasks/${id}/request-changes`, { feedback }),
+    apiClient.post<RequestChangesResponse>(`/tasks/${id}/request-changes`, {
+      feedback,
+    }),
 
   markPRMerged: (id: string) =>
     apiClient.post<PRMergedResponse>(`/tasks/${id}/pr-merged`),
@@ -328,7 +309,7 @@ export const tasksApi = {
   // PR comments
   getPRComments: (id: string): Promise<PRCommentsResponse> =>
     apiClient.get<PRCommentsResponse>(`/tasks/${id}/pr-comments`),
-}
+};
 
 // Export types for consumers
 export type { RequestOptions };

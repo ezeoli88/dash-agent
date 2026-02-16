@@ -3,7 +3,6 @@ export {
   ConnectionsSection,
   PreferencesSection,
   ThemeSelector,
-  LanguageSelector,
   SettingsTour,
 } from './components'
 
@@ -13,8 +12,7 @@ export { usePreferencesStore } from './stores/preferences-store'
 // Types
 export type {
   Theme,
-  SpecLanguage,
   UserPreferences,
 } from './types'
 
-export { THEME_OPTIONS, LANGUAGE_OPTIONS } from './types'
+export { THEME_OPTIONS } from './types'

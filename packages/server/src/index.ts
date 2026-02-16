@@ -15,6 +15,8 @@ import secretsRouter from './routes/secrets.js';
 import { getPRCommentsService } from './services/pr-comments.service.js';
 import { generateStartupToken } from './services/auth.service.js';
 import { setAuthToken, requireAuth } from './middleware/auth.middleware.js';
+import { mountMcpRoutes } from './mcp/index.js';
+import { getDataEventEmitter } from './utils/data-events.js';
 
 /**
  * Timeout for graceful shutdown before forcing exit (in milliseconds).
@@ -114,12 +116,22 @@ function createApp(authToken?: string, startupId?: string): express.Application 
     app.use('/api', requireAuth);
   }
 
+  // Global SSE endpoint for data change events (task/repo mutations).
+  // The frontend connects here to invalidate TanStack Query caches in real-time.
+  // Auth is handled by the requireAuth middleware above (via ?token= query param).
+  app.get('/api/events', (req: Request, res: Response) => {
+    getDataEventEmitter().addClient(res);
+  });
+
   // Mount routes
   app.use('/api/tasks', tasksRouter);
   app.use('/api/setup', setupRouter);
   app.use('/api/repos', reposRouter);
   app.use('/api/data', dataRouter);
   app.use('/api/secrets', secretsRouter);
+
+  // Mount MCP protocol endpoint (stateless mode)
+  mountMcpRoutes(app);
 
   // Serve frontend static files (for production/binary mode)
   const isBinaryMode = process.env['__BIN_MODE__'] === '1';
