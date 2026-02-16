@@ -107,7 +107,8 @@ After any CLI-specific change:
 - **sql.js** for SQLite database
 - **OpenAI** for AI agent
 - **Octokit** for GitHub integration
-- All routes prefixed with `/api/` (e.g., `/api/tasks`, `/api/repos`)
+- **MCP Server** (Model Context Protocol) — exposes tools and resources at `/api/mcp` for IDE/CLI integration
+- All routes prefixed with `/api/` (e.g., `/api/tasks`, `/api/repos`, `/api/mcp`)
 - Serves static frontend files + SPA fallback in production
 - `bin.ts` entry point for `bun build --compile` standalone binary
 
@@ -129,11 +130,12 @@ After any CLI-specific change:
 ## Key Directories
 
 ### Dashboard (packages/dashboard/)
-- `packages/dashboard/src/app/` - Page components
+- `packages/dashboard/src/app/` - Page components (includes `/mcp-setup` page)
 - `packages/dashboard/src/components/ui/` - shadcn/ui components
 - `packages/dashboard/src/components/layout/` - Layout components (Header, Sidebar, etc.)
 - `packages/dashboard/src/components/shared/` - Shared components (StatusBadge, EmptyState, etc.)
 - `packages/dashboard/src/features/tasks/` - Task feature (components, hooks, stores, types)
+- `packages/dashboard/src/features/mcp-setup/` - MCP setup feature (platform snippets, config hook)
 - `packages/dashboard/src/lib/` - Utilities (api-client, utils)
 - `packages/dashboard/src/stores/` - Zustand stores
 
@@ -143,6 +145,7 @@ After any CLI-specific change:
 - `packages/server/src/routes/` - API routes (all under `/api/`)
 - `packages/server/src/services/` - Business logic services
 - `packages/server/src/db/` - Database layer
+- `packages/server/src/mcp/` - MCP server (tools, resources, error handling)
 
 ### CLI (packages/cli/)
 - `packages/cli/bin/cli.js` - npx entry point (downloads + runs binary)
