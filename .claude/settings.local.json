@@ -75,7 +75,5 @@
       "Bash([ -d \"public\" ])"
     ]
   },
-  "enabledMcpjsonServers": [
-    "agent-board"
-  ]
+  "enabledMcpjsonServers": []
 }

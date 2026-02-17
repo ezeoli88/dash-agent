@@ -25,7 +25,9 @@ export interface UseBoardTasksResult {
 export function useBoardTasks(options: UseBoardTasksOptions = {}): UseBoardTasksResult {
   const { repositoryId } = options
 
-  const { data: tasks, isLoading, isError, error } = useTasks()
+  const { data: tasks, isLoading, isError, error } = useTasks(
+    repositoryId ? { repository_id: repositoryId } : {}
+  )
 
   const columns = useMemo<BoardState>(() => {
     // Initialize empty columns

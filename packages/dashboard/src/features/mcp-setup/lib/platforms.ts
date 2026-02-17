@@ -10,10 +10,10 @@ export const PLATFORMS: Platform[] = [
   {
     id: 'claude-code',
     name: 'Claude Code',
-    configPath: '.mcp.json (project) or ~/.claude/mcp.json (global)',
+    configPath: '.mcp.json (project) or ~/.claude.json → mcpServers (global)',
     buildSnippet: (url) => {
       return JSON.stringify(
-        { mcpServers: { 'agent-board': { type: 'streamable-http', url } } },
+        { mcpServers: { 'agent-board': { type: 'http', url } } },
         null,
         2
       )

@@ -8,6 +8,7 @@ import type { TaskStatus } from '../types'
 export interface TaskFilters {
   status?: TaskStatus[]
   search?: string
+  repository_id?: string
 }
 
 const ACTIVE_STATUSES = ['refining', 'approved', 'planning', 'in_progress', 'coding'] as const
