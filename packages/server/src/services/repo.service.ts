@@ -66,7 +66,7 @@ function getActiveTaskCount(repoUrl: string): number {
   try {
     const db = getDatabase();
     const result = db.exec(
-      `SELECT COUNT(*) as count FROM tasks WHERE repo_url = ? AND status NOT IN ('done', 'failed', 'cancelled')`,
+      `SELECT COUNT(*) as count FROM tasks WHERE repo_url = ? AND status NOT IN ('done', 'failed', 'canceled')`,
       [repoUrl]
     );
     if (result.length > 0 && result[0] && result[0].values[0]) {
@@ -86,7 +86,7 @@ function getActiveTaskCounts(): Map<string, number> {
   try {
     const db = getDatabase();
     const result = db.exec(
-      `SELECT repo_url, COUNT(*) as count FROM tasks WHERE status NOT IN ('done', 'failed', 'cancelled') GROUP BY repo_url`
+      `SELECT repo_url, COUNT(*) as count FROM tasks WHERE status NOT IN ('done', 'failed', 'canceled') GROUP BY repo_url`
     );
     if (result.length > 0 && result[0]) {
       for (const row of result[0].values) {

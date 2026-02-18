@@ -3,7 +3,7 @@ import { resolve, join, dirname } from 'path';
 import { existsSync } from 'fs';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
-import { getConfig } from './config.js';
+import { getConfig, setRuntimePort } from './config.js';
 import { runMigrations } from './db/migrations.js';
 import { initDatabase, closeDatabase } from './db/database.js';
 import { logger } from './utils/logger.js';
@@ -14,7 +14,9 @@ import dataRouter from './routes/data.js';
 import secretsRouter from './routes/secrets.js';
 import { getPRCommentsService } from './services/pr-comments.service.js';
 import { generateStartupToken } from './services/auth.service.js';
-import { setAuthToken, requireAuth } from './middleware/auth.middleware.js';
+import { setAuthToken, requireAuth, isLoopbackRequest } from './middleware/auth.middleware.js';
+import { mountMcpRoutes } from './mcp/index.js';
+import { getDataEventEmitter } from './utils/data-events.js';
 
 /**
  * Timeout for graceful shutdown before forcing exit (in milliseconds).
@@ -109,10 +111,25 @@ function createApp(authToken?: string, startupId?: string): express.Application 
     });
   });
 
-  // Auth middleware — protects all /api routes except health
+  // Loopback bypass for MCP — local IDE/CLI clients don't need auth
+  app.use('/api/mcp', (req: Request, _res: Response, next: NextFunction) => {
+    if (isLoopbackRequest(req)) {
+      (req as Request & { _authBypassed?: boolean })._authBypassed = true;
+    }
+    next();
+  });
+
+  // Auth middleware — protects all /api routes except health and loopback MCP
   if (authToken) {
     app.use('/api', requireAuth);
   }
+
+  // Global SSE endpoint for data change events (task/repo mutations).
+  // The frontend connects here to invalidate TanStack Query caches in real-time.
+  // Auth is handled by the requireAuth middleware above (via ?token= query param).
+  app.get('/api/events', (req: Request, res: Response) => {
+    getDataEventEmitter().addClient(res);
+  });
 
   // Mount routes
   app.use('/api/tasks', tasksRouter);
@@ -120,6 +137,9 @@ function createApp(authToken?: string, startupId?: string): express.Application 
   app.use('/api/repos', reposRouter);
   app.use('/api/data', dataRouter);
   app.use('/api/secrets', secretsRouter);
+
+  // Mount MCP protocol endpoint (stateless mode)
+  mountMcpRoutes(app);
 
   // Serve frontend static files (for production/binary mode)
   const isBinaryMode = process.env['__BIN_MODE__'] === '1';
@@ -248,6 +268,7 @@ export async function main(): Promise<{ port: number; token: string }> {
   const app = createApp(authToken, startupId);
 
   const actualPort = await findAvailablePort(config.port);
+  setRuntimePort(actualPort);
   if (actualPort !== config.port) {
     logger.info(`Default port ${config.port} was in use, using port ${actualPort} instead`);
   }

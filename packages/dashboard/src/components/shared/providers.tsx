@@ -11,6 +11,16 @@ import { NavigationProgress } from '@/components/shared/navigation-progress'
 import { useRepoStore } from '@/features/repos/stores/repo-store'
 import { useSecretsStatus } from '@/features/setup/hooks/use-secrets-status'
 import { useSetupStore } from '@/features/setup/stores/setup-store'
+import { useDataInvalidation } from '@/hooks/use-data-invalidation'
+
+/**
+ * Connects to /api/events SSE and invalidates TanStack Query caches
+ * when tasks or repos are modified via the API (e.g., from MCP clients).
+ */
+function DataInvalidation() {
+  useDataInvalidation()
+  return null
+}
 
 /**
  * Detects server restarts (via X-Server-ID header mismatch)
@@ -69,6 +79,7 @@ export function Providers({ children }: ProvidersProps) {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <DataInvalidation />
       <ServerRestartDetector />
       <ThemeProvider
         attribute="class"

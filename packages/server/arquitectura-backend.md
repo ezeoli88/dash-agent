@@ -18,7 +18,7 @@ Dashboard (React) <--> Express API <--> Agentes IA (CLI subprocesses)
 
 - **`index.ts`** — El `app.ts` clasico de Express. Monta rutas, CORS, auth middleware, inicializa la DB y arranca el server en `0.0.0.0:51767`.
 - **`bin.ts`** — Wrapper para cuando se compila como binario standalone (`bun build --compile`). Detecta la IP LAN y abre el browser.
-- **`config.ts`** — Lee env vars (`PORT`, `DATABASE_PATH`, `REPOS_BASE_DIR`, etc.) con defaults.
+- **`config.ts`** — Lee env vars (`PORT`, `DATABASE_PATH`, `REPOS_BASE_DIR`, etc.) con defaults. Tambien expone `getRuntimePort()` / `setRuntimePort()` para el puerto real post-startup (usado por MCP config endpoint).
 
 ### 2. Routes (los endpoints HTTP)
 
@@ -26,7 +26,7 @@ Dashboard (React) <--> Express API <--> Agentes IA (CLI subprocesses)
 |--------|---------|----------|
 | **`tasks.ts`** | `/api/tasks` | CRUD de tareas + ejecucion de agentes + feedback + PR creation. Es el archivo mas grande (~1500 lineas). |
 | **`repos.ts`** | `/api/repos` | Gestion de repositorios (GitHub y local). Incluye deteccion de stack tecnologico. |
-| **`setup.ts`** | `/api/setup` | Deteccion de CLIs instalados, validacion de API keys, OAuth con GitHub. |
+| **`setup.ts`** | `/api/setup` | Deteccion de CLIs instalados, validacion de API keys, OAuth con GitHub. Incluye `/setup/mcp-config` para configuracion MCP. |
 | **`secrets.ts`** | `/api/secrets` | CRUD de credenciales encriptadas (API keys, tokens GitHub/GitLab). |
 | **`data.ts`** | `/api/data` | Export/import de toda la data como JSON. |
 
@@ -102,9 +102,45 @@ Archivos de soporte:
 | **`gitlab-url.ts`** | Idem para GitLab. |
 | **`errors.ts`** | Helper para extraer mensajes de error de cualquier tipo. |
 
-### 7. Middleware
+### 7. MCP Server (`mcp/`)
 
-- **`auth.middleware.ts`** — Token de autenticacion generado al startup. Se pasa via query param o header `Authorization: Bearer`. Obligatorio en modo binario, opcional en dev.
+El server expone un **MCP (Model Context Protocol)** en `/api/mcp` para que IDEs y CLIs puedan interactuar con Agent Board programaticamente.
+
+**Arquitectura:**
+- **Stateless**: Cada POST crea un McpServer + transport fresco, procesa el JSON-RPC y cierra. Sin manejo de sesiones.
+- **Transport**: `StreamableHTTPServerTransport` del SDK oficial de MCP.
+- **Auth**: Requests desde loopback (127.0.0.1, ::1) bypasean autenticacion — IDEs locales no necesitan token.
+
+**Archivos:**
+
+| Archivo | Que hace |
+|---------|----------|
+| **`index.ts`** | Monta rutas Express (POST/GET/DELETE `/api/mcp`). Solo POST es funcional. |
+| **`server.ts`** | Factory que crea un `McpServer` y registra todos los tools y resources. |
+| **`errors.ts`** | Error codes tipados (`McpErrorCode`) y helpers para respuestas de error. |
+
+**Tools (5 modulos):**
+
+| Modulo | Tools que registra |
+|--------|--------------------|
+| **`task-tools.ts`** | `create_task`, `list_tasks`, `get_task`, `update_task`, `delete_task` |
+| **`workflow-tools.ts`** | `start_task`, `execute_task`, `send_feedback`, `extend_task_timeout`, `cancel_task` |
+| **`review-tools.ts`** | `get_task_changes`, `approve_changes`, `request_changes`, `mark_pr_merged`, `mark_pr_closed` |
+| **`repo-tools.ts`** | `list_repositories`, `add_repository`, `get_repository` |
+| **`status-tools.ts`** | `get_setup_status` |
+
+**Resources (2 modulos):**
+
+| Modulo | URIs |
+|--------|------|
+| **`task-resources.ts`** | `agentboard://tasks/{taskId}` — Detalle completo de una task |
+| **`repo-resources.ts`** | `agentboard://status` — Estado del board (providers, agents, OAuth) |
+
+**Nota sobre `create_task`:** Auto-detecta `agent_type` y `agent_model` si no se proveen, usando `detectInstalledAgents()`. Tambien resuelve `repo_url` desde `repository_id`.
+
+### 8. Middleware
+
+- **`auth.middleware.ts`** — Token de autenticacion generado al startup. Se pasa via query param o header `Authorization: Bearer`. Obligatorio en modo binario, opcional en dev. Requests desde loopback a `/api/mcp` bypasean auth (para IDEs locales).
 
 ---
 
@@ -112,7 +148,7 @@ Archivos de soporte:
 
 El flujo actual es directo: el usuario crea la tarea y el agente codifica hasta llegar al PR. No hay paso intermedio de generacion/aprobacion de spec.
 
-> **Nota:** Los endpoints de spec (`generate-spec`, `approve-spec`, `regenerate-spec`) y el `pm-agent.service` existen en el codigo como legacy pero ya no se usan en el flujo actual. El workflow de 2 agentes (PM Agent + Dev Agent) fue descartado.
+> **Nota:** Los endpoints legacy de spec (`generate-spec`, `approve-spec`, `regenerate-spec`, `PATCH /spec`) y el `pm-agent.service` fueron marcados como **deprecated** y ahora retornan `410 Gone`. Usar `POST /api/tasks/:id/start` para iniciar una tarea directamente.
 
 ```
 +------------------------------------------------------------------+
@@ -189,6 +225,16 @@ Routes (HTTP layer)
   +-- secrets.ts ----> secrets.service ----> database (encrypted)
   |
   +-- data.ts ----> database (direct)
+
+MCP Server (/api/mcp — stateless JSON-RPC)
+  |
+  +-- task-tools ──────> task.service, agent.service, repo.service
+  +-- workflow-tools ──> task.service, agent.service, dev-agent.service
+  +-- review-tools ────> task.service, agent.service, git.service
+  +-- repo-tools ──────> repo.service, stack-detector.service
+  +-- status-tools ────> secrets.service, agent-detection.service
+  +-- task-resources ──> task.service, git.service
+  +-- repo-resources ──> repo.service, secrets.service, agent-detection.service
 ```
 
 ---
@@ -244,3 +290,4 @@ Cada agente tiene 10 minutos por defecto. El usuario puede extender de a 5 minut
 - **Paths**: Validacion UUID, no `../` traversal
 - **Secrets**: AES-256-GCM en DB
 - **Procesos**: Todos trackeados para cleanup al cancelar/timeout
+- **MCP Loopback Bypass**: Requests a `/api/mcp` desde 127.0.0.1/::1 no requieren token auth (IDEs/CLIs locales se conectan sin configurar credenciales)

@@ -1,16 +1,32 @@
 'use client'
 
-import { FolderGit2, LayoutGrid } from 'lucide-react'
-import { useRepos } from '@/features/repos/hooks/use-repos'
+import { useMemo } from 'react'
+import { Link } from '@tanstack/react-router'
+import { ArrowLeftRight, FolderGit2, LayoutGrid } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { useRepos, useRepoStore } from '@/features/repos'
 
 /**
  * Header component for the board view.
- * Shows the board title and the current repository name.
+ * Shows the board title, the currently selected repository name,
+ * and a button to navigate back to the repository selection page.
  */
 export function BoardHeader() {
   const { data: repos } = useRepos()
+  const selectedRepo = useRepoStore((s) => s.selectedRepo)
+  const selectedRepoId = useRepoStore((s) => s.selectedRepoId)
 
-  const repo = repos?.[0]
+  // Resuelve el repositorio activo con la siguiente prioridad:
+  // 1. El objeto selectedRepo del store (ya cargado)
+  // 2. Buscar por selectedRepoId en la lista de repos del servidor
+  // 3. Fallback al primer repositorio disponible
+  const repo = useMemo(() => {
+    if (selectedRepo) return selectedRepo
+    if (selectedRepoId && repos) {
+      return repos.find((r) => r.id === selectedRepoId) ?? repos[0] ?? null
+    }
+    return repos?.[0] ?? null
+  }, [selectedRepo, selectedRepoId, repos])
 
   return (
     <header className="flex items-center justify-between">
@@ -28,6 +44,13 @@ export function BoardHeader() {
           )}
         </div>
       </div>
+
+      <Button variant="ghost" size="sm" asChild>
+        <Link to="/repos">
+          <ArrowLeftRight className="h-4 w-4" />
+          Cambiar repo
+        </Link>
+      </Button>
     </header>
   )
 }

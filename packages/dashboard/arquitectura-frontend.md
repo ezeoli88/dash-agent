@@ -62,14 +62,17 @@ Root Route (envuelve con <Providers>)
 │     └── Si hay repos → /board, si no → /repos
 │
 ├── /repos (ReposPage — SIN MainLayout)
-│     └── Pagina standalone para seleccionar repo
+│     └── Pagina standalone para seleccionar repo. Incluye banner de MCP setup.
 │
 ├── /setup → redirige a /repos
+│
+├── /mcp-setup (McpSetupPage — SIN MainLayout)
+│     └── Pagina standalone para configurar conexion MCP desde IDEs/CLIs
 │
 └── Main Layout Route (REQUIERE repo seleccionado)
     ├── /board (BoardPage — Kanban)
     ├── /diff/:taskId (DiffPage — viewer de cambios)
-    └── /settings (SettingsPage — preferencias)
+    └── /settings (SettingsPage — preferencias, incluye banner MCP)
 ```
 
 **Patron clave**: El `MainLayout` route tiene un `beforeLoad` guard que chequea si hay repos. Si no hay, redirige a `/repos`. Esto hace que `/repos` sea la "landing page" obligatoria para usuarios nuevos.
@@ -86,7 +89,8 @@ Root Route (envuelve con <Providers>)
 | **BoardPage** | `/board` | Kanban board con drag-and-drop. Incluye `<CreateTaskDialog>` y `<TaskDrawer>`. |
 | **ReposPage** | `/repos` | Seleccion de repositorios. Escanea repos locales del filesystem. Sin MainLayout. |
 | **DiffPage** | `/diff/:taskId` | Viewer de cambios de codigo para una task especifica. |
-| **SettingsPage** | `/settings` | Preferencias de usuario (tema, idioma, conexiones). |
+| **SettingsPage** | `/settings` | Preferencias de usuario (tema, idioma, conexiones). Incluye banner de MCP setup. |
+| **McpSetupPage** | `/mcp-setup` | Pagina standalone para configurar la conexion MCP desde IDEs/CLIs. |
 
 ### 2. Features (`features/`)
 
@@ -209,6 +213,30 @@ Wizard de primera vez con multiples pasos:
 | **`gitlab-connect.tsx`** | Configuracion de GitLab. |
 
 **Store**: `setup-store.ts` — Estados de conexion (AI, GitHub, GitLab, CLI), persiste en localStorage.
+
+---
+
+#### `features/mcp-setup/` — Configuracion MCP
+
+Pagina standalone (sin MainLayout, accesible desde `/repos` y `/settings`) que permite al usuario configurar la conexion MCP desde su IDE o CLI favorito.
+
+| Componente | Que hace |
+|-----------|----------|
+| **`mcp-setup-content.tsx`** | Layout principal con lista de plataformas y snippet de configuracion. |
+| **`platform-snippet.tsx`** | Renderiza el snippet de configuracion especifico para cada plataforma. |
+| **`copy-button.tsx`** | Boton para copiar snippet al clipboard. |
+
+**Hooks:**
+
+| Hook | Que hace |
+|------|----------|
+| **`use-mcp-config.ts`** | Fetch de `GET /api/setup/mcp-config` para obtener la URL del MCP server. |
+
+**Lib:**
+
+| Archivo | Que hace |
+|---------|----------|
+| **`platforms.ts`** | Definicion de plataformas soportadas (Claude Code, VS Code, Cursor, Windsurf, Codex CLI, Gemini CLI) con sus `buildSnippet()` que generan la config especifica. |
 
 ---
 
@@ -555,8 +583,12 @@ Pages (UI layer)
   |                       +───> repo-store (Zustand)
   |
   +-- SettingsPage ──> preferences-section, connections-section
-                           +───> use-settings
-                           +───> setup-store (Zustand)
+  |                       +───> use-settings
+  |                       +───> setup-store (Zustand)
+  |
+  +-- McpSetupPage ──> mcp-setup-content, platform-snippet, copy-button
+                           +───> use-mcp-config (GET /api/setup/mcp-config)
+                           +───> platforms.ts (snippet generators)
 
 Capa transversal:
   +-- api-client ────> todas las requests HTTP

@@ -1,6 +1,7 @@
 'use client'
 
-import { HelpCircle } from 'lucide-react'
+import { HelpCircle, Plug } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
 import { ConnectionsSection, PreferencesSection, SettingsTour } from '@/features/settings'
 import { Button } from '@/components/ui/button'
 
@@ -31,6 +32,24 @@ export default function SettingsPage() {
 
       {/* Settings sections */}
       <div className="space-y-6 max-w-2xl">
+        {/* MCP Server */}
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Plug className="size-5 text-primary" />
+              <div>
+                <h3 className="text-sm font-medium">MCP Server</h3>
+                <p className="text-xs text-muted-foreground">
+                  Ahora puedes conectarte por MCP a Agent Board. Busca tu plataforma favorita y configura la conexion en un click.
+                </p>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/mcp-setup">Configurar MCP</Link>
+            </Button>
+          </div>
+        </div>
+
         <ConnectionsSection id="settings-connections" />
         <PreferencesSection id="settings-preferences" />
       </div>

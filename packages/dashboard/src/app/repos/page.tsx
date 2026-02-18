@@ -1,23 +1,31 @@
 'use client'
 
-import { useState, useCallback } from 'react'
-import { AlertTriangle, Check, FolderSearch, GitBranch, Loader2, HardDrive, ArrowRight } from 'lucide-react'
-import { useRouter } from '@tanstack/react-router'
+import { useState, useCallback, useMemo } from 'react'
+import { AlertTriangle, Check, FolderSearch, GitBranch, Loader2, HardDrive, ArrowRight, Plug } from 'lucide-react'
+import { useRouter, Link } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useLocalRepos, useAddLocalRepo } from '@/features/repos/hooks/use-local-repos'
+import { useRepos } from '@/features/repos/hooks/use-repos'
 import { useRepoStore } from '@/features/repos/stores/repo-store'
 import { apiClient } from '@/lib/api-client'
-import type { LocalRepository } from '@/features/repos/types'
+import type { LocalRepository, Repository } from '@/features/repos/types'
 import { useSecretsStatus } from '@/features/setup/hooks/use-secrets-status'
+
+/** Normaliza backslashes a forward slashes para comparar paths en Windows */
+function normalizePath(s: string): string {
+  return s.replace(/\\/g, '/')
+}
 
 export default function ReposPage() {
   const router = useRouter()
 
+  // Fetch already-registered repos from the API
+  const { data: registeredRepos } = useRepos()
+
   // Scan local repos automatically
   const { data: localReposData, isLoading: isScanning, error: scanError } = useLocalRepos(true)
-  console.log('[ReposPage] mount', { isScanning, hasData: !!localReposData, repos: localReposData?.repos?.length, scanPath: localReposData?.scan_path })
   const addLocalRepo = useAddLocalRepo()
   const { setSelectedRepo } = useRepoStore()
 
@@ -29,6 +37,29 @@ export default function ReposPage() {
 
   const allRepos = localReposData?.repos ?? []
 
+  // Build a set of normalized URLs for registered repos for O(1) lookup
+  const registeredUrlSet = useMemo(() => {
+    if (!registeredRepos?.length) return new Set<string>()
+    return new Set(registeredRepos.map((r) => normalizePath(r.url)))
+  }, [registeredRepos])
+
+  /** Check if a scanned local repo is already registered */
+  const isAlreadyRegistered = useCallback(
+    (localPath: string): boolean => {
+      return registeredUrlSet.has(normalizePath(`file://${localPath}`))
+    },
+    [registeredUrlSet]
+  )
+
+  /** Find the registered Repository that matches a local path */
+  const findRegisteredRepo = useCallback(
+    (localPath: string): Repository | undefined => {
+      const normalizedTarget = normalizePath(`file://${localPath}`)
+      return registeredRepos?.find((r) => normalizePath(r.url) === normalizedTarget)
+    },
+    [registeredRepos]
+  )
+
   const toggleSelection = useCallback((path: string) => {
     setSelectedPath((prev) => (prev === path ? null : path))
   }, [])
@@ -36,6 +67,15 @@ export default function ReposPage() {
   const handleContinue = useCallback(async () => {
     const repo = allRepos.find((r) => r.path === selectedPath)
     if (!repo) return
+
+    // Si el repo ya esta registrado, seleccionarlo directamente sin POST
+    const existingRepo = findRegisteredRepo(repo.path)
+    if (existingRepo) {
+      setSelectedRepo(existingRepo)
+      router.navigate({ to: '/board' })
+      return
+    }
+
     try {
       const created = await addLocalRepo.mutateAsync({
         name: repo.name,
@@ -46,25 +86,42 @@ export default function ReposPage() {
       setSelectedRepo(created)
       router.navigate({ to: '/board' })
     } catch {
-      // Repo might already exist (409) — fetch existing and navigate
-      const repos = await apiClient.get<{ id: string; name: string; url: string }[]>('/repos')
-      const existing = repos.find((r) => r.url === `file://${repo.path}`)
+      // Repo might already exist (409) -- fetch existing and navigate
+      const repos = await apiClient.get<Repository[]>('/repos')
+      const existing = repos.find(
+        (r) => normalizePath(r.url) === normalizePath(`file://${repo.path}`)
+      )
       if (existing) {
-        setSelectedRepo(existing as any)
+        setSelectedRepo(existing)
         router.navigate({ to: '/board' })
       }
     }
-  }, [allRepos, selectedPath, addLocalRepo, setSelectedRepo, router])
+  }, [allRepos, selectedPath, findRegisteredRepo, addLocalRepo, setSelectedRepo, router])
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-background to-muted/20 p-4">
       <div className="mx-auto w-full max-w-4xl">
         {/* Header */}
         <div className="mb-12 text-center">
-          <h1 className="mb-3 text-4xl font-bold tracking-tight">dash-agent</h1>
+          <h1 className="mb-3 text-4xl font-bold tracking-tight">AI Agent Board</h1>
           <p className="text-lg text-muted-foreground">
             Selecciona tus repositorios
           </p>
+        </div>
+
+        {/* MCP setup banner */}
+        <div className="mb-6 rounded-lg border border-primary/30 bg-primary/5 p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Plug className="size-5 text-primary shrink-0" />
+              <p className="text-sm text-muted-foreground">
+                Ahora puedes conectarte por MCP a Agent Board. Busca tu plataforma favorita y configura la conexion en un click.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" asChild className="shrink-0 ml-4">
+              <Link to="/mcp-setup">Configurar MCP</Link>
+            </Button>
+          </div>
         </div>
 
         {/* Git provider warning */}
@@ -78,6 +135,50 @@ export default function ReposPage() {
               <p className="mt-1 text-sm text-muted-foreground">
                 Para crear PRs y gestionar repositorios remotos, necesitas configurar un token de acceso personal.
               </p>
+            </div>
+          </div>
+        )}
+
+        {/* Registered repos section -- shown even while scanning */}
+        {registeredRepos && registeredRepos.length > 0 && (
+          <div className="mb-6 space-y-3">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Check className="size-4" />
+              <span>{registeredRepos.length} repositorio(s) registrado(s)</span>
+            </div>
+            <div className="grid grid-cols-4 gap-3">
+              {registeredRepos.map((repo) => (
+                <button
+                  key={repo.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedRepo(repo)
+                    router.navigate({ to: '/board' })
+                  }}
+                  className="relative rounded-lg border-2 border-primary/30 bg-primary/5 p-4 text-left transition-all hover:border-primary hover:bg-primary/10"
+                >
+                  <FolderSearch className="size-5 text-primary mb-2" />
+                  <p className="text-sm font-medium truncate">{repo.name}</p>
+                  <div className="mt-2 flex items-center gap-1.5">
+                    <Badge variant="secondary" className="gap-1 text-xs">
+                      <GitBranch className="size-3" />
+                      {repo.default_branch}
+                    </Badge>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {/* Divider before scan section */}
+            <div className="relative py-4">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">
+                  o agrega otro repositorio
+                </span>
+              </div>
             </div>
           </div>
         )}
@@ -122,6 +223,7 @@ export default function ReposPage() {
                       key={repo.path}
                       repo={repo}
                       isSelected={selectedPath === repo.path}
+                      isRegistered={isAlreadyRegistered(repo.path)}
                       onToggle={() => toggleSelection(repo.path)}
                     />
                   ))}
@@ -152,6 +254,7 @@ export default function ReposPage() {
 
           </div>
         )}
+
       </div>
     </div>
   )
@@ -163,10 +266,11 @@ export default function ReposPage() {
 interface RepoCardProps {
   repo: LocalRepository
   isSelected: boolean
+  isRegistered: boolean
   onToggle: () => void
 }
 
-function RepoCard({ repo, isSelected, onToggle }: RepoCardProps) {
+function RepoCard({ repo, isSelected, isRegistered, onToggle }: RepoCardProps) {
   return (
     <button
       type="button"
@@ -175,7 +279,9 @@ function RepoCard({ repo, isSelected, onToggle }: RepoCardProps) {
         'relative rounded-lg border-2 p-4 text-left transition-all',
         isSelected
           ? 'border-primary bg-primary/5 shadow-sm'
-          : 'border-border hover:border-muted-foreground/40 hover:bg-muted/40'
+          : isRegistered
+            ? 'border-primary/20 bg-primary/5 opacity-75 hover:opacity-100 hover:border-primary/40'
+            : 'border-border hover:border-muted-foreground/40 hover:bg-muted/40'
       )}
     >
       {isSelected && (
@@ -183,7 +289,7 @@ function RepoCard({ repo, isSelected, onToggle }: RepoCardProps) {
           <Check className="size-3" />
         </div>
       )}
-      <FolderSearch className="size-5 text-muted-foreground mb-2" />
+      <FolderSearch className={cn('size-5 mb-2', isRegistered ? 'text-primary' : 'text-muted-foreground')} />
       <p className="text-sm font-medium truncate pr-6">{repo.name}</p>
       <div className="mt-2 flex items-center gap-1.5 flex-wrap">
         <Badge variant="secondary" className="gap-1 text-xs">
@@ -193,6 +299,11 @@ function RepoCard({ repo, isSelected, onToggle }: RepoCardProps) {
         {repo.language && (
           <Badge variant="outline" className="text-xs">
             {repo.language}
+          </Badge>
+        )}
+        {isRegistered && (
+          <Badge variant="secondary" className="text-xs bg-primary/10 text-primary">
+            Ya agregado
           </Badge>
         )}
       </div>

@@ -10,6 +10,7 @@ import { createGitHubService } from '../services/github.service.js';
 import { getGitHubCredentials } from '../services/secrets.service.js';
 import { getLocalScanService } from '../services/local-scan.service.js';
 import { createLocalStackDetector } from '../services/stack-detector.service.js';
+import { getDataEventEmitter } from '../utils/data-events.js';
 
 const logger = createLogger('repos-router');
 const router = Router();
@@ -314,6 +315,7 @@ router.post('/local/add', async (req: Request, res: Response) => {
 
     logger.info('Local repository added', { id: repository.id, name, path });
 
+    getDataEventEmitter().emitChange({ entity: 'repo', action: 'created', id: repository.id });
     res.status(201).json(repository);
   } catch (error) {
     logger.errorWithStack('Failed to add local repository', error as Error);
@@ -352,6 +354,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     logger.info('Repository created', { id: repository.id, name: repository.name });
 
+    getDataEventEmitter().emitChange({ entity: 'repo', action: 'created', id: repository.id });
     res.status(201).json(repository);
   } catch (error) {
     if (error instanceof ZodError) {
@@ -432,6 +435,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
 
     logger.info('Repository updated', { id });
 
+    getDataEventEmitter().emitChange({ entity: 'repo', action: 'updated', id: id! });
     res.json(repository);
   } catch (error) {
     if (error instanceof ZodError) {
@@ -478,6 +482,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
 
     logger.info('Repository deleted', { id });
 
+    getDataEventEmitter().emitChange({ entity: 'repo', action: 'deleted', id: id! });
     res.status(204).send();
   } catch (error) {
     logger.errorWithStack('Failed to delete repository', error as Error);

@@ -1,31 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { Plus, Layers, Search, Settings } from 'lucide-react'
+import { Plus, Layers, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from './theme-toggle'
 import { useTaskUIStore } from '@/features/tasks/stores/task-ui-store'
-import { cn } from '@/lib/utils'
 
 export function Header() {
   const { openCreateModal } = useTaskUIStore()
-  const [isMac, setIsMac] = useState(false)
-
-  useEffect(() => {
-    setIsMac(navigator.platform.toUpperCase().indexOf('MAC') >= 0)
-  }, [])
-
-  // Open command palette
-  const openCommandPalette = () => {
-    document.dispatchEvent(
-      new KeyboardEvent('keydown', {
-        key: 'k',
-        metaKey: isMac,
-        ctrlKey: !isMac,
-      })
-    )
-  }
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -45,24 +27,6 @@ export function Header() {
 
         {/* Right side actions */}
         <div className="ml-auto flex items-center gap-2">
-          {/* Search / Command palette button */}
-          <Button
-            variant="outline"
-            size="sm"
-            className={cn(
-              'hidden md:inline-flex items-center gap-2 text-muted-foreground',
-              'hover:text-foreground transition-colors'
-            )}
-            onClick={openCommandPalette}
-            aria-label="Open command palette"
-          >
-            <Search className="h-4 w-4" />
-            <span className="text-xs">Search...</span>
-            <kbd className="pointer-events-none hidden h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium sm:flex">
-              <span className="text-xs">{isMac ? '\u2318' : 'Ctrl'}</span>K
-            </kbd>
-          </Button>
-
           {/* Create task button */}
           <Button
             size="sm"

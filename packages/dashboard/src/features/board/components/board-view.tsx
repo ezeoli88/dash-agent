@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { useQueryClient } from '@tanstack/react-query'
 import { taskKeys } from '@/features/tasks/hooks/query-keys'
 import { useStartTask } from '@/features/tasks/hooks/use-start-task'
+import { useRepoStore } from '@/features/repos'
 import { useBoardTasks } from '../hooks/use-board-tasks'
 import { BOARD_COLUMNS } from '../types'
 import { BoardHeader } from './board-header'
@@ -30,8 +31,11 @@ import type { Task } from '@/features/tasks/types'
 export function BoardView() {
   const queryClient = useQueryClient()
   const startTask = useStartTask()
+  const selectedRepoId = useRepoStore((s) => s.selectedRepoId)
 
-  const { columns, isLoading, isError, error } = useBoardTasks({})
+  const { columns, isLoading, isError, error } = useBoardTasks({
+    repositoryId: selectedRepoId ?? undefined,
+  })
 
   // Drag state: tracks the task currently being dragged for the DragOverlay
   const [activeTask, setActiveTask] = useState<Task | null>(null)
