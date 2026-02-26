@@ -1,3 +1,6 @@
+# Rust
+target/
+
 # Dependencies
 node_modules/
 .pnp

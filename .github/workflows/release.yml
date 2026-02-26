@@ -10,14 +10,11 @@ permissions:
   id-token: write
 
 jobs:
-  build:
+  build-frontend:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
 
       - name: Setup Node 20
         uses: actions/setup-node@v4
@@ -27,48 +24,112 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build all packages
-        run: npm run build
+      - name: Build shared + dashboard
+        run: npm run build:shared && npm run build:dashboard
 
-      - name: Build binaries for all platforms
+      - name: Upload frontend assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-assets
+          path: packages/dashboard/dist
+
+  build-binary:
+    needs: build-frontend
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            platform: linux-x64
+            binary: agent-board
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            platform: macos-x64
+            binary: agent-board
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            platform: macos-arm64
+            binary: agent-board
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            platform: win-x64
+            binary: agent-board.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/server-rs/target
+          key: ${{ matrix.platform }}-cargo-${{ hashFiles('packages/server-rs/Cargo.lock') }}
+          restore-keys: |
+            ${{ matrix.platform }}-cargo-
+
+      - name: Build release binary
+        working-directory: packages/server-rs
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Download frontend assets
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-assets
+          path: frontend-dist
+
+      - name: Prepare platform directory
+        shell: bash
         run: |
-          mkdir -p dist/linux-x64 dist/macos-x64 dist/macos-arm64 dist/win-x64
+          mkdir -p dist/${{ matrix.platform }}
+          cp packages/server-rs/target/${{ matrix.target }}/release/${{ matrix.binary }} dist/${{ matrix.platform }}/
+          cp -r frontend-dist dist/${{ matrix.platform }}/public
 
-          bun build packages/server/src/bin.ts --compile --target=bun-linux-x64 \
-            --outfile dist/linux-x64/agent-board
+      - name: Create platform ZIP (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: cd dist/${{ matrix.platform }} && zip -r ../${{ matrix.platform }}.zip .
 
-          bun build packages/server/src/bin.ts --compile --target=bun-darwin-x64 \
-            --outfile dist/macos-x64/agent-board
+      - name: Create platform ZIP (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path "dist/${{ matrix.platform }}/*" -DestinationPath "dist/${{ matrix.platform }}.zip"
 
-          bun build packages/server/src/bin.ts --compile --target=bun-darwin-arm64 \
-            --outfile dist/macos-arm64/agent-board
+      - name: Upload platform ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: zip-${{ matrix.platform }}
+          path: dist/${{ matrix.platform }}.zip
 
-          bun build packages/server/src/bin.ts --compile --target=bun-windows-x64 \
-            --outfile dist/win-x64/agent-board.exe
+  upload-r2:
+    needs: build-binary
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all platform ZIPs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: zip-*
+          path: dist
+          merge-multiple: true
 
-      - name: Copy frontend assets and WASM to each platform directory
-        run: |
-          for plat in linux-x64 macos-x64 macos-arm64 win-x64; do
-            cp -r packages/dashboard/dist dist/$plat/public
-            cp node_modules/sql.js/dist/sql-wasm.wasm dist/$plat/
-          done
-
-      - name: Create platform ZIPs
-        run: |
-          cd dist/linux-x64 && zip -r ../linux-x64.zip . && cd ../..
-          cd dist/macos-x64 && zip -r ../macos-x64.zip . && cd ../..
-          cd dist/macos-arm64 && zip -r ../macos-arm64.zip . && cd ../..
-          cd dist/win-x64 && zip -r ../win-x64.zip . && cd ../..
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Generate manifest.json
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-
+          VERSION="${{ steps.version.outputs.VERSION }}"
           LINUX_X64_SHA=$(sha256sum dist/linux-x64.zip | awk '{print $1}')
           MACOS_X64_SHA=$(sha256sum dist/macos-x64.zip | awk '{print $1}')
           MACOS_ARM64_SHA=$(sha256sum dist/macos-arm64.zip | awk '{print $1}')
           WIN_X64_SHA=$(sha256sum dist/win-x64.zip | awk '{print $1}')
-
           printf '%s\n' \
             '{' \
             "  \"version\": \"${VERSION}\"," \
@@ -79,28 +140,6 @@ jobs:
             "    \"win-x64\": { \"zip\": \"win-x64/agent-board.zip\", \"sha256\": \"${WIN_X64_SHA}\" }" \
             '  }' \
             '}' > dist/manifest.json
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-artifacts
-          path: |
-            dist/*.zip
-            dist/manifest.json
-
-  upload-r2:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: release-artifacts
-          path: dist
-
-      - name: Extract version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Install rclone
         run: |
