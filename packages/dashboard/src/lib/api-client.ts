@@ -266,6 +266,10 @@ export const tasksApi = {
   // Task Actions
   // ==========================================================================
 
+  /** Start a draft task (status: draft -> running) */
+  start: (id: string) =>
+    apiClient.post<ActionResponse>(`/tasks/${id}/start`),
+
   /** Approve plan and start implementation (status: plan_review -> coding) */
   approvePlan: (id: string) =>
     apiClient.post<ActionResponse>(`/tasks/${id}/approve-plan`),

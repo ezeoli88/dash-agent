@@ -52,7 +52,7 @@ export interface BaseRunnerOptions {
  */
 export interface CLIRunnerOptions extends BaseRunnerOptions {
   /** The CLI agent type to use */
-  agentType: 'claude-code' | 'codex' | 'gemini';
+  agentType: 'claude-code' | 'codex' | 'gemini' | 'copilot';
   /** The model to use (agent-specific) */
   agentModel?: string;
 }
@@ -69,7 +69,7 @@ export interface OpenRouterRunnerOptions extends BaseRunnerOptions {
  * Options for creating any runner (union type for the factory).
  */
 export type RunnerOptions = BaseRunnerOptions & {
-  agentType?: 'claude-code' | 'codex' | 'gemini' | 'openrouter';
+  agentType?: 'claude-code' | 'codex' | 'gemini' | 'copilot' | 'openrouter';
   agentModel?: string;
 };
 
