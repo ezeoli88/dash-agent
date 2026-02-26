@@ -48,6 +48,7 @@ const CLI_CONFIGS: CLIConfig[] = [
     authCheckArgs: ['-p', 'hi', '--output-format', 'json', '--max-turns', '1'],
     models: [
       { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', description: 'Most intelligent — complex tasks & agents' },
+      { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', description: 'Latest — best speed/intelligence balance' },
       { id: 'claude-sonnet-4-5-20250929', name: 'Claude Sonnet 4.5', description: 'Best speed/intelligence balance' },
       { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5', description: 'Fastest — near-frontier intelligence' },
     ],
@@ -87,6 +88,7 @@ const CLI_CONFIGS: CLIConfig[] = [
     versionArgs: ['--version'],
     authCheckArgs: ['-p', 'hi', '--output-format', 'json'],
     models: [
+      { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro', description: 'Most advanced — complex tasks & agentic coding' },
       { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro', description: 'Best multimodal understanding' },
       { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', description: 'Balanced speed & performance' },
       { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Frontier thinking model (stable)' },
@@ -100,6 +102,25 @@ const CLI_CONFIGS: CLIConfig[] = [
       '.gemini/installation_id',
     ],
     authEnvVars: ['GOOGLE_API_KEY', 'GEMINI_API_KEY'],
+  },
+  {
+    id: 'copilot',
+    name: 'GitHub Copilot',
+    command: 'copilot',
+    versionArgs: ['--version'],
+    authCheckArgs: [],
+    models: [
+      // Fallback static models - will be replaced with dynamic discovery
+      { id: 'gpt-5.1-codex', name: 'GPT-5.1 Codex', description: 'Default Codex model' },
+      { id: 'gpt-5.2-codex', name: 'GPT-5.2 Codex', description: 'Advanced agentic coding' },
+      { id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex', description: 'Most capable Codex model' },
+      { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', description: 'Anthropic Sonnet 4.6' },
+      { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', description: 'Anthropic Opus 4.6' },
+      { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Google Gemini 2.5 Pro' },
+    ],
+    loginFile: null,
+    installIndicatorFiles: [],
+    authEnvVars: [],
   },
 ];
 
@@ -282,12 +303,76 @@ async function loadDynamicModels(config: CLIConfig): Promise<AgentModel[]> {
       if (dynamicModels) return dynamicModels;
       break;
     }
+    case 'copilot': {
+      const dynamicModels = await discoverCopilotModels();
+      if (dynamicModels && dynamicModels.length > 0) return dynamicModels;
+      break;
+    }
     // Claude Code and Gemini don't have a local models cache — use hardcoded
     default:
       break;
   }
 
   return config.models;
+}
+
+/**
+ * Try to discover available models from Copilot CLI.
+ * Uses copilot --model with invalid argument to trigger error message with available models.
+ * Falls back to null if unable to parse.
+ */
+async function discoverCopilotModels(): Promise<AgentModel[] | null> {
+  try {
+    // Try copilot --model (without value) to trigger error with available models list
+    // The error message contains "Allowed choices are: model1, model2, ..."
+    const { stderr } = await execFileAsync('copilot', ['--model', 'invalid_model_placeholder'], {
+      timeout: 10000,
+      windowsHide: true,
+      shell: isWindows,
+    });
+
+    // Parse the error message for "Allowed choices are: ..."
+    const allowedMatch = stderr.match(/Allowed choices are ([a-zA-Z0-9_.\-,\s]+)/);
+    if (allowedMatch && allowedMatch[1]) {
+      const modelIds = allowedMatch[1].split(',').map((m) => m.trim()).filter(Boolean);
+      
+      if (modelIds.length > 0) {
+        const models: AgentModel[] = modelIds.map((id) => ({
+          id,
+          name: id,
+          description: 'Available in Copilot CLI',
+        }));
+
+        logger.debug('Copilot models discovered from CLI', { count: models.length, models: models.map((m) => m.id) });
+        return models;
+      }
+    }
+
+    return null;
+  } catch (err) {
+    // Also try to parse from error message on exception
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    const allowedMatch = errorMessage.match(/Allowed choices are ([a-zA-Z0-9_.\-,\s]+)/);
+    if (allowedMatch && allowedMatch[1]) {
+      const modelIds = allowedMatch[1].split(',').map((m) => m.trim()).filter(Boolean);
+      
+      if (modelIds.length > 0) {
+        const models: AgentModel[] = modelIds.map((id) => ({
+          id,
+          name: id,
+          description: 'Available in Copilot CLI',
+        }));
+
+        logger.debug('Copilot models discovered from CLI (via catch)', { count: models.length, models: models.map((m) => m.id) });
+        return models;
+      }
+    }
+
+    logger.debug('Failed to discover Copilot models from CLI', {
+      error: errorMessage,
+    });
+    return null;
+  }
 }
 
 // ============================================================================

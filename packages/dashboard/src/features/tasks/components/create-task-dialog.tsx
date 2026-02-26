@@ -76,7 +76,7 @@ export function CreateTaskDialog() {
     repo_url: selectedRepo?.url || '',
     target_branch: selectedRepo?.default_branch || 'main',
     context_files: [] as string[],
-    ...(agentType ? { agent_type: agentType as 'claude-code' | 'codex' | 'gemini' | 'openrouter' } : {}),
+    ...(agentType ? { agent_type: agentType as 'claude-code' | 'codex' | 'gemini' | 'copilot' | 'openrouter' } : {}),
     ...(agentModel ? { agent_model: agentModel } : {}),
   })
 
@@ -125,8 +125,8 @@ export function CreateTaskDialog() {
         setLastAgent(agentType, agentModel || null);
       }
 
-      // Execute the task immediately
-      await tasksApi.execute(task.id);
+      // Start the task immediately (draft tasks need /start, not /execute)
+      await tasksApi.start(task.id);
 
       // Invalidate queries so the board reflects the new status
       await queryClient.invalidateQueries({ queryKey: taskKeys.all });

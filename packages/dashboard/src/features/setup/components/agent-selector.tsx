@@ -16,6 +16,7 @@ import { useDetectedAgents } from '../hooks/use-detected-agents'
 import { useSettings, useUpdateSettings } from '../hooks/use-settings'
 import { useSetupStore } from '../stores/setup-store'
 import type { DetectedAgent, AgentModel } from '@dash-agent/shared'
+import type { ReactNode } from 'react'
 
 // ---------------------------------------------------------------------------
 // Props
@@ -32,7 +33,7 @@ interface AgentSelectorProps {
 
 const AGENT_INFO: Record<
   string,
-  { name: string; icon: string; colorClasses: { bg: string; text: string } }
+  { name: string; icon: ReactNode; colorClasses: { bg: string; text: string } }
 > = {
   'claude-code': {
     name: 'Claude Code',
@@ -56,6 +57,20 @@ const AGENT_INFO: Record<
     colorClasses: {
       bg: 'bg-purple-100 dark:bg-purple-900/30',
       text: 'text-purple-600 dark:text-purple-400',
+    },
+  },
+  copilot: {
+    name: 'GitHub Copilot',
+    icon: (
+      <img
+        src="data:image/png;base64,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"
+        alt="GitHub Copilot"
+        className="size-4"
+      />
+    ),
+    colorClasses: {
+      bg: 'bg-gray-100 dark:bg-gray-900/30',
+      text: 'text-gray-600 dark:text-gray-400',
     },
   },
   openrouter: {
@@ -145,7 +160,7 @@ export function AgentSelector({ onAgentSelected, compact = false }: AgentSelecto
     return (
       <div className="flex items-center gap-2 rounded-lg border border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20 p-4 text-sm text-muted-foreground">
         <AlertCircle className="size-4 shrink-0 text-yellow-500" />
-        <span>No se detectaron agentes instalados. Instala Claude Code, Codex, Gemini CLI o conecta OpenRouter para continuar.</span>
+        <span>No se detectaron agentes instalados. Instala Claude Code, Codex, Gemini CLI, GitHub Copilot o conecta OpenRouter para continuar.</span>
       </div>
     )
   }

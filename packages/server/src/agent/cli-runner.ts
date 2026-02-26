@@ -8,9 +8,74 @@ import { getErrorMessage } from '../utils/errors.js';
 import { spawnTracked, killChildProcessTree } from '../utils/process-killer.js';
 import { buildCLIPrompt } from './cli-prompts.js';
 import { getAICredentials } from '../services/secrets.service.js';
+import { clearAgentCache } from '../services/agent-detection.service.js';
 import type { IAgentRunner, CLIRunnerOptions, AgentRunResult } from './types.js';
 
 const logger = createLogger('cli-runner');
+
+// ============================================================================
+// Auth / Subscription Error Detection
+// ============================================================================
+
+interface AuthErrorRule {
+  pattern: RegExp;
+  message: string;
+  helpUrl: string;
+}
+
+const AUTH_ERROR_RULES: Record<string, AuthErrorRule[]> = {
+  copilot: [
+    {
+      pattern: /Access denied by policy|subscription does not include|policies have not been enabled|organization has restricted/i,
+      message: 'Your GitHub Copilot subscription may have expired or the CLI feature is not enabled in your account/organization settings.',
+      helpUrl: 'https://github.com/settings/copilot',
+    },
+  ],
+  'claude-code': [
+    {
+      pattern: /invalid.{0,10}api.?key|authentication.{0,10}(failed|error)|unauthorized|credit balance is too low/i,
+      message: 'Your Anthropic API key may be invalid, expired, or your account may have insufficient credits.',
+      helpUrl: 'https://console.anthropic.com/settings/keys',
+    },
+  ],
+  codex: [
+    {
+      pattern: /invalid.{0,10}api.?key|authentication.{0,10}(failed|error)|unauthorized|exceeded.{0,10}quota/i,
+      message: 'Your OpenAI API key may be invalid or your subscription may have expired.',
+      helpUrl: 'https://platform.openai.com/api-keys',
+    },
+  ],
+  gemini: [
+    {
+      pattern: /must specify the GEMINI_API_KEY|GEMINI_API_KEY environment variable/i,
+      message: 'The Gemini CLI requires the GEMINI_API_KEY environment variable for this model. Set it via `export GEMINI_API_KEY=your-key` or authenticate with `gemini auth login`.',
+      helpUrl: 'https://aistudio.google.com/app/apikey',
+    },
+    {
+      pattern: /api.?key.{0,10}not valid|PERMISSION_DENIED|RESOURCE_EXHAUSTED|authentication.{0,10}(failed|error)|unauthorized/i,
+      message: 'Your Google API key may be invalid or your quota may have been exceeded.',
+      helpUrl: 'https://aistudio.google.com/app/apikey',
+    },
+  ],
+};
+
+/**
+ * Checks accumulated stderr lines for known auth/subscription error patterns.
+ * Returns the first matching rule's user-friendly error, or null otherwise.
+ */
+function detectAuthError(agentType: string, stderrLines: string[]): AuthErrorRule | null {
+  const rules = AUTH_ERROR_RULES[agentType];
+  if (!rules) return null;
+
+  const fullStderr = stderrLines.join('\n');
+  for (const rule of rules) {
+    if (rule.pattern.test(fullStderr)) {
+      return rule;
+    }
+  }
+
+  return null;
+}
 
 /**
  * Describes the command and arguments to spawn for a given CLI agent.
@@ -84,6 +149,22 @@ function buildCLICommand(agentType: string, prompt: string, model?: string, plan
         useStdin: true,
       };
 
+    case 'copilot':
+      // Copilot CLI accepts prompt via stdin with empty -p flag
+      // --yolo enables all permissions: --allow-all-tools --allow-all-paths --allow-all-urls
+      // --no-ask-user allows the agent to work autonomously without asking questions
+      // Use shell: true for Windows .cmd wrapper resolution
+      return {
+        command: 'copilot',
+        args: [
+          '-p', '',
+          '--yolo',
+          '--no-ask-user',
+          ...(model ? ['--model', model] : []),
+        ],
+        useStdin: true,
+      };
+
     default:
       throw new Error(`Unsupported agent type: ${agentType}`);
   }
@@ -112,6 +193,7 @@ export class CLIAgentRunner implements IAgentRunner {
   private output: string = '';
   private feedbackQueue: string[] = [];
   private promptFilePath: string | null = null;
+  private lastCopilotToolName: string = ''; // Track last tool name for Copilot output parsing
 
   constructor(options: CLIRunnerOptions) {
     this.options = options;
@@ -296,7 +378,8 @@ export class CLIAgentRunner implements IAgentRunner {
         // Unlike claude (native .exe binary), it needs shell execution to resolve
         // the wrapper, especially in compiled binary mode where PATH resolution differs.
         // Prompt is sent via stdin so no argument escaping issues with shell: true.
-        if (cliCommand.command === 'gemini') {
+        // Copilot CLI also needs shell for Windows .cmd wrapper resolution.
+        if (cliCommand.command === 'gemini' || cliCommand.command === 'copilot') {
           useShell = true;
         }
       }
@@ -362,6 +445,7 @@ export class CLIAgentRunner implements IAgentRunner {
       let hasTransitionedToInProgress = false;
       let stdoutBuffer = '';
       let stderrBuffer = '';
+      const collectedStderrLines: string[] = [];
 
       // Handle stdout — parse output line by line
       proc.stdout?.on('data', (data: Buffer) => {
@@ -401,6 +485,7 @@ export class CLIAgentRunner implements IAgentRunner {
         for (const line of lines) {
           const trimmed = line.trim();
           if (trimmed) {
+            collectedStderrLines.push(trimmed);
             this.options.onLog('warn', `CLI stderr: ${trimmed}`);
           }
         }
@@ -427,6 +512,7 @@ export class CLIAgentRunner implements IAgentRunner {
           this.parseOutputLine(stdoutBuffer.trim());
         }
         if (stderrBuffer.trim()) {
+          collectedStderrLines.push(stderrBuffer.trim());
           this.options.onLog('warn', `CLI stderr: ${stderrBuffer.trim()}`);
         }
 
@@ -450,13 +536,36 @@ export class CLIAgentRunner implements IAgentRunner {
             iterations: 1,
           });
         } else {
-          const errorMsg = `CLI process exited with code ${exitCode}`;
-          this.options.onLog('error', errorMsg);
-          resolve({
-            success: false,
-            error: errorMsg,
-            iterations: 1,
-          });
+          // Check for auth/subscription errors in stderr
+          const authError = detectAuthError(this.options.agentType, collectedStderrLines);
+
+          if (authError) {
+            // Invalidate agent detection cache so next detection reflects the failure
+            clearAgentCache();
+
+            const friendlyMsg = `${authError.message}\n\nTo resolve this, visit: ${authError.helpUrl}`;
+            this.options.onChatEvent?.({
+              id: randomUUID(),
+              role: 'system',
+              content: friendlyMsg,
+              timestamp: new Date().toISOString(),
+            });
+
+            this.options.onLog('error', authError.message);
+            resolve({
+              success: false,
+              error: authError.message,
+              iterations: 1,
+            });
+          } else {
+            const errorMsg = `CLI process exited with code ${exitCode}`;
+            this.options.onLog('error', errorMsg);
+            resolve({
+              success: false,
+              error: errorMsg,
+              iterations: 1,
+            });
+          }
         }
       });
 
@@ -494,9 +603,293 @@ export class CLIAgentRunner implements IAgentRunner {
       case 'gemini':
         this.parseGeminiOutput(line);
         break;
+      case 'copilot':
+        this.parseCopilotOutput(line);
+        break;
       default:
         this.options.onLog('info', `CLI: ${line}`);
     }
+  }
+
+  /**
+   * Parses Copilot CLI output.
+   * Copilot CLI outputs both JSON (in some modes) and plain text terminal-formatted output.
+   * This handles both formats.
+   */
+  private parseCopilotOutput(line: string): void {
+    // Try to parse as JSON first
+    const parsed = tryParseJSON(line);
+
+    if (parsed) {
+      this.handleCopilotJSONOutput(parsed);
+      return;
+    }
+
+    // Handle plain text terminal output from Copilot
+    // Format: "● Read file" or "  └ 1 line read" or "  └ 4 files found"
+    this.handleCopilotTextOutput(line);
+  }
+
+  /**
+   * Handles JSON output from Copilot CLI (when using --json flag or similar).
+   */
+  private handleCopilotJSONOutput(parsed: Record<string, unknown>): void {
+    const type = parsed.type as string | undefined;
+
+    switch (type) {
+      case 'tool_use': {
+        const toolName = parsed.name as string ?? 'unknown';
+        const input = parsed.input as Record<string, unknown> | undefined;
+        const toolId = parsed.id as string ?? randomUUID();
+        const key = input?.file_path ?? input?.command ?? input?.pattern ?? input?.query ?? input?.path;
+        
+        this.options.onLog('info', `Agent using tool: ${toolName}`);
+        this.options.onChatEvent?.({
+          id: toolId,
+          name: toolName,
+          summary: typeof key === 'string' ? key.substring(0, 200) : '',
+          status: 'running',
+          timestamp: new Date().toISOString(),
+        });
+        break;
+      }
+
+      case 'tool_result': {
+        const toolUseId = parsed.tool_use_id as string ?? '';
+        const content = parsed.content as string ?? '';
+        const isError = parsed.is_error as boolean ?? false;
+        
+        this.options.onChatEvent?.({
+          id: toolUseId,
+          name: 'tool',
+          summary: content.substring(0, 200),
+          status: isError ? 'error' : 'completed',
+          timestamp: new Date().toISOString(),
+        });
+        if (content) {
+          this.options.onLog('info', `Tool result: ${content.substring(0, 500)}`);
+        }
+        break;
+      }
+
+      case 'message': {
+        const content = parsed.content;
+        if (typeof content === 'string') {
+          this.options.onLog('info', `Agent: ${content.substring(0, 1000)}`);
+          this.options.onChatEvent?.({
+            id: randomUUID(),
+            role: 'assistant',
+            content: content,
+            timestamp: new Date().toISOString(),
+          });
+        }
+        break;
+      }
+
+      case 'result': {
+        const result = parsed.result as string | undefined;
+        if (result) {
+          this.options.onLog('info', `Result: ${result.substring(0, 500)}`);
+        }
+        break;
+      }
+
+      default:
+        // Log unknown JSON events as raw output
+        this.options.onLog('info', `CLI: ${JSON.stringify(parsed)}`);
+    }
+  }
+
+  /**
+   * Handles plain text terminal output from Copilot CLI.
+   * Format examples:
+   *   "● Read package.json" - tool start
+   *   "  └ 1 line read" - tool result summary
+   *   "  └ 4 files found" - glob result
+   *   "  └ 25 lines read" - read result
+   *   "`package.json` contenido:" - content header (sometimes)
+   *   "Total usage est:" - stats line
+   */
+  private handleCopilotTextOutput(line: string): void {
+    // Skip empty lines or purely decorative lines
+    if (!line || line.trim().length === 0) {
+      return;
+    }
+
+    // Match tool start: "● Read package.json"
+    const toolMatch = line.match(/^●\s+(\w+)\s+(.+)$/);
+    if (toolMatch && toolMatch[1] && toolMatch[2]) {
+      const toolName = toolMatch[1];
+      const toolArg = toolMatch[2].substring(0, 100);
+      const toolId = randomUUID();
+      this.lastCopilotToolName = toolName; // Save for result events
+
+      this.options.onLog('info', `Tool: ${toolName} ${toolArg}`);
+      this.options.onChatEvent?.({
+        id: toolId,
+        name: toolName,
+        summary: toolArg,
+        status: 'running',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    // Match tool result summary: "  └ 1 line read" or "  └ 4 files found"
+    const resultMatch = line.match(/^└\s+(.+)$/);
+    if (resultMatch && resultMatch[1]) {
+      const resultText = resultMatch[1];
+      const toolId = randomUUID();
+      const toolName = this.lastCopilotToolName || 'tool';
+
+      this.options.onLog('info', `Tool result: ${resultText}`);
+      this.options.onChatEvent?.({
+        id: toolId,
+        name: toolName,
+        summary: resultText.substring(0, 200),
+        status: 'completed',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    // Match command execution: "● Bash ls -la"
+    const bashMatch = line.match(/^●\s+Bash\s+(.+)$/);
+    if (bashMatch && bashMatch[1]) {
+      const command = bashMatch[1].substring(0, 100);
+      const toolId = randomUUID();
+      this.lastCopilotToolName = 'Bash';
+
+      this.options.onLog('info', `Tool: Bash ${command}`);
+      this.options.onChatEvent?.({
+        id: toolId,
+        name: 'Bash',
+        summary: command,
+        status: 'running',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    // Match command result: "  └ exit code 0" or "  └ 2 lines output"
+    const exitMatch = line.match(/^└\s+(exit code \d+|\d+ lines? (output|written|read|removed|moved)|successfully)$/i);
+    if (exitMatch && exitMatch[1]) {
+      const toolId = randomUUID();
+
+      this.options.onLog('info', `Tool result: ${exitMatch[1]}`);
+      this.options.onChatEvent?.({
+        id: toolId,
+        name: 'tool',
+        summary: exitMatch[1],
+        status: 'completed',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    // Match tool failure: "✗ Edit index.js"
+    const failMatch = line.match(/^✗\s+(\w+)\s+(.+)$/);
+    if (failMatch && failMatch[1] && failMatch[2]) {
+      const toolName = failMatch[1];
+      const toolArg = failMatch[2].substring(0, 100);
+      const toolId = randomUUID();
+      this.lastCopilotToolName = toolName;
+
+      this.options.onLog('warn', `Tool failed: ${toolName} ${toolArg}`);
+      this.options.onChatEvent?.({
+        id: toolId,
+        name: toolName,
+        summary: toolArg,
+        status: 'error',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    // Match standalone tool name (without ●): "Read", "Glob", "Grep", "Check", "List", "Create", "Edit"
+    const standaloneToolMatch = line.match(/^(Read|Glob|Grep|Check|List|Create|Edit|Write|Delete)$/);
+    if (standaloneToolMatch && standaloneToolMatch[1]) {
+      this.lastCopilotToolName = standaloneToolMatch[1];
+      // Just save the name, don't emit event yet - wait for args
+      return;
+    }
+
+    // Match tool with args on same line: "Check git status" or "Glob *"
+    const toolWithArgsMatch = line.match(/^(Read|Glob|Grep|Check|List|Create|Edit|Write|Delete)\s+(.+)$/);
+    if (toolWithArgsMatch && toolWithArgsMatch[1] && toolWithArgsMatch[2]) {
+      const toolName = toolWithArgsMatch[1];
+      const toolArg = toolWithArgsMatch[2].substring(0, 100);
+      const toolId = randomUUID();
+      this.lastCopilotToolName = toolName;
+
+      this.options.onLog('info', `Tool: ${toolName} ${toolArg}`);
+      this.options.onChatEvent?.({
+        id: toolId,
+        name: toolName,
+        summary: toolArg,
+        status: 'running',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    // Match just "tool" as status indicator (from Copilot's output format)
+    if (line === 'tool') {
+      // This is a status indicator, not a new tool - skip it
+      return;
+    }
+
+    // Match todo: "● Todo: Started: implement-change"
+    const todoMatch = line.match(/^●\s+Todo:\s+(.+)$/);
+    if (todoMatch && todoMatch[1]) {
+      this.options.onLog('info', `Todo: ${todoMatch[1]}`);
+      return;
+    }
+
+    // Match command execution: "$ node --version"
+    const cmdMatch = line.match(/^\$\s+(.+)$/);
+    if (cmdMatch && cmdMatch[1]) {
+      this.options.onLog('info', `Running: ${cmdMatch[1]}`);
+      return;
+    }
+
+    // Match permission denied or error messages
+    if (line.includes('Permission denied')) {
+      this.options.onLog('error', line);
+      return;
+    }
+
+    // Match confirmation prompts - these require user interaction which we can't provide
+    if (line.includes('Press') && (line.includes('Enter') || line.includes('y') || line.includes('return'))) {
+      this.options.onLog('warn', `CLI waiting for input: ${line}`);
+      return;
+    }
+
+    // Match "would you like" type prompts
+    if (line.match(/^\?Would you like/i) || line.match(/^[Yy]ou[r]?\s+[Oo]ption/i)) {
+      this.options.onLog('warn', `CLI waiting for input: ${line}`);
+      return;
+    }
+
+    // Match failed to apply patch
+    if (line.includes('Failed to apply patch')) {
+      this.options.onLog('error', line);
+      return;
+    }
+
+    // Skip stats lines and other non-tool output
+    if (line.startsWith('Total usage') || 
+        line.startsWith('API time spent') || 
+        line.startsWith('Total session') ||
+        line.startsWith('Total code changes') ||
+        line.startsWith('Breakdown by') ||
+        line.includes('```') ||
+        line.trim() === '```') {
+      return;
+    }
+
+    // Log other lines as info
+    this.options.onLog('info', `CLI: ${line}`);
   }
 
   /**

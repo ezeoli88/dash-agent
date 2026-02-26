@@ -72,7 +72,14 @@
       "WebFetch(domain:sentry.engineering)",
       "WebFetch(domain:deepwiki.com)",
       "Bash(npm pack:*)",
-      "Bash([ -d \"public\" ])"
+      "Bash([ -d \"public\" ])",
+      "Bash(python -m json.tool:*)",
+      "Bash(powershell -Command \"Get-Process -Id 24156 | Select-Object Id, ProcessName, Path\")",
+      "Bash(powershell -Command \"Get-NetTCPConnection -LocalPort 3000 | Select-Object LocalPort, OwningProcess, State\")",
+      "Bash(powershell -Command \"Get-Process -Id 24156 -ErrorAction SilentlyContinue | Select-Object Id, ProcessName, Path; if \\(-not $?\\) { Write-Output ''Process not found via Get-Process, trying CIM''; Get-CimInstance Win32_Process -Filter ''ProcessId=24156'' | Select-Object ProcessId, Name, CommandLine }\")",
+      "Bash(powershell -Command \"Get-CimInstance Win32_Process -Filter ''ProcessId=24156'' | Select-Object ProcessId, Name, CommandLine\")",
+      "Bash(powershell -Command:*)",
+      "Bash(kill:*)"
     ]
   },
   "enabledMcpjsonServers": []
