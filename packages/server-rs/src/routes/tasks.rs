@@ -304,9 +304,14 @@ async fn execute_task(
     }
 
     let is_retry = task.status == TaskStatus::Failed;
+    let is_resume = task.status == TaskStatus::ChangesRequested;
 
-    // Clear error on retry
-    if is_retry {
+    // Update status to 'planning' SYNCHRONOUSLY before responding.
+    // This ensures:
+    // 1. The frontend receives the updated status and can show logs (SSE connects on planning)
+    // 2. The Retry/Execute button is disabled immediately
+    // Also clear error on retry.
+    {
         let task_id = id.clone();
         state
             .db
@@ -315,7 +320,8 @@ async fn execute_task(
                     conn,
                     &task_id,
                     &UpdateTaskInput {
-                        error: Some(None),
+                        status: Some(TaskStatus::Planning),
+                        error: if is_retry { Some(None) } else { None },
                         ..Default::default()
                     },
                 )
@@ -323,14 +329,59 @@ async fn execute_task(
             .await?;
     }
 
+    // Emit SSE status event so the frontend updates immediately
+    state.sse_emitter.emit_status(&id, "planning").await;
+
     // Start agent in background
-    start_agent_for_task(&state, &id, &task).await?;
+    let state_clone = state.clone();
+    let id_clone = id.clone();
+    let task_clone = task.clone();
+    tokio::spawn(async move {
+        if let Err(e) = start_agent_for_task(&state_clone, &id_clone, &task_clone).await {
+            warn!(task_id = %id_clone, error = %e, "Agent failed to start on execute");
+
+            // Update task to failed
+            let tid = id_clone.clone();
+            let err_msg = e.to_string();
+            let _ = state_clone
+                .db
+                .call(move |conn| {
+                    task_service::update_task(
+                        conn,
+                        &tid,
+                        &UpdateTaskInput {
+                            status: Some(TaskStatus::Failed),
+                            error: Some(Some(err_msg)),
+                            ..Default::default()
+                        },
+                    )
+                })
+                .await;
+
+            state_clone
+                .sse_emitter
+                .emit_error(&id_clone, &e.to_string())
+                .await;
+            state_clone
+                .sse_emitter
+                .emit_status(&id_clone, "failed")
+                .await;
+            state_clone
+                .data_emitter
+                .emit_change("task", "updated", Some(&id_clone));
+        }
+    });
 
     state
         .data_emitter
         .emit_change("task", "updated", Some(&id));
 
-    Ok(Json(json!({ "status": "started", "message": "Agent started" })))
+    Ok(Json(json!({
+        "status": "started",
+        "task_status": "planning",
+        "message": if is_resume { "Agent resumed to address requested changes" } else { "Agent execution started" },
+        "resume_mode": is_resume,
+    })))
 }
 
 /// POST /api/tasks/:id/feedback - Send feedback to the agent during execution.
@@ -2122,7 +2173,7 @@ pub async fn start_agent_for_task(
 ///
 /// Similar to `start_agent_for_task` but uses `build_resume_prompt` instead
 /// of `build_task_prompt`, incorporating the user's feedback message.
-async fn resume_agent_for_task(
+pub async fn resume_agent_for_task(
     state: &AppState,
     task_id: &str,
     task: &crate::models::task::Task,

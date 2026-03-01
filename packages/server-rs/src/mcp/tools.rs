@@ -1,15 +1,15 @@
 //! MCP tool definitions and handlers.
 //!
 //! Each tool has a name, description, JSON Schema input definition, and an async
-//! handler that operates on [`AppState`]. Tools that require agent execution
-//! (start_task, approve_changes, send_feedback, approve_spec) are stubs in this
-//! phase -- they return a "not implemented" message.
+//! handler that operates on [`AppState`]. The tools mirror the TypeScript MCP
+//! implementation:
 //!
-//! The tools mirror the TypeScript MCP implementation:
 //! - Repository: `add_repository`, `list_repositories`
-//! - Tasks: `create_task`, `list_tasks`, `get_task`
-//! - Workflow stubs: `start_task`, `approve_spec`, `send_feedback`
+//! - Tasks: `create_task`, `list_tasks`, `get_task`, `update_task`, `delete_task`
+//! - Workflow: `start_task`, `execute_task`, `approve_spec`, `send_feedback`,
+//!   `extend_task_timeout`, `cancel_task`
 //! - Review: `get_changes`, `approve_changes`, `request_changes`
+//! - PR lifecycle: `mark_pr_merged`, `mark_pr_closed`
 //! - Status: `get_setup_status`
 
 use serde_json::{json, Value};
@@ -144,8 +144,65 @@ pub fn tool_definitions() -> Value {
                 }
             },
             {
+                "name": "update_task",
+                "description": "Update editable fields of an existing task. Only fields provided will be changed. Returns the updated task object.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "task_id": {
+                            "type": "string",
+                            "description": "Task UUID"
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "New task title"
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "New description"
+                        },
+                        "target_branch": {
+                            "type": "string",
+                            "description": "New target branch"
+                        },
+                        "context_files": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Updated context files"
+                        },
+                        "build_command": {
+                            "type": "string",
+                            "description": "Updated build command"
+                        },
+                        "agent_type": {
+                            "type": "string",
+                            "description": "Agent type override"
+                        },
+                        "agent_model": {
+                            "type": "string",
+                            "description": "Agent model override"
+                        }
+                    },
+                    "required": ["task_id"]
+                }
+            },
+            {
                 "name": "start_task",
                 "description": "Start a task that is in 'draft' or 'failed' status. Creates a feature branch and launches the agent in planning mode. The agent runs asynchronously; poll the task status to track progress.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "task_id": {
+                            "type": "string",
+                            "description": "Task UUID"
+                        }
+                    },
+                    "required": ["task_id"]
+                }
+            },
+            {
+                "name": "execute_task",
+                "description": "Execute a task that is in 'backlog', 'approved', 'failed', or 'changes_requested' status. For others, starts the planning agent. The agent runs asynchronously.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -191,6 +248,34 @@ pub fn tool_definitions() -> Value {
                         }
                     },
                     "required": ["task_id", "message"]
+                }
+            },
+            {
+                "name": "extend_task_timeout",
+                "description": "Extend the running agent's timeout by 5 minutes. Only valid when an agent is actively running for the task. Returns the new timeout timestamp.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "task_id": {
+                            "type": "string",
+                            "description": "Task UUID"
+                        }
+                    },
+                    "required": ["task_id"]
+                }
+            },
+            {
+                "name": "cancel_task",
+                "description": "Cancel the agent execution for a task. If the agent is running, kills the process. If the agent already exited but the task is stuck in an active status, resets to 'canceled'.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "task_id": {
+                            "type": "string",
+                            "description": "Task UUID"
+                        }
+                    },
+                    "required": ["task_id"]
                 }
             },
             {
@@ -307,9 +392,13 @@ pub async fn call_tool(state: &AppState, name: &str, args: Value) -> Value {
         "create_task" => handle_create_task(state, args).await,
         "list_tasks" => handle_list_tasks(state, args).await,
         "get_task" => handle_get_task(state, args).await,
+        "update_task" => handle_update_task(state, args).await,
         "start_task" => handle_start_task(state, args).await,
+        "execute_task" => handle_execute_task(state, args).await,
         "approve_spec" => handle_approve_spec(state, args).await,
         "send_feedback" => handle_send_feedback(state, args).await,
+        "extend_task_timeout" => handle_extend_task_timeout(state, args).await,
+        "cancel_task" => handle_cancel_task(state, args).await,
         "get_changes" => handle_get_changes(state, args).await,
         "approve_changes" => handle_approve_changes(state, args).await,
         "request_changes" => handle_request_changes(state, args).await,
@@ -352,18 +441,6 @@ fn tool_app_error(context: &str, err: AppError) -> Value {
     tool_error(&format!("{context}: {err}"))
 }
 
-/// Returns a "not implemented" stub result for tools that depend on agent services.
-fn tool_stub(tool_name: &str) -> Value {
-    json!({
-        "content": [{
-            "type": "text",
-            "text": serde_json::to_string_pretty(&json!({
-                "status": "not_implemented",
-                "message": format!("Tool '{tool_name}' is not yet implemented in the Rust server. Agent execution requires the CLI runner which is planned for a future phase.")
-            })).unwrap_or_default()
-        }]
-    })
-}
 
 // ============================================================================
 // Repository tools
@@ -617,8 +694,65 @@ async fn handle_get_task(state: &AppState, args: Value) -> Value {
     }
 }
 
+/// `update_task` - Update editable fields of an existing task.
+async fn handle_update_task(state: &AppState, args: Value) -> Value {
+    let task_id = match args["task_id"].as_str() {
+        Some(id) => id.to_string(),
+        None => return tool_error("Missing required parameter: task_id"),
+    };
+
+    let mut update = crate::models::task::UpdateTaskInput::default();
+
+    if let Some(title) = args["title"].as_str() {
+        update.title = Some(title.to_string());
+    }
+    if let Some(desc) = args["description"].as_str() {
+        update.description = Some(desc.to_string());
+    }
+    if let Some(branch) = args["target_branch"].as_str() {
+        update.target_branch = Some(branch.to_string());
+    }
+    if let Some(cmd) = args["build_command"].as_str() {
+        update.build_command = Some(Some(cmd.to_string()));
+    }
+    if let Some(agent) = args["agent_type"].as_str() {
+        update.agent_type = Some(Some(agent.to_string()));
+    }
+    if let Some(model) = args["agent_model"].as_str() {
+        update.agent_model = Some(Some(model.to_string()));
+    }
+    if let Some(files) = args["context_files"].as_array() {
+        let files_vec: Vec<String> = files
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect();
+        update.context_files = Some(files_vec);
+    }
+
+    let tid = task_id.clone();
+    let result = state
+        .db
+        .call(move |conn| {
+            let task = task_service::update_task(conn, &tid, &update)?;
+            serde_json::to_value(&task)
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("JSON error: {e}")))
+        })
+        .await;
+
+    match result {
+        Ok(data) => {
+            state
+                .data_emitter
+                .emit_change("task", "updated", Some(&task_id));
+            info!(id = %task_id, "update_task (MCP)");
+            tool_result(&data)
+        }
+        Err(e) => tool_app_error("Error updating task", e),
+    }
+}
+
 // ============================================================================
-// Workflow tools (stubs)
+// Workflow tools
 // ============================================================================
 
 /// `start_task` - Start a task (draft/failed → planning), spawn agent.
@@ -700,6 +834,117 @@ async fn handle_start_task(state: &AppState, args: Value) -> Value {
     tool_result(&json!({ "status": "started", "message": "Agent started" }))
 }
 
+/// `execute_task` - Execute a task from backlog/approved/failed/changes_requested.
+///
+/// Mirrors the TS `/execute` endpoint and the frontend retry button behavior.
+async fn handle_execute_task(state: &AppState, args: Value) -> Value {
+    let task_id = match args.get("task_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => return tool_error("task_id is required"),
+    };
+
+    // Load task
+    let tid = task_id.clone();
+    let task = match state
+        .db
+        .call(move |conn| task_service::get_task_by_id(conn, &tid))
+        .await
+    {
+        Ok(t) => t,
+        Err(e) => return tool_app_error("execute_task", e),
+    };
+
+    // Validate status
+    let valid_statuses = [
+        TaskStatus::Backlog,
+        TaskStatus::Approved,
+        TaskStatus::Failed,
+        TaskStatus::ChangesRequested,
+    ];
+    if !valid_statuses.contains(&task.status) {
+        return tool_error(&format!(
+            "Cannot execute task with status: {}. Valid statuses: backlog, approved, failed, changes_requested",
+            task.status.as_str()
+        ));
+    }
+
+    let is_retry = task.status == TaskStatus::Failed;
+    let is_resume = task.status == TaskStatus::ChangesRequested;
+
+    // Update status to planning synchronously + clear error on retry
+    let tid = task_id.clone();
+    if let Err(e) = state
+        .db
+        .call(move |conn| {
+            task_service::update_task(
+                conn,
+                &tid,
+                &crate::models::task::UpdateTaskInput {
+                    status: Some(TaskStatus::Planning),
+                    error: if is_retry { Some(None) } else { None },
+                    ..Default::default()
+                },
+            )
+        })
+        .await
+    {
+        return tool_app_error("execute_task", e);
+    }
+
+    state.sse_emitter.emit_status(&task_id, "planning").await;
+
+    // Start agent in background
+    let state_clone = state.clone();
+    let id_clone = task_id.clone();
+    let task_clone = task.clone();
+    tokio::spawn(async move {
+        if let Err(e) =
+            crate::routes::tasks::start_agent_for_task(&state_clone, &id_clone, &task_clone).await
+        {
+            warn!(task_id = %id_clone, error = %e, "Failed to start agent (MCP execute_task)");
+            let tid = id_clone.clone();
+            let err_msg = e.to_string();
+            let _ = state_clone
+                .db
+                .call(move |conn| {
+                    task_service::update_task(
+                        conn,
+                        &tid,
+                        &crate::models::task::UpdateTaskInput {
+                            status: Some(TaskStatus::Failed),
+                            error: Some(Some(err_msg)),
+                            ..Default::default()
+                        },
+                    )
+                })
+                .await;
+            state_clone
+                .sse_emitter
+                .emit_status(&id_clone, "failed")
+                .await;
+            state_clone
+                .sse_emitter
+                .emit_error(&id_clone, &e.to_string())
+                .await;
+            state_clone
+                .data_emitter
+                .emit_change("task", "updated", Some(&id_clone));
+        }
+    });
+
+    state
+        .data_emitter
+        .emit_change("task", "updated", Some(&task_id));
+    info!(id = %task_id, is_resume, "execute_task (MCP)");
+
+    tool_result(&json!({
+        "status": "started",
+        "task_status": "planning",
+        "message": if is_resume { "Agent resumed to address requested changes" } else { "Agent execution started" },
+        "resume_mode": is_resume,
+    }))
+}
+
 /// `approve_spec` - Approve a generated spec for a task.
 async fn handle_approve_spec(state: &AppState, args: Value) -> Value {
     let task_id = match args["task_id"].as_str() {
@@ -736,9 +981,326 @@ async fn handle_approve_spec(state: &AppState, args: Value) -> Value {
     }
 }
 
-/// `send_feedback` - STUB: Agent communication not yet implemented.
-async fn handle_send_feedback(_state: &AppState, _args: Value) -> Value {
-    tool_stub("send_feedback")
+/// `send_feedback` - Send feedback to a running agent or resume an idle agent.
+async fn handle_send_feedback(state: &AppState, args: Value) -> Value {
+    let task_id = match args.get("task_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => return tool_error("task_id is required"),
+    };
+    let message = match args.get("message").and_then(|v| v.as_str()) {
+        Some(m) if !m.is_empty() => m.to_string(),
+        _ => return tool_error("message is required"),
+    };
+
+    // Load task
+    let tid = task_id.clone();
+    let task = match state
+        .db
+        .call(move |conn| task_service::get_task_by_id(conn, &tid))
+        .await
+    {
+        Ok(t) => t,
+        Err(e) => return tool_app_error("send_feedback", e),
+    };
+
+    // If agent is running, send feedback directly
+    if state.agent_service.is_running(&task_id).await {
+        let _ = state.agent_service.send_feedback(&task_id, &message).await;
+        state
+            .data_emitter
+            .emit_change("task", "updated", Some(&task_id));
+        info!(id = %task_id, "send_feedback direct (MCP)");
+        return tool_result(&json!({ "status": "feedback_sent" }));
+    }
+
+    // Agent is NOT running — check if task is in a terminal/draft state
+    let terminal = ["done", "failed", "draft"];
+    if terminal.contains(&task.status.as_str()) {
+        return tool_error(&format!(
+            "Task is in '{}' status. Cannot send feedback to a terminal/draft task. Use execute_task to retry from 'failed', or create a new task.",
+            task.status
+        ));
+    }
+
+    // plan_review: approve the plan
+    if task.status == TaskStatus::PlanReview {
+        // Store user message in SSE history
+        state
+            .sse_emitter
+            .store_event(
+                &task_id,
+                crate::utils::SSEEvent {
+                    event_type: crate::utils::SSEEventType::ChatMessage,
+                    data: json!({
+                        "id": uuid::Uuid::new_v4().to_string(),
+                        "role": "user",
+                        "message": message,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    }),
+                },
+            )
+            .await;
+
+        // Approve plan = resume agent
+        let tid = task_id.clone();
+        if let Err(e) = state
+            .db
+            .call(move |conn| {
+                task_service::update_task(
+                    conn,
+                    &tid,
+                    &crate::models::task::UpdateTaskInput {
+                        status: Some(TaskStatus::Planning),
+                        ..Default::default()
+                    },
+                )
+            })
+            .await
+        {
+            return tool_app_error("send_feedback (plan_approve)", e);
+        }
+        state
+            .sse_emitter
+            .emit_status(&task_id, "planning")
+            .await;
+
+        // Resume agent in background
+        let state_clone = state.clone();
+        let id_clone = task_id.clone();
+        let task_clone = task.clone();
+        let msg = message.clone();
+        tokio::spawn(async move {
+            if let Err(e) =
+                crate::routes::tasks::resume_agent_for_task(&state_clone, &id_clone, &task_clone, &msg)
+                    .await
+            {
+                warn!(task_id = %id_clone, error = %e, "Failed to resume agent (MCP send_feedback plan)");
+                let tid = id_clone.clone();
+                let err_msg = e.to_string();
+                let _ = state_clone
+                    .db
+                    .call(move |conn| {
+                        task_service::update_task(
+                            conn,
+                            &tid,
+                            &crate::models::task::UpdateTaskInput {
+                                status: Some(TaskStatus::Failed),
+                                error: Some(Some(err_msg)),
+                                ..Default::default()
+                            },
+                        )
+                    })
+                    .await;
+                state_clone
+                    .sse_emitter
+                    .emit_status(&id_clone, "failed")
+                    .await;
+                state_clone
+                    .sse_emitter
+                    .emit_error(&id_clone, &e.to_string())
+                    .await;
+            }
+        });
+
+        state
+            .data_emitter
+            .emit_change("task", "updated", Some(&task_id));
+        info!(id = %task_id, "send_feedback plan_approved (MCP)");
+        return tool_result(&json!({
+            "status": "plan_approved",
+            "message": "Plan approved. Agent is implementing...",
+        }));
+    }
+
+    // Otherwise: store message and resume agent
+    state
+        .sse_emitter
+        .store_event(
+            &task_id,
+            crate::utils::SSEEvent {
+                event_type: crate::utils::SSEEventType::ChatMessage,
+                data: json!({
+                    "id": uuid::Uuid::new_v4().to_string(),
+                    "role": "user",
+                    "message": message,
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                }),
+            },
+        )
+        .await;
+
+    let tid = task_id.clone();
+    let _ = state
+        .db
+        .call(move |conn| {
+            task_service::update_task(
+                conn,
+                &tid,
+                &crate::models::task::UpdateTaskInput {
+                    status: Some(TaskStatus::Planning),
+                    ..Default::default()
+                },
+            )
+        })
+        .await;
+    state
+        .sse_emitter
+        .emit_status(&task_id, "planning")
+        .await;
+
+    // Resume agent in background
+    let state_clone = state.clone();
+    let id_clone = task_id.clone();
+    let task_clone = task.clone();
+    let msg = message.clone();
+    tokio::spawn(async move {
+        if let Err(e) =
+            crate::routes::tasks::resume_agent_for_task(&state_clone, &id_clone, &task_clone, &msg)
+                .await
+        {
+            warn!(task_id = %id_clone, error = %e, "Failed to resume agent (MCP send_feedback)");
+            let tid = id_clone.clone();
+            let err_msg = e.to_string();
+            let _ = state_clone
+                .db
+                .call(move |conn| {
+                    task_service::update_task(
+                        conn,
+                        &tid,
+                        &crate::models::task::UpdateTaskInput {
+                            status: Some(TaskStatus::Failed),
+                            error: Some(Some(err_msg)),
+                            ..Default::default()
+                        },
+                    )
+                })
+                .await;
+            state_clone
+                .sse_emitter
+                .emit_status(&id_clone, "failed")
+                .await;
+            state_clone
+                .sse_emitter
+                .emit_error(&id_clone, &e.to_string())
+                .await;
+        }
+    });
+
+    state
+        .data_emitter
+        .emit_change("task", "updated", Some(&task_id));
+    info!(id = %task_id, "send_feedback agent_resumed (MCP)");
+    tool_result(&json!({
+        "status": "agent_resumed",
+        "message": "Agent resumed with your message",
+    }))
+}
+
+/// `extend_task_timeout` - Extend a running agent's timeout by 5 minutes.
+async fn handle_extend_task_timeout(state: &AppState, args: Value) -> Value {
+    let task_id = match args.get("task_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => return tool_error("task_id is required"),
+    };
+
+    // Verify task exists
+    let tid = task_id.clone();
+    if let Err(e) = state
+        .db
+        .call(move |conn| task_service::get_task_by_id(conn, &tid))
+        .await
+    {
+        return tool_app_error("extend_task_timeout", e);
+    }
+
+    if !state.agent_service.is_running(&task_id).await {
+        return tool_error("No agent is currently running for this task. Use get_task to check current task status.");
+    }
+
+    match state.agent_service.extend_timeout(&task_id).await {
+        Ok(new_timeout) => {
+            let secs_from_now = new_timeout
+                .saturating_duration_since(tokio::time::Instant::now())
+                .as_secs();
+            info!(id = %task_id, "extend_task_timeout (MCP)");
+            tool_result(&json!({
+                "status": "extended",
+                "extended_by_seconds": 300,
+                "new_timeout_in_seconds": secs_from_now,
+            }))
+        }
+        Err(e) => tool_app_error("extend_task_timeout", e),
+    }
+}
+
+/// `cancel_task` - Cancel agent execution for a task.
+async fn handle_cancel_task(state: &AppState, args: Value) -> Value {
+    let task_id = match args.get("task_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => return tool_error("task_id is required"),
+    };
+
+    // Load task
+    let tid = task_id.clone();
+    let task = match state
+        .db
+        .call(move |conn| task_service::get_task_by_id(conn, &tid))
+        .await
+    {
+        Ok(t) => t,
+        Err(e) => return tool_app_error("cancel_task", e),
+    };
+
+    // If agent is running, cancel it
+    if state.agent_service.is_running(&task_id).await {
+        let _ = state.agent_service.cancel_agent(&task_id).await;
+        state
+            .data_emitter
+            .emit_change("task", "updated", Some(&task_id));
+        info!(id = %task_id, "cancel_task (MCP)");
+        return tool_result(&json!({ "status": "canceled" }));
+    }
+
+    // Agent not running but task is stuck in an active status
+    let active_statuses = [
+        "planning",
+        "in_progress",
+        "coding",
+        "plan_review",
+        "approved",
+        "awaiting_review",
+        "merge_conflicts",
+    ];
+    if active_statuses.contains(&task.status.as_str()) {
+        let tid = task_id.clone();
+        let _ = state
+            .db
+            .call(move |conn| {
+                task_service::update_task(
+                    conn,
+                    &tid,
+                    &crate::models::task::UpdateTaskInput {
+                        status: Some(TaskStatus::Canceled),
+                        error: Some(Some(
+                            "Task canceled by user (agent not running)".to_string(),
+                        )),
+                        ..Default::default()
+                    },
+                )
+            })
+            .await;
+        state
+            .sse_emitter
+            .emit_status(&task_id, "canceled")
+            .await;
+        state
+            .data_emitter
+            .emit_change("task", "updated", Some(&task_id));
+        info!(id = %task_id, "cancel_task stuck (MCP)");
+        return tool_result(&json!({ "status": "canceled" }));
+    }
+
+    tool_error("No agent is currently running for this task. Use get_task to check current task status.")
 }
 
 // ============================================================================

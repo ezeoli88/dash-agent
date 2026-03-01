@@ -501,6 +501,10 @@ impl CLIAgentRunner {
             cmd.creation_flags(0x0800_0000_u32); // CREATE_NO_WINDOW
         }
 
+        // Remove CLAUDECODE env var to prevent nested-session detection when
+        // the server itself runs inside a Claude Code session (e.g. during dev/testing).
+        cmd.env_remove("CLAUDECODE");
+
         let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
