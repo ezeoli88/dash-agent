@@ -34,18 +34,13 @@
     "build:dashboard": "npm run build -w @dash-agent/dashboard",
     "dev:dashboard": "npm run dev -w @dash-agent/dashboard",
     "dev:server": "npm run dev -w @dash-agent/server",
+    "dev:server-rs": "cargo run --manifest-path packages/server-rs/Cargo.toml -- --port 8080 --no-open --no-pause-on-error --database-path packages/server/data/agent-board.db",
     "dev": "npm run build:shared && npm run dev:server & npm run dev:dashboard",
     "build": "npm run build:shared && npm run build:server && npm run build:dashboard",
     "lint": "npm run lint --workspaces --if-present",
     "clean": "npm run clean -w @dash-agent/shared",
-    "build:binary:linux-x64": "bun build packages/server/src/bin.ts --compile --target=bun-linux-x64 --outfile dist/linux-x64/agent-board",
-    "build:binary:macos-x64": "bun build packages/server/src/bin.ts --compile --target=bun-darwin-x64 --outfile dist/macos-x64/agent-board",
-    "build:binary:macos-arm64": "bun build packages/server/src/bin.ts --compile --target=bun-darwin-arm64 --outfile dist/macos-arm64/agent-board",
-    "build:binary:win-x64": "bun build packages/server/src/bin.ts --compile --target=bun-windows-x64 --outfile dist/win-x64/agent-board.exe",
-    "bundle:win-x64": "npm run build && npm run build:binary:win-x64 && node -e \"const{cpSync}=require('fs');cpSync('packages/dashboard/dist','dist/win-x64/public',{recursive:true});cpSync('node_modules/sql.js/dist/sql-wasm.wasm','dist/win-x64/sql-wasm.wasm')\" && echo Done: dist/win-x64/",
-    "bundle:linux-x64": "npm run build && npm run build:binary:linux-x64 && node -e \"const{cpSync}=require('fs');cpSync('packages/dashboard/dist','dist/linux-x64/public',{recursive:true});cpSync('node_modules/sql.js/dist/sql-wasm.wasm','dist/linux-x64/sql-wasm.wasm')\" && echo Done: dist/linux-x64/",
-    "bundle:macos-x64": "npm run build && npm run build:binary:macos-x64 && node -e \"const{cpSync}=require('fs');cpSync('packages/dashboard/dist','dist/macos-x64/public',{recursive:true});cpSync('node_modules/sql.js/dist/sql-wasm.wasm','dist/macos-x64/sql-wasm.wasm')\" && echo Done: dist/macos-x64/",
-    "bundle:macos-arm64": "npm run build && npm run build:binary:macos-arm64 && node -e \"const{cpSync}=require('fs');cpSync('packages/dashboard/dist','dist/macos-arm64/public',{recursive:true});cpSync('node_modules/sql.js/dist/sql-wasm.wasm','dist/macos-arm64/sql-wasm.wasm')\" && echo Done: dist/macos-arm64/"
+    "build:rust": "cd packages/server-rs && cargo build --release",
+    "bundle:local": "npm run build && npm run build:rust && node -e \"const{cpSync,mkdirSync}=require('fs');const d='dist/local';mkdirSync(d+'/public',{recursive:true});cpSync('packages/dashboard/dist',d+'/public',{recursive:true});console.log('Bundle ready at '+d+'/');\""
   },
   "engines": {
     "node": ">=18.0.0"

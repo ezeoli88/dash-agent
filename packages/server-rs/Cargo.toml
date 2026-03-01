@@ -1,0 +1,63 @@
+[package]
+name = "agent-board"
+version = "0.2.14"
+edition = "2021"
+
+[dependencies]
+# Web framework
+axum = { version = "0.8", features = ["json", "query"] }
+tower = { version = "0.5", features = ["util", "timeout"] }
+tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
+tokio = { version = "1", features = ["full"] }
+
+# Database
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Crypto
+aes-gcm = "0.10"
+pbkdf2 = "0.12"
+sha2 = "0.10"
+rand = "0.8"
+hex = "0.4"
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# UUID
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Async utilities
+tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+futures = "0.3"
+
+# CLI args
+clap = { version = "4", features = ["derive"] }
+
+# URL parsing
+url = "2"
+
+# Regex (lightweight, no Unicode tables)
+regex-lite = "0.1"
+
+# URL encoding
+urlencoding = "2"
+
+# Misc
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+anyhow = "1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true

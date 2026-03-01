@@ -1,3 +1,6 @@
+# Rust
+target/
+
 # Dependencies
 node_modules/
 .pnp
@@ -13,16 +16,18 @@ out/
 # Environment variables
 .env
 .env.local
+.env.development
 .env.development.local
 .env.test.local
 .env.production.local
 .env*.local
 
-# Agent data (worktrees, repos, database)
+# Agent data (worktrees, repos, database, encryption keys)
 **/agent-board/data/
 **/data/worktrees/
 **/data/repos/
 **/data/*.db
+**/data/encryption.key
 *.sqlite
 *.sqlite3
 
@@ -60,6 +65,7 @@ temp/
 .Spotlight-V100
 .Trashes
 ehthumbs.db
+nul
 
 # Debug
 .debug/

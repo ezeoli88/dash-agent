@@ -33,6 +33,33 @@ After any CLI-specific change:
 2. Confirm other CLI cases remain untouched
 3. Check that output parser routing in `parseOutputLine()` correctly maps each agent type
 
+## Local Binary Testing (Rust Server)
+
+After implementing a feature in `packages/server-rs/`, follow these steps to test it locally:
+
+1. **Build** the release binary:
+   ```bash
+   cd packages/server-rs && cargo build --release
+   ```
+2. **Kill** any running instance:
+   ```bash
+   tasklist | grep -i agent-board
+   taskkill //PID {PID} //F
+   ```
+3. **Copy** the binary to the local alias path:
+   ```bash
+   cp packages/server-rs/target/release/agent-board.exe dist/local/agent-board.exe
+   ```
+4. **Start** the server:
+   ```bash
+   ai-agent-board
+   ```
+
+The bash alias is defined in `~/.bashrc`:
+```bash
+ai-agent-board() { __BIN_MODE__=1 /c/ezequiel/dashboard-agentic/dist/local/agent-board.exe "$@"; }
+```
+
 ## Release & Publishing Pipeline
 
 ### Overview
