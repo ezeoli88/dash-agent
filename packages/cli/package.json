@@ -1,6 +1,6 @@
 {
   "name": "ai-agent-board",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "description": "Dashboard for managing autonomous AI agent tasks — run with npx agent-board",
   "bin": {
@@ -23,11 +23,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ezeoli88/dash-agent.git"
+    "url": "git+https://github.com/ezeoli88/ai-agent-board.git"
   },
-  "homepage": "https://github.com/ezeoli88/dash-agent#readme",
+  "homepage": "https://github.com/ezeoli88/ai-agent-board#readme",
   "bugs": {
-    "url": "https://github.com/ezeoli88/dash-agent/issues"
+    "url": "https://github.com/ezeoli88/ai-agent-board/issues"
   },
   "dependencies": {
     "adm-zip": "^0.5.16"

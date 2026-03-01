@@ -4,7 +4,7 @@
 
 **A visual dashboard for managing autonomous AI coding agents.**
 
-Kanban board &bull; Real-time chat &bull; Diff review &bull; One-click PRs
+Kanban board &bull; Real-time chat &bull; Diff review &bull; One-click PRs &bull; MCP integration
 
 [![npm version](https://img.shields.io/npm/v/ai-agent-board?color=blue&label=npm)](https://www.npmjs.com/package/ai-agent-board)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -22,6 +22,8 @@ Kanban board &bull; Real-time chat &bull; Diff review &bull; One-click PRs
 
 `agent-board` is a local web dashboard that lets you **create tasks**, **assign them to AI coding agents**, and **monitor everything** from a Kanban-style interface — real-time execution logs, live chat with the agent, code diffs, and automatic PR creation.
 
+It ships as a single **native binary** (~8 MB) — no runtime dependencies, instant startup.
+
 It auto-detects the coding CLIs you already have installed:
 
 | Agent | Command | Notes |
@@ -29,6 +31,7 @@ It auto-detects the coding CLIs you already have installed:
 | **Claude Code** | `claude` | Requires Anthropic API key or CLI login |
 | **Codex** | `codex` | Requires OpenAI API key or CLI login |
 | **Gemini** | `gemini` | Requires Google API key or CLI login |
+| **GitHub Copilot** | `copilot` | Requires GitHub Copilot subscription |
 | **OpenRouter** | _(API)_ | Use any model via OpenRouter API key |
 
 > No CLI installed? Use **OpenRouter** to access 100+ models through the API without any CLI setup.
@@ -89,6 +92,14 @@ Review all code changes before they go anywhere. Inline diff viewer shows exactl
 - **GitLab** &mdash; connect via Personal Access Token
 - **Merge conflict resolution** &mdash; open VS Code directly at the worktree to resolve conflicts
 
+### MCP Integration
+
+`agent-board` exposes a [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server, allowing AI assistants like Claude Code to manage tasks programmatically:
+
+- Create, list, update, and delete tasks and repositories
+- Start agents, send feedback, approve or request changes
+- Review diffs and manage PRs &mdash; all through MCP tool calls
+
 ### Repository Management
 
 - Scan your filesystem to discover local git repositories
@@ -97,7 +108,7 @@ Review all code changes before they go anywhere. Inline diff viewer shows exactl
 
 ### Credential Management
 
-API keys and tokens are stored locally with encryption. Connect your providers from the Settings page &mdash; no `.env` files needed.
+API keys and tokens are stored locally with AES-256-GCM encryption. Connect your providers from the Settings page &mdash; no `.env` files needed.
 
 ### Dark Mode
 
@@ -105,9 +116,9 @@ Full light and dark theme support. Automatically follows your system preference.
 
 ## How It Works
 
-`agent-board` runs a lightweight local server that:
+`agent-board` runs a native server binary that:
 
-1. **Detects** which AI coding CLIs you have installed (Claude Code, Codex, Gemini) or uses your OpenRouter API key
+1. **Detects** which AI coding CLIs you have installed (Claude Code, Codex, Gemini, Copilot) or uses your OpenRouter API key
 2. **Assigns** a coding agent to work on your task in an isolated git worktree
 3. **Streams** real-time output, chat messages, and tool activity to the browser via SSE
 4. **Isolates** code changes in git worktrees &mdash; your main branch is never at risk
@@ -133,24 +144,24 @@ All data is stored in a local SQLite database. Nothing leaves your machine excep
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                     ai-agent-board                        │
-│                                                           │
-│  ┌──────────────┐  ┌───────────────┐  ┌───────────────┐  │
-│  │  Dashboard    │  │    Server     │  │    Shared     │  │
-│  │  React 19     │◄─┤  Express API  │  │  Zod Schemas  │  │
-│  │  Vite 7       │  │  Bun runtime  │  │  TypeScript   │  │
-│  │  TanStack     │  │  SQLite WASM  │  │  Types        │  │
-│  │  Tailwind 4   │  │  SSE + Chat   │  │               │  │
-│  └──────────────┘  └───────┬───────┘  └───────────────┘  │
-│                            │                              │
-│               ┌────────────┴────────────┐                 │
-│               │    Agent Orchestrator   │                 │
-│               │   Task ──▶ AI Agent    │                 │
-│               └────────────┬────────────┘                 │
-│                            │                              │
-│            ┌───────────┬───┴───┬────────────┐             │
-│            ▼           ▼       ▼            ▼             │
-│        claude       codex   gemini     OpenRouter         │
+│                     ai-agent-board                       │
+│                                                          │
+│  ┌──────────────┐  ┌───────────────┐  ┌───────────────┐ │
+│  │  Dashboard    │  │  Server (Rust)│  │    Shared     │ │
+│  │  React 19     │◄─┤  Axum + Tokio │  │  Zod Schemas  │ │
+│  │  Vite 7       │  │  rusqlite     │  │  TypeScript   │ │
+│  │  TanStack     │  │  SSE + Chat   │  │  Types        │ │
+│  │  Tailwind 4   │  │  MCP Server   │  │               │ │
+│  └──────────────┘  └───────┬───────┘  └───────────────┘ │
+│                            │                             │
+│               ┌────────────┴────────────┐                │
+│               │    Agent Orchestrator   │                │
+│               │   Task ──▶ AI Agent     │                │
+│               └────────────┬────────────┘                │
+│                            │                             │
+│         ┌──────────┬───────┼────────┬──────────┐         │
+│         ▼          ▼       ▼        ▼          ▼         │
+│     claude      codex   gemini   copilot   OpenRouter    │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -159,41 +170,38 @@ All data is stored in a local SQLite database. Nothing leaves your machine excep
 | Layer | Technologies |
 |-------|-------------|
 | **Frontend** | React 19, Vite 7, TypeScript, Tailwind CSS 4, shadcn/ui, TanStack Router & Query, Zustand |
-| **Backend** | Express, Bun, TypeScript, sql.js (SQLite via WASM), SSE |
+| **Backend** | Rust, Axum, Tokio, rusqlite (bundled SQLite), SSE, MCP |
 | **Shared** | Zod schemas, TypeScript types, npm workspaces |
-| **CLI** | Lightweight npx wrapper, platform-specific binary distribution via Cloudflare R2 |
+| **CLI** | Lightweight npx wrapper, platform-specific native binary distribution via Cloudflare R2 |
 
 ### Key Design Decisions
 
+- **Rust backend** &mdash; single native binary (~8 MB), instant startup, low memory usage, no runtime dependencies
 - **SSE over WebSockets** &mdash; unidirectional streaming is sufficient for logs and chat; simpler, works with any proxy, and browsers auto-reconnect
-- **SQLite (WASM)** &mdash; zero-config embedded database, no external server needed, cross-platform via WebAssembly
+- **Bundled SQLite** &mdash; zero-config embedded database compiled into the binary, no external server needed
 - **Git worktrees** &mdash; agent works in isolated worktrees so your main branch is never at risk
-- **npx distribution** &mdash; single command to run, binary auto-downloaded and cached per platform
+- **npx distribution** &mdash; single command to run, native binary auto-downloaded and cached per platform
+- **MCP server** &mdash; enables AI assistants to create tasks, manage repos, and orchestrate agents programmatically
 
 ## Development
 
 ```bash
 # Clone and install
-git clone https://github.com/ezeoli88/dash-agent.git
-cd dash-agent
+git clone https://github.com/ezeoli88/ai-agent-board.git
+cd ai-agent-board
 npm install
 
-# Run in development mode (server + dashboard)
-npm run dev
+# Run dashboard in development mode
+npm run dev:dashboard
 
-# Build all packages (shared → server → dashboard)
-npm run build
+# Run Rust server in development mode
+npm run dev:server-rs
 
-# Build specific packages
-npm run build:shared
-npm run build:server
+# Build frontend
 npm run build:dashboard
 
-# Build standalone binaries
-npm run build:binary:linux-x64
-npm run build:binary:macos-x64
-npm run build:binary:macos-arm64
-npm run build:binary:win-x64
+# Build Rust server (release)
+cd packages/server-rs && cargo build --release
 ```
 
 The dashboard dev server runs on **port 3003** and the backend on **port 51767**. Vite proxies `/api` requests to the server automatically.
