@@ -48,6 +48,7 @@ dependencies = [
  "clap",
  "futures",
  "hex",
+ "libc",
  "pbkdf2",
  "rand 0.8.5",
  "regex-lite",
