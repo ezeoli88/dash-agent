@@ -1,6 +1,6 @@
 {
   "name": "ai-agent-board",
-  "version": "0.2.13",
+  "version": "0.3.0",
   "type": "module",
   "description": "Dashboard for managing autonomous AI agent tasks — run with npx agent-board",
   "bin": {
