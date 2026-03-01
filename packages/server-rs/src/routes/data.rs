@@ -60,7 +60,7 @@ fn table_column_whitelist() -> HashMap<&'static str, &'static [&'static str]> {
     );
     m.insert(
         "task_logs",
-        ["id", "task_id", "timestamp", "level", "message"].as_slice(),
+        ["id", "task_id", "timestamp", "level", "message", "event_type", "event_data"].as_slice(),
     );
     m.insert(
         "repositories",

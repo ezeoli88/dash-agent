@@ -26,11 +26,13 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::error::AppError;
 use crate::services::settings_service;
 use crate::AppState;
+
+const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
 
 // ============================================================================
 // Request/Response Types
@@ -59,6 +61,13 @@ struct ValidateAIKeyRequest {
     provider: Option<String>,
     #[serde(rename = "apiKey")]
     api_key: Option<String>,
+}
+
+/// POST /setup/validate-openrouter-key request body.
+#[derive(Debug, Deserialize)]
+struct ValidateOpenRouterKeyRequest {
+    #[serde(rename = "apiKey")]
+    api_key: String,
 }
 
 // ============================================================================
@@ -95,11 +104,14 @@ pub fn router() -> Router<AppState> {
 
 /// GET /api/setup/agents
 ///
-/// Returns detected installed coding CLI agents.
-async fn get_agents() -> Result<impl IntoResponse, AppError> {
+/// Returns detected installed coding CLI agents plus API-based agents (OpenRouter).
+async fn get_agents(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
     info!("GET /setup/agents");
 
-    let agents = crate::services::agent_detection_service::detect_installed_agents().await;
+    let agents =
+        crate::services::agent_detection_service::detect_installed_agents(Some(&state.db)).await;
 
     info!(count = agents.len(), "Agents detected");
     Ok(Json(json!({ "agents": agents })))
@@ -223,26 +235,189 @@ async fn validate_ai_key(
 
 /// POST /api/setup/validate-openrouter-key
 ///
-/// Validates an OpenRouter API key. Currently a stub.
-async fn validate_openrouter_key() -> Result<impl IntoResponse, AppError> {
-    info!("POST /setup/validate-openrouter-key (stub)");
+/// Validates an OpenRouter API key by fetching the models list.
+/// Returns the full model list and a filtered free-models subset.
+async fn validate_openrouter_key(
+    Json(body): Json<ValidateOpenRouterKeyRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    info!("POST /setup/validate-openrouter-key");
 
-    Ok(Json(json!({
-        "valid": false,
-        "error": "OpenRouter key validation not implemented yet in Rust server",
-    })))
+    if body.api_key.is_empty() {
+        return Ok(Json(json!({ "valid": false, "error": "API key is required" })));
+    }
+
+    match fetch_openrouter_models(&body.api_key).await {
+        Ok(models) => {
+            let free_models = filter_free_models(&models);
+            let mapped: Vec<serde_json::Value> = models
+                .iter()
+                .map(|m| json!({ "id": m.id, "name": m.name, "pricing": m.pricing }))
+                .collect();
+            let free_mapped: Vec<serde_json::Value> = free_models
+                .iter()
+                .map(|m| json!({ "id": m.id, "name": m.name, "pricing": m.pricing }))
+                .collect();
+
+            Ok(Json(json!({
+                "valid": true,
+                "models": mapped,
+                "freeModels": free_mapped,
+            })))
+        }
+        Err(e) => {
+            warn!(error = %e, "OpenRouter key validation failed");
+            let error_msg = e.to_string();
+            if error_msg.contains("401") {
+                Ok(Json(json!({
+                    "valid": false,
+                    "error": "Invalid API key. Please check your key and try again.",
+                })))
+            } else {
+                Ok(Json(json!({ "valid": false, "error": error_msg })))
+            }
+        }
+    }
 }
 
 /// GET /api/setup/openrouter-models
 ///
-/// Returns available OpenRouter models. Currently a stub.
-async fn get_openrouter_models() -> Result<impl IntoResponse, AppError> {
-    info!("GET /setup/openrouter-models (stub)");
+/// Returns available OpenRouter models using the stored API key.
+async fn get_openrouter_models(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    info!("GET /setup/openrouter-models");
 
-    Ok(Json(json!({
-        "models": [],
-        "freeModels": [],
-    })))
+    // Read stored API key from secrets
+    let api_key_opt = state
+        .db
+        .call(|conn| {
+            crate::services::secrets_service::get_secret(conn, "ai_api_key", Some("openrouter"))
+        })
+        .await?;
+
+    let api_key = match api_key_opt {
+        Some(key) => key,
+        None => {
+            return Ok(Json(json!({
+                "models": [],
+                "freeModels": [],
+                "error": "No OpenRouter API key configured",
+            })));
+        }
+    };
+
+    match fetch_openrouter_models(&api_key).await {
+        Ok(models) => {
+            let free_models = filter_free_models(&models);
+            let mapped: Vec<serde_json::Value> = models
+                .iter()
+                .map(|m| json!({ "id": m.id, "name": m.name, "pricing": m.pricing }))
+                .collect();
+            let free_mapped: Vec<serde_json::Value> = free_models
+                .iter()
+                .map(|m| json!({ "id": m.id, "name": m.name, "pricing": m.pricing }))
+                .collect();
+
+            Ok(Json(json!({
+                "models": mapped,
+                "freeModels": free_mapped,
+            })))
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to fetch OpenRouter models");
+            Ok(Json(json!({
+                "models": [],
+                "freeModels": [],
+                "error": e.to_string(),
+            })))
+        }
+    }
+}
+
+// ============================================================================
+// OpenRouter API Helpers
+// ============================================================================
+
+#[derive(Debug, serde::Deserialize)]
+struct OpenRouterAPIModel {
+    id: String,
+    name: String,
+    pricing: Option<OpenRouterPricing>,
+    #[allow(dead_code)]
+    supported_parameters: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct OpenRouterPricing {
+    prompt: String,
+    completion: String,
+}
+
+#[derive(Debug)]
+struct OpenRouterModel {
+    id: String,
+    name: String,
+    pricing: Option<OpenRouterPricing>,
+}
+
+/// Fetches models from the OpenRouter API, filtered to those supporting tools.
+async fn fetch_openrouter_models(api_key: &str) -> Result<Vec<OpenRouterModel>, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(format!("{OPENROUTER_BASE_URL}/models?supported_parameters=tools"))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("HTTP-Referer", "https://dash-agent.local")
+        .header("X-Title", "dash-agent")
+        .send()
+        .await
+        .map_err(|e| format!("OpenRouter API request failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status().as_u16();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("OpenRouter API error: {status} - {body}"));
+    }
+
+    #[derive(serde::Deserialize)]
+    struct ModelsResponse {
+        data: Vec<OpenRouterAPIModel>,
+    }
+
+    let data: ModelsResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse OpenRouter response: {e}"))?;
+
+    // Filter to models that support tools
+    let models = data
+        .data
+        .into_iter()
+        .filter(|m| {
+            m.supported_parameters
+                .as_ref()
+                .map_or(true, |params| params.iter().any(|p| p == "tools"))
+        })
+        .map(|m| OpenRouterModel {
+            id: m.id,
+            name: m.name,
+            pricing: m.pricing,
+        })
+        .collect();
+
+    Ok(models)
+}
+
+/// Filters models to only those with zero pricing (free models).
+fn filter_free_models(models: &[OpenRouterModel]) -> Vec<&OpenRouterModel> {
+    models
+        .iter()
+        .filter(|m| {
+            m.pricing.as_ref().map_or(false, |p| {
+                p.prompt.parse::<f64>().unwrap_or(1.0) == 0.0
+                    && p.completion.parse::<f64>().unwrap_or(1.0) == 0.0
+            })
+        })
+        .collect()
 }
 
 // ============================================================================

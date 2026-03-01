@@ -125,9 +125,13 @@ pub fn get_secret(
                     key_type = key_type,
                     provider = provider,
                     error = %e,
-                    "Failed to decrypt secret"
+                    "Failed to decrypt secret — token was saved with a different encryption key. \
+                     Re-save it in Settings > Connections."
                 );
-                Ok(None)
+                Err(AppError::Internal(anyhow::anyhow!(
+                    "Cannot decrypt {key_type} token — it was saved with a different encryption key. \
+                     Please re-save it in Settings > Connections."
+                )))
             }
         },
         None => {

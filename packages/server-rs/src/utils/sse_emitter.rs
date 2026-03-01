@@ -2,11 +2,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, RwLock};
-use tracing::{debug, warn};
+use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::task::JoinHandle;
+use tracing::{debug, info, warn};
+
+use crate::db::Database;
+use crate::services::task_event_service::{self, PersistEvent};
 
 /// Channel capacity for per-task SSE broadcast channels.
 const CHANNEL_CAPACITY: usize = 256;
+
+/// Maximum number of events to keep in history per task to prevent memory leaks.
+const MAX_HISTORY_PER_TASK: usize = 1500;
 
 /// Types of SSE events that can be emitted to clients.
 ///
@@ -57,17 +64,45 @@ pub struct SSEEvent {
 /// which fan-out to every active subscriber on that task's channel.
 ///
 /// This struct is cheaply cloneable (inner state is behind `Arc<RwLock<_>>`).
+/// Message sent to the persistence background task.
+struct PersistMsg {
+    task_id: String,
+    event: SSEEvent,
+    timestamp: String,
+}
+
 #[derive(Clone)]
 pub struct SSEEmitter {
     channels: Arc<RwLock<HashMap<String, broadcast::Sender<SSEEvent>>>>,
+    /// Per-task event history for replay on new SSE connections.
+    event_history: Arc<RwLock<HashMap<String, Vec<SSEEvent>>>>,
+    /// Optional channel to the persistence background loop.
+    persist_tx: Option<mpsc::UnboundedSender<PersistMsg>>,
 }
 
 impl SSEEmitter {
-    /// Creates a new, empty emitter with no active channels.
+    /// Creates a new, empty emitter with no active channels and no persistence.
     pub fn new() -> Self {
         Self {
             channels: Arc::new(RwLock::new(HashMap::new())),
+            event_history: Arc::new(RwLock::new(HashMap::new())),
+            persist_tx: None,
         }
+    }
+
+    /// Creates a new emitter backed by SQLite persistence.
+    ///
+    /// Returns the emitter and a `JoinHandle` for the background persist loop.
+    /// Await the handle after the server stops to flush remaining events.
+    pub fn with_persistence(db: Database) -> (Self, JoinHandle<()>) {
+        let (tx, rx) = mpsc::unbounded_channel::<PersistMsg>();
+        let handle = tokio::spawn(persist_loop(db, rx));
+        let emitter = Self {
+            channels: Arc::new(RwLock::new(HashMap::new())),
+            event_history: Arc::new(RwLock::new(HashMap::new())),
+            persist_tx: Some(tx),
+        };
+        (emitter, handle)
     }
 
     /// Subscribes to the event stream for a given task.
@@ -87,15 +122,61 @@ impl SSEEmitter {
         sender.subscribe()
     }
 
+    /// Stores an event in the history for replay on future SSE connections,
+    /// but does NOT broadcast it to live subscribers.
+    ///
+    /// Use this for events that the frontend already handles optimistically
+    /// (e.g., user chat messages added by the frontend before calling the API).
+    /// Broadcasting these would cause duplicate entries in the UI.
+    pub async fn store_event(&self, task_id: &str, event: SSEEvent) {
+        // Send to persistence channel
+        self.send_to_persist(task_id, &event);
+
+        let mut history = self.event_history.write().await;
+        let task_history = history.entry(task_id.to_string()).or_default();
+        if task_history.len() < MAX_HISTORY_PER_TASK {
+            task_history.push(event);
+        }
+    }
+
+    /// Stores an event in the in-memory history only, without persisting to DB.
+    ///
+    /// Used when warming the cache from DB on first SSE connection after restart.
+    pub async fn store_event_no_persist(&self, task_id: &str, event: SSEEvent) {
+        let mut history = self.event_history.write().await;
+        let task_history = history.entry(task_id.to_string()).or_default();
+        if task_history.len() < MAX_HISTORY_PER_TASK {
+            task_history.push(event);
+        }
+    }
+
     /// Emits an arbitrary SSE event to all subscribers of a task.
     ///
     /// If no channel exists for the task (i.e., nobody has subscribed),
     /// the event is silently dropped.
     pub async fn emit(&self, task_id: &str, event: SSEEvent) {
+        // Send to persistence channel
+        self.send_to_persist(task_id, &event);
+
+        // Store in history for replay on new connections
+        {
+            let mut history = self.event_history.write().await;
+            let task_history = history.entry(task_id.to_string()).or_default();
+            if task_history.len() < MAX_HISTORY_PER_TASK {
+                task_history.push(event.clone());
+            }
+        }
+
+        // Broadcast to live subscribers
         let channels = self.channels.read().await;
         if let Some(sender) = channels.get(task_id) {
             let receiver_count = sender.receiver_count();
             if receiver_count == 0 {
+                debug!(
+                    task_id,
+                    event_type = %event.event_type.as_event_name(),
+                    "SSE broadcast skipped: 0 receivers"
+                );
                 return;
             }
             match sender.send(event) {
@@ -108,11 +189,15 @@ impl SSEEmitter {
                     );
                 }
                 Err(_) => {
-                    // All receivers have been dropped between the check and send.
-                    // This is benign — the channel will be cleaned up on close_task.
                     warn!(task_id, "SSE send failed: no active receivers");
                 }
             }
+        } else {
+            debug!(
+                task_id,
+                event_type = %event.event_type.as_event_name(),
+                "SSE broadcast skipped: no channel exists for task"
+            );
         }
     }
 
@@ -181,6 +266,73 @@ impl SSEEmitter {
         .await;
     }
 
+    /// Emits a chat message event for a task.
+    ///
+    /// Matches the `ChatMessageEvent` schema: `{ id, role, content, timestamp }`.
+    pub async fn emit_chat_message(&self, task_id: &str, role: &str, content: &str) {
+        self.emit(
+            task_id,
+            SSEEvent {
+                event_type: SSEEventType::ChatMessage,
+                data: serde_json::json!({
+                    "id": uuid::Uuid::new_v4().to_string(),
+                    "role": role,
+                    "content": content,
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                }),
+            },
+        )
+        .await;
+    }
+
+    /// Emits a tool activity event for a task.
+    ///
+    /// Matches the `ToolActivityEvent` schema: `{ id, name, summary, status, timestamp }`.
+    /// `status` should be one of: `"running"`, `"completed"`, `"error"`.
+    pub async fn emit_tool_activity(
+        &self,
+        task_id: &str,
+        tool_id: &str,
+        name: &str,
+        summary: &str,
+        status: &str,
+    ) {
+        let id = if tool_id.is_empty() {
+            uuid::Uuid::new_v4().to_string()
+        } else {
+            tool_id.to_string()
+        };
+        self.emit(
+            task_id,
+            SSEEvent {
+                event_type: SSEEventType::ToolActivity,
+                data: serde_json::json!({
+                    "id": id,
+                    "name": name,
+                    "summary": summary,
+                    "status": status,
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                }),
+            },
+        )
+        .await;
+    }
+
+    /// Emits an awaiting_review event for a task.
+    ///
+    /// This is a non-terminal event — the SSE connection stays open so the user
+    /// can send feedback and the agent can resume on the same channel.
+    pub async fn emit_awaiting_review(&self, task_id: &str, message: &str) {
+        self.emit(
+            task_id,
+            SSEEvent {
+                event_type: SSEEventType::AwaitingReview,
+                data: serde_json::json!({ "message": message }),
+            },
+        )
+        .await;
+    }
+
     /// Emits an error event for a task.
     pub async fn emit_error(&self, task_id: &str, message: &str) {
         self.emit(
@@ -193,13 +345,27 @@ impl SSEEmitter {
         .await;
     }
 
+    /// Returns the event history for a task (for replay on new SSE connections).
+    pub async fn get_history(&self, task_id: &str) -> Vec<SSEEvent> {
+        let history = self.event_history.read().await;
+        history.get(task_id).cloned().unwrap_or_default()
+    }
+
     /// Removes the broadcast channel for a task, causing all receivers to see
     /// the channel as closed. Subsequent subscribes will create a fresh channel.
+    /// Note: event history is NOT cleared — it persists for replay until
+    /// explicitly cleaned up via [`clear_history`].
     pub async fn close_task(&self, task_id: &str) {
         let mut channels = self.channels.write().await;
         if channels.remove(task_id).is_some() {
             debug!(task_id, "SSE channel closed and removed");
         }
+    }
+
+    /// Clears the event history for a task (e.g. when task is deleted or archived).
+    pub async fn clear_history(&self, task_id: &str) {
+        let mut history = self.event_history.write().await;
+        history.remove(task_id);
     }
 
     /// Returns the number of active receivers (connected SSE clients) for a task.
@@ -210,6 +376,94 @@ impl SSEEmitter {
             .get(task_id)
             .map(|tx| tx.receiver_count())
             .unwrap_or(0)
+    }
+
+    /// Sends an event to the persistence background loop (if enabled).
+    fn send_to_persist(&self, task_id: &str, event: &SSEEvent) {
+        if let Some(ref tx) = self.persist_tx {
+            let _ = tx.send(PersistMsg {
+                task_id: task_id.to_string(),
+                event: event.clone(),
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            });
+        }
+    }
+}
+
+/// Background loop that batches incoming events and flushes them to SQLite.
+///
+/// Collects events for up to 500ms or 50 events (whichever comes first),
+/// then batch-inserts via `db.call()`. On channel close (shutdown), flushes
+/// any remaining buffered events.
+async fn persist_loop(db: Database, mut rx: mpsc::UnboundedReceiver<PersistMsg>) {
+    let mut buffer: Vec<PersistEvent> = Vec::new();
+    const BATCH_SIZE: usize = 50;
+    const FLUSH_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+
+    loop {
+        // Wait for first event or channel close
+        let msg = tokio::select! {
+            msg = rx.recv() => msg,
+        };
+
+        match msg {
+            Some(msg) => {
+                buffer.push(PersistEvent {
+                    task_id: msg.task_id,
+                    event: msg.event,
+                    timestamp: msg.timestamp,
+                });
+
+                // Drain more events up to BATCH_SIZE or FLUSH_INTERVAL
+                let deadline = tokio::time::Instant::now() + FLUSH_INTERVAL;
+                while buffer.len() < BATCH_SIZE {
+                    let timeout = tokio::time::timeout_at(deadline, rx.recv());
+                    match timeout.await {
+                        Ok(Some(msg)) => {
+                            buffer.push(PersistEvent {
+                                task_id: msg.task_id,
+                                event: msg.event,
+                                timestamp: msg.timestamp,
+                            });
+                        }
+                        Ok(None) => {
+                            // Channel closed — flush and exit
+                            flush_buffer(&db, &mut buffer).await;
+                            info!("SSE persist loop: channel closed, flushed remaining events");
+                            return;
+                        }
+                        Err(_) => break, // Timeout — flush what we have
+                    }
+                }
+
+                flush_buffer(&db, &mut buffer).await;
+            }
+            None => {
+                // Channel closed
+                flush_buffer(&db, &mut buffer).await;
+                info!("SSE persist loop: shutdown complete");
+                return;
+            }
+        }
+    }
+}
+
+/// Flushes the buffer to the database.
+async fn flush_buffer(db: &Database, buffer: &mut Vec<PersistEvent>) {
+    if buffer.is_empty() {
+        return;
+    }
+
+    let events: Vec<PersistEvent> = buffer.drain(..).collect();
+    let count = events.len();
+
+    if let Err(e) = db
+        .call(move |conn| task_event_service::insert_events(conn, &events))
+        .await
+    {
+        warn!(error = %e, count, "Failed to persist SSE events batch");
+    } else {
+        debug!(count, "Persisted SSE events batch");
     }
 }
 

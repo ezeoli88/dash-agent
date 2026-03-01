@@ -65,7 +65,7 @@ const TASK_COLUMNS: &str = "\
     status, pr_url, error, created_at, updated_at, \
     repository_id, user_input, generated_spec, generated_spec_at, \
     final_spec, spec_approved_at, was_spec_edited, branch_name, pr_number, \
-    agent_type, agent_model, changes_data, conflict_files";
+    agent_type, agent_model, changes_data, conflict_files, base_commit";
 
 /// Whitelist of columns allowed in UPDATE operations (matches TS ALLOWED_UPDATE_COLUMNS).
 const ALLOWED_UPDATE_COLUMNS: &[&str] = &[
@@ -91,6 +91,7 @@ const ALLOWED_UPDATE_COLUMNS: &[&str] = &[
     "agent_model",
     "changes_data",
     "conflict_files",
+    "base_commit",
 ];
 
 // ============================================================================
@@ -151,6 +152,7 @@ pub fn row_to_task(row: &Row) -> Result<Task, rusqlite::Error> {
         agent_model: row.get(22)?,
         changes_data: row.get(23)?,
         conflict_files: row.get(24)?,
+        base_commit: row.get(25)?,
     })
 }
 
@@ -439,6 +441,7 @@ pub fn update_task(
     add_nullable_field!(agent_model, "agent_model");
     add_nullable_field!(changes_data, "changes_data");
     add_nullable_field!(conflict_files, "conflict_files");
+    add_nullable_field!(base_commit, "base_commit");
 
     // pr_number: Option<Option<i64>>
     if let Some(ref val) = input.pr_number {

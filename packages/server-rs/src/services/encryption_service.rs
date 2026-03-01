@@ -9,13 +9,16 @@
 //! ciphertext by default, so we split it off to match the TS format.
 
 use std::env;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use aes_gcm::aead::generic_array::GenericArray;
+use aes_gcm::aead::generic_array::typenum::{U12, U16};
 use aes_gcm::aead::Aead;
-use aes_gcm::{Aes256Gcm, KeyInit};
+use aes_gcm::{Aes256Gcm, AesGcm, KeyInit};
+use aes_gcm::aes::Aes256;
 use rand::RngCore;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::error::AppError;
 
@@ -33,16 +36,28 @@ const TAG_SIZE: usize = 16;
 /// purposes the nonce size in `decrypt` is inferred from the hex length of the IV part.
 const NONCE_SIZE: usize = 12;
 
+/// Filename for the persisted encryption key.
+const KEY_FILENAME: &str = "encryption.key";
+
 /// Global encryption key, initialized once.
 static ENCRYPTION_KEY: OnceLock<Vec<u8>> = OnceLock::new();
 
-/// Returns the 32-byte encryption key.
+/// Directory where the key file is stored, set by [`init_encryption_key`].
+static KEY_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Initializes the encryption key, persisting it to disk so secrets survive restarts.
 ///
-/// - If `ENCRYPTION_KEY` env var is set, decodes it from hex (must be 64 hex chars = 32 bytes).
-/// - Otherwise, generates a random 32-byte key and caches it for the process lifetime.
-///   WARNING: random key means encrypted data will NOT survive server restarts.
-pub fn get_encryption_key() -> &'static [u8] {
+/// Call this once at startup, after the data directory is known.
+///
+/// Key resolution order:
+/// 1. `ENCRYPTION_KEY` env var (explicit override, highest priority)
+/// 2. `<data_dir>/encryption.key` file (auto-persisted key)
+/// 3. Generate a new random key and save it to `<data_dir>/encryption.key`
+pub fn init_encryption_key(data_dir: &Path) {
+    KEY_DIR.get_or_init(|| data_dir.to_path_buf());
+
     ENCRYPTION_KEY.get_or_init(|| {
+        // 1. Check env var (explicit override)
         if let Ok(env_key) = env::var("ENCRYPTION_KEY") {
             if !env_key.is_empty() {
                 let key_bytes = hex::decode(&env_key).expect(
@@ -54,14 +69,79 @@ pub fn get_encryption_key() -> &'static [u8] {
                         key_bytes.len()
                     );
                 }
+                info!("Using encryption key from ENCRYPTION_KEY env var");
                 return key_bytes;
             }
         }
 
-        // Development fallback: generate a random key
-        warn!(
-            "ENCRYPTION_KEY not set, generating random key. Data will not persist across restarts!"
-        );
+        let key_path = data_dir.join(KEY_FILENAME);
+
+        // 2. Try to read existing key file
+        if key_path.exists() {
+            match std::fs::read_to_string(&key_path) {
+                Ok(contents) => {
+                    let hex_key = contents.trim().to_string();
+                    if hex_key.len() == 64 {
+                        match hex::decode(&hex_key) {
+                            Ok(key_bytes) if key_bytes.len() == 32 => {
+                                info!(path = %key_path.display(), "Loaded encryption key from file");
+                                return key_bytes;
+                            }
+                            _ => {
+                                warn!(path = %key_path.display(), "Key file contains invalid data, regenerating");
+                            }
+                        }
+                    } else {
+                        warn!(
+                            path = %key_path.display(),
+                            len = hex_key.len(),
+                            "Key file has wrong length (expected 64 hex chars), regenerating"
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!(path = %key_path.display(), error = %e, "Failed to read key file, regenerating");
+                }
+            }
+        }
+
+        // 3. Generate a new key and persist it
+        let mut key = vec![0u8; 32];
+        rand::thread_rng().fill_bytes(&mut key);
+        let hex_key = hex::encode(&key);
+
+        // Ensure the directory exists
+        if let Some(parent) = key_path.parent() {
+            if !parent.exists() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+        }
+
+        match std::fs::write(&key_path, &hex_key) {
+            Ok(()) => {
+                info!(path = %key_path.display(), "Generated and saved new encryption key");
+            }
+            Err(e) => {
+                warn!(
+                    path = %key_path.display(),
+                    error = %e,
+                    "Failed to save encryption key to file — secrets will NOT persist across restarts!"
+                );
+            }
+        }
+
+        key
+    });
+}
+
+/// Returns the 32-byte encryption key.
+///
+/// Panics if called before [`init_encryption_key`].
+/// In tests, lazily generates a random key.
+pub fn get_encryption_key() -> &'static [u8] {
+    ENCRYPTION_KEY.get_or_init(|| {
+        // Fallback for tests or if init_encryption_key was not called
+        warn!("get_encryption_key() called without init — generating ephemeral key (test mode?)");
         let mut key = vec![0u8; 32];
         rand::thread_rng().fill_bytes(&mut key);
         key
@@ -144,20 +224,31 @@ pub fn decrypt(encrypted: &str) -> Result<String, AppError> {
     let mut payload = ciphertext;
     payload.extend_from_slice(&auth_tag);
 
-    // The nonce size must match what was used during encryption.
-    // We accept the nonce as-is from the stored data.
-    if nonce_bytes.len() != NONCE_SIZE {
-        return Err(AppError::Validation(format!(
-            "Invalid nonce length: expected {NONCE_SIZE} bytes, got {}",
-            nonce_bytes.len()
-        )));
-    }
-
-    let nonce = GenericArray::from_slice(&nonce_bytes);
-
-    let plaintext_bytes = cipher
-        .decrypt(nonce, payload.as_ref())
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("Decryption failed: {e}")))?;
+    // Dispatch based on nonce length:
+    // - 12 bytes: standard AES-GCM (Rust-encrypted data)
+    // - 16 bytes: Node.js GCM (TypeScript server data)
+    let plaintext_bytes = match nonce_bytes.len() {
+        12 => {
+            let nonce = GenericArray::<u8, U12>::from_slice(&nonce_bytes);
+            cipher
+                .decrypt(nonce, payload.as_ref())
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("Decryption failed: {e}")))?
+        }
+        16 => {
+            // TypeScript server uses 16-byte IVs with Node.js crypto GCM
+            let cipher_16: AesGcm<Aes256, U16> =
+                AesGcm::new(GenericArray::from_slice(key));
+            let nonce = GenericArray::<u8, U16>::from_slice(&nonce_bytes);
+            cipher_16
+                .decrypt(nonce, payload.as_ref())
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("Decryption failed (16-byte nonce): {e}")))?
+        }
+        other => {
+            return Err(AppError::Validation(format!(
+                "Invalid nonce length: expected 12 or 16 bytes, got {other}"
+            )));
+        }
+    };
 
     String::from_utf8(plaintext_bytes)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Decrypted data is not valid UTF-8: {e}")))

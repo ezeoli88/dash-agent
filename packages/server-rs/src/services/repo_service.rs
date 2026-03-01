@@ -8,6 +8,9 @@
 
 use std::path::PathBuf;
 
+use rusqlite::Connection;
+
+use crate::error::AppError;
 use crate::models::repository::Repository;
 
 // ---------------------------------------------------------------------------
@@ -38,6 +41,51 @@ pub fn get_repo_local_path(repo: &Repository) -> Option<PathBuf> {
         Some(path)
     } else {
         None
+    }
+}
+
+/// Fetches a repository by its UUID from the database.
+///
+/// Returns `Ok(None)` if no row matches the given ID, rather than an error.
+/// This is intended for service-level lookups where the caller needs to decide
+/// how to handle missing repositories.
+pub fn get_repository_by_id(conn: &Connection, id: &str) -> Result<Option<Repository>, AppError> {
+    let sql = "SELECT r.*, \
+               (SELECT COUNT(*) FROM tasks t \
+                WHERE t.repository_id = r.id \
+                AND t.status NOT IN ('done', 'archived')) as active_tasks_count \
+             FROM repositories r WHERE r.id = ?1";
+
+    let mut stmt = conn.prepare(sql).map_err(AppError::Database)?;
+
+    let result = stmt.query_row([id], |row| {
+        let detected_stack_json: String = row
+            .get::<_, String>("detected_stack")
+            .unwrap_or_else(|_| "{}".to_string());
+        let learned_patterns_json: String = row
+            .get::<_, String>("learned_patterns")
+            .unwrap_or_else(|_| "[]".to_string());
+
+        Ok(Repository {
+            id: row.get("id").unwrap_or_default(),
+            name: row.get("name").unwrap_or_default(),
+            url: row.get("url").unwrap_or_default(),
+            default_branch: row
+                .get("default_branch")
+                .unwrap_or_else(|_| "main".to_string()),
+            detected_stack: serde_json::from_str(&detected_stack_json).unwrap_or_default(),
+            conventions: row.get("conventions").unwrap_or_default(),
+            learned_patterns: serde_json::from_str(&learned_patterns_json).unwrap_or_default(),
+            active_tasks_count: row.get("active_tasks_count").unwrap_or(0),
+            created_at: row.get("created_at").unwrap_or_default(),
+            updated_at: row.get("updated_at").unwrap_or_default(),
+        })
+    });
+
+    match result {
+        Ok(repo) => Ok(Some(repo)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(AppError::Database(e)),
     }
 }
 

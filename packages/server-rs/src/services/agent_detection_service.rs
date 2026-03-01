@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use tokio::sync::RwLock;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Cache TTL for agent detection results (5 minutes).
 const CACHE_TTL: Duration = Duration::from_secs(300);
@@ -364,10 +365,11 @@ async fn detect_single_agent(config: &CLIConfig) -> DetectedAgent {
 static CACHE: std::sync::LazyLock<RwLock<Option<(Vec<DetectedAgent>, Instant)>>> =
     std::sync::LazyLock::new(|| RwLock::new(None));
 
-/// Detects all installed coding CLI agents.
+/// Detects all installed coding CLI agents plus API-based agents (OpenRouter).
 ///
 /// Results are cached for 5 minutes. All agents are detected in parallel.
-pub async fn detect_installed_agents() -> Vec<DetectedAgent> {
+/// If `db` is provided, OpenRouter authentication and models are checked.
+pub async fn detect_installed_agents(db: Option<&crate::db::Database>) -> Vec<DetectedAgent> {
     // Check cache
     {
         let cache = CACHE.read().await;
@@ -383,9 +385,13 @@ pub async fn detect_installed_agents() -> Vec<DetectedAgent> {
 
     let configs = get_cli_configs();
 
-    // Detect all agents in parallel
+    // Detect CLI agents in parallel
     let futures: Vec<_> = configs.iter().map(|c| detect_single_agent(c)).collect();
-    let agents = futures::future::join_all(futures).await;
+    let mut agents = futures::future::join_all(futures).await;
+
+    // Detect OpenRouter (API-based, always "installed")
+    let openrouter_agent = detect_openrouter(db).await;
+    agents.push(openrouter_agent);
 
     // Update cache
     {
@@ -426,4 +432,185 @@ pub async fn clear_agent_cache() {
     let mut cache = CACHE.write().await;
     *cache = None;
     debug!("Agent detection cache cleared");
+}
+
+// ============================================================================
+// OpenRouter Detection
+// ============================================================================
+
+const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
+
+/// Detects OpenRouter as an API-based agent.
+///
+/// OpenRouter is always "installed" (it's API-based, not a CLI tool).
+/// Authentication is determined by whether a stored API key exists.
+/// Models are fetched from the OpenRouter API when credentials are available.
+async fn detect_openrouter(db: Option<&crate::db::Database>) -> DetectedAgent {
+    let mut authenticated = false;
+    let mut models: Vec<AgentModel> = vec![];
+
+    if let Some(db) = db {
+        // Check if OpenRouter API key exists
+        match db
+            .call(|conn| {
+                let has_key = crate::services::secrets_service::has_secret(
+                    conn,
+                    "ai_api_key",
+                    Some("openrouter"),
+                )?;
+                if !has_key {
+                    return Ok((false, None));
+                }
+                let api_key = crate::services::secrets_service::get_secret(
+                    conn,
+                    "ai_api_key",
+                    Some("openrouter"),
+                )?;
+                Ok((true, api_key))
+            })
+            .await
+        {
+            Ok((has_key, api_key_opt)) => {
+                authenticated = has_key;
+                if let Some(api_key) = api_key_opt {
+                    models = fetch_openrouter_agent_models(&api_key).await;
+                }
+
+                // Fallback: if API fetch returned no models, try to get model from secret metadata
+                if models.is_empty() && authenticated {
+                    if let Ok(fallback) = db
+                        .call(|conn| get_openrouter_model_from_metadata(conn))
+                        .await
+                    {
+                        models = fallback;
+                    }
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "Failed to check OpenRouter credentials");
+            }
+        }
+    }
+
+    DetectedAgent {
+        id: "openrouter".to_string(),
+        name: "OpenRouter".to_string(),
+        installed: true, // Always true — API based
+        version: None,
+        authenticated,
+        models,
+    }
+}
+
+/// Fetches models from the OpenRouter API and maps them to AgentModel format.
+async fn fetch_openrouter_agent_models(api_key: &str) -> Vec<AgentModel> {
+    #[derive(serde::Deserialize)]
+    struct OpenRouterAPIModel {
+        id: String,
+        name: String,
+        pricing: Option<OpenRouterPricing>,
+        supported_parameters: Option<Vec<String>>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct OpenRouterPricing {
+        prompt: String,
+        completion: String,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct ModelsResponse {
+        data: Vec<OpenRouterAPIModel>,
+    }
+
+    let client = reqwest::Client::new();
+    let resp = match client
+        .get(format!("{OPENROUTER_BASE_URL}/models?supported_parameters=tools"))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("HTTP-Referer", "https://dash-agent.local")
+        .header("X-Title", "dash-agent")
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(error = %e, "Failed to fetch OpenRouter models");
+            return vec![];
+        }
+    };
+
+    if !resp.status().is_success() {
+        warn!(status = %resp.status(), "OpenRouter API returned non-success status");
+        return vec![];
+    }
+
+    let data: ModelsResponse = match resp.json().await {
+        Ok(d) => d,
+        Err(e) => {
+            warn!(error = %e, "Failed to parse OpenRouter models response");
+            return vec![];
+        }
+    };
+
+    data.data
+        .into_iter()
+        .filter(|m| {
+            m.supported_parameters
+                .as_ref()
+                .map_or(true, |params| params.iter().any(|p| p == "tools"))
+        })
+        .map(|m| {
+            let is_free = m.pricing.as_ref().map_or(false, |p| {
+                p.prompt.parse::<f64>().unwrap_or(1.0) == 0.0
+                    && p.completion.parse::<f64>().unwrap_or(1.0) == 0.0
+            });
+            AgentModel {
+                id: m.id,
+                name: m.name,
+                description: if is_free {
+                    Some("Free".to_string())
+                } else {
+                    None
+                },
+            }
+        })
+        .collect()
+}
+
+/// Fallback: reads the model from the OpenRouter secret metadata.
+fn get_openrouter_model_from_metadata(conn: &Connection) -> Result<Vec<AgentModel>, crate::error::AppError> {
+    let meta_str = crate::services::secrets_service::get_secret_metadata(
+        conn,
+        "ai_api_key",
+        Some("openrouter"),
+    )?;
+
+    if let Some(meta_str) = meta_str {
+        // metadata is stored as a JSON string
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&meta_str) {
+            let metadata = parsed.as_object().or_else(|| {
+                parsed.get("metadata").and_then(|m| m.as_object())
+            });
+
+            if let Some(metadata) = metadata {
+                let model_id = metadata.get("model").and_then(|v| v.as_str());
+                let model_name = metadata
+                    .get("modelName")
+                    .and_then(|v| v.as_str())
+                    .or(model_id);
+                let model_desc = metadata.get("modelDescription").and_then(|v| v.as_str());
+
+                if let (Some(id), Some(name)) = (model_id, model_name) {
+                    return Ok(vec![AgentModel {
+                        id: id.to_string(),
+                        name: name.to_string(),
+                        description: model_desc.map(|s| s.to_string()),
+                    }]);
+                }
+            }
+        }
+    }
+
+    Ok(vec![])
 }

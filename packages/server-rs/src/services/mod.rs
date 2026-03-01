@@ -12,4 +12,5 @@ pub mod repo_service;
 pub mod secrets_service;
 pub mod settings_service;
 pub mod stack_detector_service;
+pub mod task_event_service;
 pub mod task_service;

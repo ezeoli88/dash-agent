@@ -155,6 +155,8 @@ pub struct Task {
     pub changes_data: Option<String>,
     /// JSON array of file paths with merge conflicts.
     pub conflict_files: Option<String>,
+    /// Commit hash captured when agent execution starts, used as diff base.
+    pub base_commit: Option<String>,
 
     // -- Status and metadata --
     /// Current status of the task.
@@ -240,4 +242,6 @@ pub struct UpdateTaskInput {
     pub changes_data: Option<Option<String>>,
     /// Nullable: `Some(None)` means explicitly set to NULL.
     pub conflict_files: Option<Option<String>>,
+    /// Nullable: `Some(None)` means explicitly set to NULL.
+    pub base_commit: Option<Option<String>>,
 }

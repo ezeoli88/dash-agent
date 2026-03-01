@@ -70,6 +70,12 @@ pub struct CLICommand {
     pub args: Vec<String>,
     /// When true, the prompt is delivered via stdin instead of as a CLI argument.
     pub use_stdin: bool,
+    /// When true, stdin must be closed (shutdown) after writing the prompt so the
+    /// agent sees EOF and starts processing. This is needed for agents like Claude
+    /// Code whose `-p` flag reads stdin until EOF as the full prompt. When false
+    /// and `use_stdin` is true, stdin is kept open for interactive feedback
+    /// (e.g., Gemini, Copilot).
+    pub close_stdin_after_prompt: bool,
 }
 
 /// Options for constructing and running a CLI agent.

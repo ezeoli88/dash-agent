@@ -147,6 +147,9 @@ pub fn build_cli_command(
                 command: "claude".to_string(),
                 args,
                 use_stdin: true,
+                // Claude Code's `-p` reads stdin until EOF as the entire prompt.
+                // We must close stdin so the agent sees EOF and starts processing.
+                close_stdin_after_prompt: true,
             }
         }
 
@@ -167,6 +170,7 @@ pub fn build_cli_command(
                 command: "codex".to_string(),
                 args,
                 use_stdin: false,
+                close_stdin_after_prompt: false,
             }
         }
 
@@ -187,6 +191,10 @@ pub fn build_cli_command(
                 command: "gemini".to_string(),
                 args,
                 use_stdin: true,
+                // Gemini requires EOF to know the prompt is complete and start
+                // processing. Unlike Copilot, it does NOT support interactive
+                // stdin feedback — close stdin immediately after prompt delivery.
+                close_stdin_after_prompt: true,
             }
         }
 
@@ -206,6 +214,9 @@ pub fn build_cli_command(
                 command: "copilot".to_string(),
                 args,
                 use_stdin: true,
+                // Copilot uses `-p ""` as a placeholder; stdin stays open for
+                // interactive feedback.
+                close_stdin_after_prompt: false,
             }
         }
     }
@@ -345,35 +356,93 @@ impl CLIAgentRunner {
             "Spawning CLI process"
         );
 
-        // Determine if we need shell execution.
-        // On Windows, npm-installed CLIs are .cmd wrappers that need shell.
-        // Gemini and Copilot CLIs need shell for wrapper resolution.
-        let use_shell = cfg!(windows)
+        // On Windows, npm-installed CLIs (codex, gemini, copilot) are .cmd wrappers
+        // that need special shell handling. Claude Code is a native .exe and works directly.
+        //
+        // For Codex on Windows, cmd.exe can't handle multi-line prompts as arguments.
+        // Workaround (matching the TS server): write prompt to a temp file and use
+        // PowerShell to read it and pipe it via stdin.
+        let needs_powershell_workaround = cfg!(windows)
+            && self.options.agent_type == AgentType::Codex;
+        let needs_shell = cfg!(windows)
             && matches!(
                 cli_command.command.as_str(),
-                "gemini" | "copilot" | "codex"
+                "gemini" | "copilot"
             );
 
-        let mut cmd = Command::new(&cli_command.command);
-        cmd.args(&cli_command.args)
-            .current_dir(&self.options.cwd)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        // Track temp file for cleanup
+        let mut prompt_file_path: Option<std::path::PathBuf> = None;
 
-        // Inject environment variables
-        for (key, val) in &self.options.env {
-            cmd.env(key, val);
-        }
+        let mut cmd;
 
-        // Windows-specific: hide the spawned console window
-        #[cfg(windows)]
-        cmd.creation_flags(0x0800_0000_u32); // CREATE_NO_WINDOW
-
-        if use_shell {
+        if needs_powershell_workaround {
             #[cfg(windows)]
             {
-                // Rebuild as shell command on Windows
+                // Write prompt to temp file (avoids cmd.exe arg length/escaping issues)
+                let temp_dir = std::env::temp_dir();
+                let file_name = format!("agent-prompt-{}.txt", uuid::Uuid::new_v4());
+                let prompt_path = temp_dir.join(&file_name);
+                if let Err(e) = std::fs::write(&prompt_path, &self.options.prompt) {
+                    return Ok(AgentRunResult {
+                        success: false,
+                        pr_url: None,
+                        error: Some(format!("Failed to write prompt temp file: {e}")),
+                        summary: None,
+                        changes_data: None,
+                    });
+                }
+                prompt_file_path = Some(prompt_path.clone());
+
+                let escaped_path = prompt_path.to_string_lossy().replace('\'', "''");
+
+                // Build inner command: pipe prompt via stdin to codex
+                let model_arg = self.options.model.as_ref()
+                    .map(|m| format!("-m '{}' ", m))
+                    .unwrap_or_default();
+                let inner_cmd = format!(
+                    "$p | & codex exec --json --sandbox danger-full-access {model_arg}-"
+                );
+                let ps_command = format!(
+                    "$p = [IO.File]::ReadAllText('{}'); {}; exit $LASTEXITCODE",
+                    escaped_path, inner_cmd
+                );
+
+                cmd = Command::new("powershell.exe");
+                cmd.args(["-NoProfile", "-NonInteractive", "-Command", &ps_command])
+                    .current_dir(&self.options.cwd)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                // Inherit parent env + overlay custom vars
+                cmd.envs(std::env::vars());
+                for (key, val) in &self.options.env {
+                    cmd.env(key, val);
+                }
+                cmd.creation_flags(0x0800_0000_u32); // CREATE_NO_WINDOW
+
+                info!(
+                    task_id = %self.options.task_id,
+                    "Using PowerShell workaround for Codex on Windows"
+                );
+            }
+            #[cfg(not(windows))]
+            {
+                // On non-Windows, codex is spawned directly
+                cmd = Command::new(&cli_command.command);
+                cmd.args(&cli_command.args)
+                    .current_dir(&self.options.cwd)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                cmd.envs(std::env::vars());
+                for (key, val) in &self.options.env {
+                    cmd.env(key, val);
+                }
+            }
+        } else if needs_shell {
+            // Gemini and Copilot: use shell: true equivalent (cmd /C on Windows)
+            #[cfg(windows)]
+            {
                 let full_cmd = format!(
                     "{} {}",
                     &cli_command.command,
@@ -396,11 +465,40 @@ impl CLIAgentRunner {
                     .stdin(Stdio::piped())
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped());
+                cmd.envs(std::env::vars());
                 for (key, val) in &self.options.env {
                     cmd.env(key, val);
                 }
-                cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+                cmd.creation_flags(0x0800_0000_u32); // CREATE_NO_WINDOW
             }
+            #[cfg(not(windows))]
+            {
+                cmd = Command::new(&cli_command.command);
+                cmd.args(&cli_command.args)
+                    .current_dir(&self.options.cwd)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                cmd.envs(std::env::vars());
+                for (key, val) in &self.options.env {
+                    cmd.env(key, val);
+                }
+            }
+        } else {
+            // Claude Code (native .exe) — direct spawn, no shell wrapper needed
+            cmd = Command::new(&cli_command.command);
+            cmd.args(&cli_command.args)
+                .current_dir(&self.options.cwd)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            // Inherit parent process environment so PATH, API keys, etc. are available
+            cmd.envs(std::env::vars());
+            for (key, val) in &self.options.env {
+                cmd.env(key, val);
+            }
+            #[cfg(windows)]
+            cmd.creation_flags(0x0800_0000_u32); // CREATE_NO_WINDOW
         }
 
         let mut child = match cmd.spawn() {
@@ -428,21 +526,44 @@ impl CLIAgentRunner {
             "CLI process spawned"
         );
 
-        // Write prompt to stdin if needed, then close stdin for prompt delivery
-        if cli_command.use_stdin {
-            if let Some(mut stdin) = child.stdin.take() {
-                let prompt = self.options.prompt.clone();
-                let task_id = self.options.task_id.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = stdin.write_all(prompt.as_bytes()).await {
-                        warn!(task_id = %task_id, "Failed to write prompt to stdin: {e}");
+        // Write prompt to stdin if needed.
+        // For agents that need EOF to start processing (e.g. Claude Code), close stdin.
+        // For agents that accept interactive input (Gemini, Copilot), keep stdin open
+        // so the feedback handler can write to it later.
+        let stdin_handle: Option<Arc<tokio::sync::Mutex<tokio::process::ChildStdin>>> =
+            if cli_command.use_stdin {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let task_id_stdin = self.options.task_id.clone();
+
+                    // Write prompt followed by newline
+                    if let Err(e) = stdin.write_all(self.options.prompt.as_bytes()).await {
+                        warn!(task_id = %task_id_stdin, "Failed to write prompt to stdin: {e}");
                     }
-                    if let Err(e) = stdin.shutdown().await {
-                        warn!(task_id = %task_id, "Failed to close stdin: {e}");
+                    if let Err(e) = stdin.write_all(b"\n").await {
+                        warn!(task_id = %task_id_stdin, "Failed to write newline to stdin: {e}");
                     }
-                });
-            }
-        }
+                    if let Err(e) = stdin.flush().await {
+                        warn!(task_id = %task_id_stdin, "Failed to flush stdin: {e}");
+                    }
+
+                    if cli_command.close_stdin_after_prompt {
+                        // Agent reads until EOF (e.g. Claude Code) -- close stdin now
+                        if let Err(e) = stdin.shutdown().await {
+                            warn!(task_id = %task_id_stdin, "Failed to close stdin: {e}");
+                        }
+                        None
+                    } else {
+                        // Keep stdin open for interactive feedback (Gemini, Copilot)
+                        Some(Arc::new(tokio::sync::Mutex::new(stdin)))
+                    }
+                } else {
+                    None
+                }
+            } else {
+                // For agents that don't use stdin (Codex), take and drop it
+                let _ = child.stdin.take();
+                None
+            };
 
         // Take stdout/stderr handles
         let stdout = child.stdout.take();
@@ -502,16 +623,27 @@ impl CLIAgentRunner {
             collected_lines
         });
 
-        // Spawn feedback writer task (writes to child's stdin when messages arrive)
-        // Note: for agents using stdin for prompt, stdin is already closed.
-        // Feedback is only meaningful when the agent supports interactive stdin.
+        // Spawn feedback writer task.
+        // When stdin_handle is Some (Gemini, Copilot), feedback messages are written
+        // to the child's stdin. When None (Claude Code, Codex), feedback is logged
+        // but cannot be delivered to the process.
         let task_id_feedback = task_id.clone();
+        let stdin_for_feedback = stdin_handle.clone();
         let feedback_handle = tokio::spawn(async move {
             let Some(ref mut rx) = feedback_rx else { return };
             while let Some(msg) = rx.recv().await {
-                info!(task_id = %task_id_feedback, "Feedback received (stdin closed, queued): {msg}");
-                // In a future iteration, we could reopen stdin or use a different
-                // mechanism. For now, log it.
+                if let Some(ref stdin_mtx) = stdin_for_feedback {
+                    info!(task_id = %task_id_feedback, "Writing feedback to agent stdin: {msg}");
+                    let mut stdin = stdin_mtx.lock().await;
+                    if let Err(e) = stdin.write_all(format!("{msg}\n").as_bytes()).await {
+                        warn!(task_id = %task_id_feedback, "Failed to write feedback to stdin: {e}");
+                    }
+                    if let Err(e) = stdin.flush().await {
+                        warn!(task_id = %task_id_feedback, "Failed to flush feedback to stdin: {e}");
+                    }
+                } else {
+                    info!(task_id = %task_id_feedback, "Feedback received but stdin is closed (agent does not support interactive input): {msg}");
+                }
             }
         });
 
@@ -615,6 +747,13 @@ impl CLIAgentRunner {
 
         // Clean up feedback task
         feedback_handle.abort();
+
+        // Clean up temp prompt file if created (Windows Codex workaround)
+        if let Some(ref path) = prompt_file_path {
+            if let Err(e) = std::fs::remove_file(path) {
+                warn!(task_id = %task_id, "Failed to clean up prompt temp file: {e}");
+            }
+        }
 
         result
     }

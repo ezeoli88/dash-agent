@@ -240,6 +240,48 @@ pub fn tool_definitions() -> Value {
                 }
             },
             {
+                "name": "delete_task",
+                "description": "Delete a task by ID. Cancels any running agent and cleans up the worktree in the background. Returns confirmation.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "task_id": {
+                            "type": "string",
+                            "description": "Task UUID"
+                        }
+                    },
+                    "required": ["task_id"]
+                }
+            },
+            {
+                "name": "mark_pr_merged",
+                "description": "Mark a task's PR as merged. Sets status to 'done' and cleans up the worktree.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "task_id": {
+                            "type": "string",
+                            "description": "Task UUID"
+                        }
+                    },
+                    "required": ["task_id"]
+                }
+            },
+            {
+                "name": "mark_pr_closed",
+                "description": "Mark a task's PR as closed without merging. Sets status to 'canceled'.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "task_id": {
+                            "type": "string",
+                            "description": "Task UUID"
+                        }
+                    },
+                    "required": ["task_id"]
+                }
+            },
+            {
                 "name": "get_setup_status",
                 "description": "Get the current Agent Board setup status including AI provider configuration and secret status. Useful for checking if the board is ready to run tasks.",
                 "inputSchema": {
@@ -271,6 +313,9 @@ pub async fn call_tool(state: &AppState, name: &str, args: Value) -> Value {
         "get_changes" => handle_get_changes(state, args).await,
         "approve_changes" => handle_approve_changes(state, args).await,
         "request_changes" => handle_request_changes(state, args).await,
+        "delete_task" => handle_delete_task(state, args).await,
+        "mark_pr_merged" => handle_pr_lifecycle(state, args, "pr-merged").await,
+        "mark_pr_closed" => handle_pr_lifecycle(state, args, "pr-closed").await,
         "get_setup_status" => handle_get_setup_status(state).await,
         _ => tool_error(&format!("Unknown tool: {name}")),
     }
@@ -576,9 +621,83 @@ async fn handle_get_task(state: &AppState, args: Value) -> Value {
 // Workflow tools (stubs)
 // ============================================================================
 
-/// `start_task` - STUB: Agent execution not yet implemented.
-async fn handle_start_task(_state: &AppState, _args: Value) -> Value {
-    tool_stub("start_task")
+/// `start_task` - Start a task (draft/failed → planning), spawn agent.
+async fn handle_start_task(state: &AppState, args: Value) -> Value {
+    let task_id = match args.get("task_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => return tool_error("task_id is required"),
+    };
+
+    // Load task
+    let tid = task_id.clone();
+    let task = match state.db.call(move |conn| task_service::get_task_by_id(conn, &tid)).await {
+        Ok(t) => t,
+        Err(e) => return tool_app_error("start_task", e),
+    };
+
+    // Validate status
+    if task.status != TaskStatus::Draft && task.status != TaskStatus::Failed {
+        return tool_error(&format!(
+            "Cannot start task with status: {}. Expected: draft or failed",
+            task.status.as_str()
+        ));
+    }
+
+    // Generate branch name
+    let title_slug: String = task.title.to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let title_slug = &title_slug[..title_slug.len().min(40)];
+    let task_suffix = &task_id[..task_id.len().min(8)];
+    let branch_name = format!("feature/{title_slug}-{task_suffix}");
+
+    let is_retry = task.status == TaskStatus::Failed;
+
+    // Update task
+    let tid = task_id.clone();
+    let branch_clone = branch_name.clone();
+    if let Err(e) = state.db.call(move |conn| {
+        task_service::update_task(conn, &tid, &crate::models::task::UpdateTaskInput {
+            branch_name: Some(Some(branch_clone)),
+            status: Some(TaskStatus::Planning),
+            error: if is_retry { Some(None) } else { None },
+            ..Default::default()
+        })
+    }).await {
+        return tool_app_error("start_task", e);
+    }
+
+    state.sse_emitter.emit_status(&task_id, "planning").await;
+
+    // Start agent in background
+    let state_clone = state.clone();
+    let id_clone = task_id.clone();
+    let task_clone = task.clone();
+    tokio::spawn(async move {
+        if let Err(e) = crate::routes::tasks::start_agent_for_task(&state_clone, &id_clone, &task_clone).await {
+            warn!(task_id = %id_clone, error = %e, "Failed to start agent (MCP)");
+            let tid = id_clone.clone();
+            let err_msg = e.to_string();
+            let _ = state_clone.db.call(move |conn| {
+                task_service::update_task(conn, &tid, &crate::models::task::UpdateTaskInput {
+                    status: Some(TaskStatus::Failed),
+                    error: Some(Some(err_msg)),
+                    ..Default::default()
+                })
+            }).await;
+            state_clone.sse_emitter.emit_status(&id_clone, "failed").await;
+            state_clone.sse_emitter.emit_error(&id_clone, &e.to_string()).await;
+        }
+    });
+
+    state.data_emitter.emit_change("task", "updated", Some(&task_id));
+    info!(id = %task_id, "start_task (MCP)");
+    tool_result(&json!({ "status": "started", "message": "Agent started" }))
 }
 
 /// `approve_spec` - Approve a generated spec for a task.
@@ -663,9 +782,48 @@ async fn handle_get_changes(state: &AppState, args: Value) -> Value {
     }
 }
 
-/// `approve_changes` - STUB: PR creation not yet implemented.
-async fn handle_approve_changes(_state: &AppState, _args: Value) -> Value {
-    tool_stub("approve_changes")
+/// `approve_changes` - Approve changes and create PR (awaiting_review/review → approved → pr_created).
+async fn handle_approve_changes(state: &AppState, args: Value) -> Value {
+    let task_id = match args.get("task_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => return tool_error("task_id is required"),
+    };
+
+    // Load task
+    let tid = task_id.clone();
+    let task = match state.db.call(move |conn| task_service::get_task_by_id(conn, &tid)).await {
+        Ok(t) => t,
+        Err(e) => return tool_app_error("approve_changes", e),
+    };
+
+    // Validate status
+    if task.status != TaskStatus::AwaitingReview && task.status != TaskStatus::Review {
+        return tool_error(&format!(
+            "Cannot approve task with status: {}. Expected: awaiting_review or review",
+            task.status.as_str()
+        ));
+    }
+
+    // Set status to approved
+    let tid = task_id.clone();
+    if let Err(e) = state.db.call(move |conn| {
+        task_service::update_task(conn, &tid, &crate::models::task::UpdateTaskInput {
+            status: Some(TaskStatus::Approved),
+            ..Default::default()
+        })
+    }).await {
+        return tool_app_error("approve_changes", e);
+    }
+    state.sse_emitter.emit_status(&task_id, "approved").await;
+
+    // Push and create PR
+    match crate::routes::tasks::push_and_create_pr(state.clone(), task_id.clone(), task).await {
+        Ok(body) => {
+            info!(id = %task_id, "approve_changes (MCP)");
+            tool_result(&body.0)
+        }
+        Err(e) => tool_app_error("approve_changes", e),
+    }
 }
 
 /// `request_changes` - Update task status to changes_requested.
@@ -727,6 +885,85 @@ async fn handle_request_changes(state: &AppState, args: Value) -> Value {
 // ============================================================================
 // Status tools
 // ============================================================================
+
+/// `delete_task` - Delete a task by ID, cancel agent, cleanup worktree.
+async fn handle_delete_task(state: &AppState, args: Value) -> Value {
+    let task_id = match args.get("task_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => return tool_error("task_id is required"),
+    };
+
+    // Check task exists
+    let tid = task_id.clone();
+    let task = state.db.call(move |conn| {
+        crate::services::task_service::get_task_by_id(conn, &tid)
+    }).await;
+
+    if let Err(e) = &task {
+        return tool_app_error("delete_task", AppError::NotFound(format!("Task not found (id: {task_id}): {e}")));
+    }
+
+    // Cancel running agent if any
+    if state.agent_service.is_running(&task_id).await {
+        info!(id = %task_id, "Cancelling running agent before deleting task (MCP)");
+        let _ = state.agent_service.cancel_agent(&task_id).await;
+    }
+
+    // Delete task
+    let tid = task_id.clone();
+    let delete_result = state.db.call(move |conn| {
+        crate::services::task_service::delete_task(conn, &tid)
+    }).await;
+
+    match delete_result {
+        Ok(_) => {
+            // Fire-and-forget worktree cleanup
+            let git_service = std::sync::Arc::clone(&state.git_service);
+            let tid = task_id.clone();
+            tokio::spawn(async move {
+                if let Ok(true) = git_service.worktree_exists(&tid).await {
+                    let _ = git_service.cleanup_worktree(&tid, true).await;
+                }
+            });
+
+            state.data_emitter.emit_change("task", "deleted", Some(&task_id));
+            info!(id = %task_id, "delete_task (MCP)");
+            tool_result(&json!({ "status": "deleted", "task_id": task_id }))
+        }
+        Err(e) => tool_app_error("delete_task", e),
+    }
+}
+
+/// `mark_pr_merged` / `mark_pr_closed` - Update task status directly.
+async fn handle_pr_lifecycle(state: &AppState, args: Value, action: &str) -> Value {
+    let task_id = match args.get("task_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => return tool_error("task_id is required"),
+    };
+
+    let (new_status, status_str, message) = match action {
+        "pr-merged" => (TaskStatus::Done, "done", "PR marked as merged."),
+        "pr-closed" => (TaskStatus::Canceled, "canceled", "PR marked as closed."),
+        _ => return tool_error(&format!("Unknown action: {action}")),
+    };
+
+    let tid = task_id.clone();
+    let result = state.db.call(move |conn| {
+        task_service::update_task(conn, &tid, &crate::models::task::UpdateTaskInput {
+            status: Some(new_status),
+            ..Default::default()
+        })
+    }).await;
+
+    match result {
+        Ok(_) => {
+            state.data_emitter.emit_change("task", "updated", Some(&task_id));
+            info!(id = %task_id, action = action, "pr_lifecycle (MCP)");
+            tool_result(&json!({ "status": status_str, "message": message }))
+        }
+        Err(e) => tool_app_error(action, e),
+    }
+}
 
 /// `get_setup_status` - Get secrets configuration status.
 async fn handle_get_setup_status(state: &AppState) -> Value {

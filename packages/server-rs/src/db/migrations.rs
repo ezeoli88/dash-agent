@@ -169,6 +169,22 @@ pub fn run_migrations(conn: &Connection) -> Result<(), AppError> {
                 ALTER TABLE tasks ADD COLUMN conflict_files TEXT;
             ",
         },
+        Migration {
+            version: 10,
+            description: "Add base_commit column to tasks table for scoped diffs",
+            sql: "
+                ALTER TABLE tasks ADD COLUMN base_commit TEXT;
+            ",
+        },
+        Migration {
+            version: 11,
+            description: "Add event_type and event_data columns to task_logs for SSE persistence",
+            sql: "
+                ALTER TABLE task_logs ADD COLUMN event_type TEXT DEFAULT 'log';
+                ALTER TABLE task_logs ADD COLUMN event_data TEXT;
+                CREATE INDEX IF NOT EXISTS idx_task_logs_event_type ON task_logs(event_type);
+            ",
+        },
     ];
 
     for migration in &migrations {

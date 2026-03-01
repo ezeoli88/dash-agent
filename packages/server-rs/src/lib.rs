@@ -21,12 +21,14 @@ use axum::{
 };
 use serde_json::json;
 use tokio::net::TcpListener;
-use tower_http::services::ServeDir;
+use tower_http::services::{ServeDir, ServeFile};
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
 
 use crate::config::Config;
 use crate::db::Database;
+use crate::services::agent_service::AgentService;
+use crate::services::git_service::GitService;
 use crate::utils::{DataEventEmitter, SSEEmitter};
 
 // Re-export Args from the binary crate via a local struct
@@ -48,6 +50,8 @@ pub struct AppState {
     pub startup_id: String,
     pub sse_emitter: Arc<SSEEmitter>,
     pub data_emitter: Arc<DataEventEmitter>,
+    pub agent_service: Arc<AgentService>,
+    pub git_service: Arc<GitService>,
 }
 
 /// Initializes logging with tracing-subscriber.
@@ -257,7 +261,13 @@ fn build_router(state: AppState) -> Router {
     let public_dir = find_public_dir(state.config.is_binary_mode);
 
     let app = if let Some(ref dir) = public_dir {
-        api.fallback_service(ServeDir::new(dir).append_index_html_on_directories(true))
+        // SPA fallback: serve index.html for any path that doesn't match a real file
+        let index_html = dir.join("index.html");
+        api.fallback_service(
+            ServeDir::new(dir)
+                .append_index_html_on_directories(true)
+                .not_found_service(ServeFile::new(index_html)),
+        )
     } else {
         api.fallback(|| async {
             (
@@ -321,6 +331,13 @@ pub async fn run(args: impl Into<RunArgs>) -> anyhow::Result<()> {
 
     config.ensure_database_dir()?;
 
+    // Initialize encryption key (persisted alongside the database)
+    let key_dir = config
+        .database_path
+        .parent()
+        .expect("database_path must have a parent directory");
+    services::encryption_service::init_encryption_key(key_dir);
+
     // Open database and run migrations
     let db = Database::open(&config.database_path)?;
     db.call(|conn| {
@@ -342,8 +359,13 @@ pub async fn run(args: impl Into<RunArgs>) -> anyhow::Result<()> {
     let startup_id = uuid::Uuid::new_v4().to_string();
     let config = Arc::new(config);
 
-    let sse_emitter = Arc::new(SSEEmitter::new());
+    let (sse_emitter, persist_handle) = SSEEmitter::with_persistence(db.clone());
+    let sse_emitter = Arc::new(sse_emitter);
     let data_emitter = Arc::new(DataEventEmitter::new());
+    let mut agent_svc = AgentService::new(Arc::clone(&sse_emitter), Arc::clone(&data_emitter));
+    agent_svc.set_db(db.clone());
+    let agent_service = Arc::new(agent_svc);
+    let git_service = Arc::new(GitService::new(Arc::clone(&config)));
 
     let state = AppState {
         db,
@@ -352,6 +374,8 @@ pub async fn run(args: impl Into<RunArgs>) -> anyhow::Result<()> {
         startup_id,
         sse_emitter,
         data_emitter,
+        agent_service,
+        git_service,
     };
 
     let app = build_router(state);
@@ -398,18 +422,29 @@ pub async fn run(args: impl Into<RunArgs>) -> anyhow::Result<()> {
         open_browser(&lan_url);
     }
 
-    axum::serve(
+    let serve_result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("Failed to install Ctrl+C handler");
+        let _ = tokio::signal::ctrl_c().await;
         info!("Received shutdown signal, shutting down gracefully");
     })
-    .await?;
+    .await;
 
-    info!("Server stopped");
+    if let Err(e) = serve_result {
+        // Don't treat shutdown errors as fatal — this commonly happens on
+        // Windows when the terminal is closed or Ctrl+C interrupts active connections.
+        warn!("Server stopped with error: {e}");
+    } else {
+        info!("Server stopped");
+    }
+
+    // After serve completes, all AppState clones (including SSEEmitter Arcs) are dropped.
+    // The persist_tx channel closes, causing the background loop to flush and exit.
+    info!("Waiting for SSE event persistence to flush...");
+    let _ = persist_handle.await;
+    info!("SSE event persistence flushed");
+
     Ok(())
 }

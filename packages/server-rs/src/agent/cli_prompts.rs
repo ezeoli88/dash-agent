@@ -1,7 +1,12 @@
 /// Forbidden-actions footer appended to all execution prompts.
 const FORBIDDEN_SECTION: &str = r#"
+## Allowed File Operations
+- You **CAN** create, edit, move, rename, and **delete** files inside your working directory
+- Deleting files is a normal part of refactoring -- do it when the task requires it
+- Use Bash (`rm`, `mv`, `mkdir`, etc.) freely for file operations **within** your working directory
+
 ## FORBIDDEN -- Do NOT do any of the following
-- **DO NOT** read, edit, or navigate to files outside your working directory
+- **DO NOT** read, edit, delete, or navigate to files **outside** your working directory
 - **DO NOT** run tests, builds, linters, or any verification commands
 - **DO NOT** start dev servers or any process that listens on a port
 - **DO NOT** run `npm run build`, `npm run test`, `npm run dev`, or similar commands

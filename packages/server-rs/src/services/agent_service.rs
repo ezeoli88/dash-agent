@@ -7,7 +7,11 @@ use tokio::time::Instant;
 use tracing::{error, info, warn};
 
 use crate::agent::{CLIAgentRunner, CLIRunnerOptions};
+use crate::db::Database;
 use crate::error::AppError;
+use crate::models::task::{TaskStatus, UpdateTaskInput};
+use crate::services::git_service::GitService;
+use crate::services::task_service;
 use crate::utils::{DataEventEmitter, SSEEmitter};
 
 /// Default timeout duration (10 minutes).
@@ -59,8 +63,8 @@ pub struct AgentService {
     active_agents: Arc<RwLock<HashMap<String, AgentTracking>>>,
     agent_logs: Arc<RwLock<HashMap<String, Vec<AgentLogEntry>>>>,
     sse_emitter: Arc<SSEEmitter>,
-    #[allow(dead_code)]
     data_emitter: Arc<DataEventEmitter>,
+    db: Option<Database>,
 }
 
 impl AgentService {
@@ -71,7 +75,13 @@ impl AgentService {
             agent_logs: Arc::new(RwLock::new(HashMap::new())),
             sse_emitter,
             data_emitter,
+            db: None,
         }
+    }
+
+    /// Sets the database reference for task status updates on agent completion.
+    pub fn set_db(&mut self, db: Database) {
+        self.db = Some(db);
     }
 
     /// Starts an agent for the given task.
@@ -107,6 +117,9 @@ impl AgentService {
         )
         .await;
 
+        // Capture workspace path for post-completion changes extraction
+        let workspace_path = options.cwd.clone();
+
         // Create the runner
         let mut runner = CLIAgentRunner::new(options);
 
@@ -136,8 +149,10 @@ impl AgentService {
 
         // Spawn the agent execution as a background task
         let sse = Arc::clone(&self.sse_emitter);
+        let data_emitter = Arc::clone(&self.data_emitter);
         let active_agents = Arc::clone(&self.active_agents);
         let _agent_logs = Arc::clone(&self.agent_logs);
+        let db = self.db.clone();
         let task_id_bg = task_id.to_string();
 
         tokio::spawn(async move {
@@ -148,17 +163,124 @@ impl AgentService {
                     info!(task_id = %task_id_bg, "Agent completed successfully");
                     sse.emit_log(&task_id_bg, "info", "Agent completed successfully", None)
                         .await;
+
+                    // Extract changes from the workspace (git diff)
+                    // Use base_commit (captured at task start) so the diff is
+                    // scoped to only this task's changes, not all accumulated
+                    // changes from previous tasks in the same worktree.
+                    sse.emit_log(&task_id_bg, "info", "Extracting changes from workspace...", None)
+                        .await;
+                    let base_commit = if let Some(ref db) = db {
+                        let tid = task_id_bg.clone();
+                        db.call(move |conn| {
+                            task_service::get_task_by_id(conn, &tid)
+                        })
+                        .await
+                        .ok()
+                        .and_then(|t| t.base_commit)
+                    } else {
+                        None
+                    };
+                    let changes_data = extract_changes_data(
+                        &workspace_path,
+                        base_commit.as_deref(),
+                    ).await;
+                    if changes_data.is_some() {
+                        sse.emit_log(&task_id_bg, "info", "Changes data extracted successfully", None)
+                            .await;
+                    } else {
+                        sse.emit_log(&task_id_bg, "warn", "No changes detected in workspace", None)
+                            .await;
+                    }
+
+                    // Update task status to awaiting_review and persist changes
+                    if let Some(ref db) = db {
+                        let tid = task_id_bg.clone();
+                        let pr_url = res.pr_url.clone();
+                        let _ = db
+                            .call(move |conn| {
+                                task_service::update_task(
+                                    conn,
+                                    &tid,
+                                    &UpdateTaskInput {
+                                        status: Some(TaskStatus::AwaitingReview),
+                                        changes_data: changes_data.map(Some),
+                                        pr_url: pr_url.map(Some),
+                                        ..Default::default()
+                                    },
+                                )
+                            })
+                            .await;
+                    }
+
+                    sse.emit_status(&task_id_bg, "awaiting_review").await;
+                    // Emit awaiting_review (non-terminal) — NOT complete.
+                    // The frontend closes the SSE connection on "complete",
+                    // which would prevent live events if the user resumes the
+                    // agent via feedback. "awaiting_review" keeps the
+                    // connection open, matching the TypeScript server behavior.
+                    sse.emit_awaiting_review(
+                        &task_id_bg,
+                        "Agent completed. Review changes before creating PR.",
+                    )
+                    .await;
                 }
                 Ok(res) => {
                     let err = res.error.as_deref().unwrap_or("Unknown error");
                     warn!(task_id = %task_id_bg, error = err, "Agent failed");
+
+                    // Update task status to failed
+                    if let Some(ref db) = db {
+                        let tid = task_id_bg.clone();
+                        let err_msg = err.to_string();
+                        let changes = res.changes_data.clone();
+                        let _ = db
+                            .call(move |conn| {
+                                task_service::update_task(
+                                    conn,
+                                    &tid,
+                                    &UpdateTaskInput {
+                                        status: Some(TaskStatus::Failed),
+                                        error: Some(Some(err_msg)),
+                                        changes_data: changes.map(Some),
+                                        ..Default::default()
+                                    },
+                                )
+                            })
+                            .await;
+                    }
+
                     sse.emit_error(&task_id_bg, err).await;
+                    sse.emit_status(&task_id_bg, "failed").await;
                 }
                 Err(e) => {
                     error!(task_id = %task_id_bg, error = %e, "Agent error");
+
+                    // Update task status to failed
+                    if let Some(ref db) = db {
+                        let tid = task_id_bg.clone();
+                        let err_msg = e.to_string();
+                        let _ = db
+                            .call(move |conn| {
+                                task_service::update_task(
+                                    conn,
+                                    &tid,
+                                    &UpdateTaskInput {
+                                        status: Some(TaskStatus::Failed),
+                                        error: Some(Some(err_msg)),
+                                        ..Default::default()
+                                    },
+                                )
+                            })
+                            .await;
+                    }
+
                     sse.emit_error(&task_id_bg, &e.to_string()).await;
+                    sse.emit_status(&task_id_bg, "failed").await;
                 }
             }
+
+            data_emitter.emit_change("task", "updated", Some(&task_id_bg));
 
             // Remove from active agents
             {
@@ -270,4 +392,341 @@ impl AgentService {
             )))
         }
     }
+}
+
+/// Extracts changes data (file list + diff) from a workspace directory after
+/// an agent completes, and returns it as a serialized JSON string suitable for
+/// storing in `changes_data`.
+///
+/// This mirrors the TypeScript server's `persistChangesData` method which calls
+/// `gitService.getChangedFiles()` and `gitService.getDiff()` after agent success.
+async fn extract_changes_data(
+    workspace_path: &std::path::Path,
+    target_branch: Option<&str>,
+) -> Option<String> {
+    use serde_json::json;
+
+    // Resolve the base ref for diffing (target_branch or fallback)
+    let base_ref = resolve_diff_base(workspace_path, target_branch).await;
+
+    // Get the full diff text
+    let diff = get_workspace_diff(workspace_path, base_ref.as_deref()).await;
+
+    // Get the list of changed files with stats
+    let files = get_changed_file_list(workspace_path, base_ref.as_deref()).await;
+
+    let changes = json!({
+        "files": files,
+        "diff": diff,
+    });
+
+    match serde_json::to_string(&changes) {
+        Ok(s) => {
+            info!(
+                files_count = files.len(),
+                diff_len = diff.len(),
+                "Extracted changes data from workspace"
+            );
+            Some(s)
+        }
+        Err(e) => {
+            warn!("Failed to serialize changes data: {e}");
+            None
+        }
+    }
+}
+
+/// Resolves the best base reference for diffing in a workspace.
+///
+/// `base_ref_hint` can be a commit hash (from `base_commit`) or a branch name
+/// (from `target_branch`). If it looks like a commit hash (40 hex chars), it is
+/// verified directly. Otherwise it is resolved as a branch name.
+async fn resolve_diff_base(
+    workspace_path: &std::path::Path,
+    base_ref_hint: Option<&str>,
+) -> Option<String> {
+    if let Some(hint) = base_ref_hint {
+        // If it looks like a full SHA-1 hash, verify it directly
+        let is_commit_hash = hint.len() >= 7
+            && hint.chars().all(|c| c.is_ascii_hexdigit());
+        if is_commit_hash {
+            let verify_ref = format!("{hint}^{{commit}}");
+            let result = GitService::exec_git(
+                &["rev-parse", "--verify", &verify_ref],
+                workspace_path,
+                None,
+            )
+            .await;
+            if let Ok(r) = result {
+                if r.exit_code == 0 {
+                    return Some(hint.to_string());
+                }
+            }
+        }
+
+        // Try as origin/<branch>
+        let remote_ref = format!("origin/{hint}");
+        let result = GitService::exec_git(
+            &["rev-parse", "--verify", &remote_ref],
+            workspace_path,
+            None,
+        )
+        .await;
+        if let Ok(r) = result {
+            if r.exit_code == 0 {
+                return Some(remote_ref);
+            }
+        }
+
+        // Try as local branch
+        let result = GitService::exec_git(
+            &["rev-parse", "--verify", hint],
+            workspace_path,
+            None,
+        )
+        .await;
+        if let Ok(r) = result {
+            if r.exit_code == 0 {
+                return Some(hint.to_string());
+            }
+        }
+    }
+
+    // Fallback: try origin/main, origin/master, main, master
+    for candidate in &["origin/main", "origin/master", "main", "master"] {
+        let result = GitService::exec_git(
+            &["rev-parse", "--verify", candidate],
+            workspace_path,
+            None,
+        )
+        .await;
+        if let Ok(r) = result {
+            if r.exit_code == 0 {
+                return Some(candidate.to_string());
+            }
+        }
+    }
+
+    None
+}
+
+/// Gets the full diff text from a workspace.
+async fn get_workspace_diff(
+    workspace_path: &std::path::Path,
+    base_ref: Option<&str>,
+) -> String {
+    let mut diff = String::new();
+
+    // Get committed changes against base
+    if let Some(base) = base_ref {
+        if let Ok(result) = GitService::exec_git(
+            &["diff", base, "HEAD"],
+            workspace_path,
+            None,
+        )
+        .await
+        {
+            if result.exit_code == 0 && !result.stdout.is_empty() {
+                diff.push_str(&result.stdout);
+                diff.push('\n');
+            }
+        }
+    }
+
+    // Include uncommitted staged changes
+    if let Ok(result) = GitService::exec_git(&["diff", "--cached"], workspace_path, None).await {
+        if result.exit_code == 0 && !result.stdout.is_empty() {
+            diff.push_str(&result.stdout);
+            diff.push('\n');
+        }
+    }
+
+    // Include uncommitted unstaged changes
+    if let Ok(result) = GitService::exec_git(&["diff"], workspace_path, None).await {
+        if result.exit_code == 0 && !result.stdout.is_empty() {
+            diff.push_str(&result.stdout);
+            diff.push('\n');
+        }
+    }
+
+    diff
+}
+
+/// Gets the list of changed files with status and line counts.
+async fn get_changed_file_list(
+    workspace_path: &std::path::Path,
+    base_ref: Option<&str>,
+) -> Vec<serde_json::Value> {
+    use serde_json::json;
+    use std::collections::HashMap as StdHashMap;
+
+    let mut file_statuses: StdHashMap<String, &str> = StdHashMap::new();
+
+    // Get committed changes
+    let diff_args: Vec<&str> = if let Some(base) = base_ref {
+        vec!["diff", "--name-status", base, "HEAD"]
+    } else {
+        vec!["diff", "--name-status", "--root", "HEAD"]
+    };
+
+    if let Ok(result) = GitService::exec_git(&diff_args, workspace_path, None).await {
+        if result.exit_code == 0 {
+            for line in result.stdout.lines().filter(|l| !l.is_empty()) {
+                let parts: Vec<&str> = line.splitn(2, '\t').collect();
+                if parts.len() >= 2 {
+                    let status = match parts[0] {
+                        "A" => "added",
+                        "D" => "deleted",
+                        _ => "modified",
+                    };
+                    file_statuses.insert(parts[1].to_string(), status);
+                }
+            }
+        }
+    }
+
+    // Get uncommitted changes
+    // NOTE: We must use the raw stdout (not trimmed) because `git status --porcelain`
+    // uses a fixed-width format " M filename" where the leading space is significant.
+    // exec_git() trims the full output, which strips the leading space on the first line.
+    // To work around this, we parse more defensively using the last 2 non-space chars
+    // before the filename.
+    if let Ok(result) =
+        GitService::exec_git(&["status", "--porcelain"], workspace_path, None).await
+    {
+        if result.exit_code == 0 {
+            for line in result.stdout.lines().filter(|l| !l.is_empty()) {
+                // git status --porcelain format: "XY filename"
+                // But exec_git trims the output, so the first line may lose its leading space.
+                // Instead of relying on fixed positions, find the filename after the status codes.
+                // The filename starts after "XY " (2 status chars + 1 space).
+                // However if trim() ate the leading space, we might have "M filename" or "?? filename".
+                // Safest approach: split on first space after status chars.
+                let file_path = if line.len() >= 4 && line.as_bytes()[2] == b' ' {
+                    // Normal format: "XY filename" (e.g., " M index.js" or "?? new.js")
+                    &line[3..]
+                } else if line.len() >= 3 && line.as_bytes()[1] == b' ' {
+                    // Trimmed format: "X filename" (e.g., "M index.js" after trim ate leading space)
+                    &line[2..]
+                } else {
+                    continue;
+                };
+
+                let file_path = file_path.trim().to_string();
+                if file_path.is_empty() {
+                    continue;
+                }
+
+                // Determine status from the available status chars
+                let status = if line.contains("??") || line.starts_with('A') || line.contains('A') {
+                    "added"
+                } else if line.starts_with('D') || line.contains('D') {
+                    "deleted"
+                } else {
+                    "modified"
+                };
+
+                file_statuses.entry(file_path).or_insert(status);
+            }
+        }
+    }
+
+    // Build file list with numstat and file content
+    let mut files = Vec::new();
+    let max_content_size = 500_000; // 500KB limit per file
+
+    for (file_path, status) in &file_statuses {
+        let (mut additions, mut deletions) = (0i64, 0i64);
+
+        // Get line counts from committed numstat
+        let numstat_args: Vec<&str> = if let Some(base) = base_ref {
+            vec!["diff", "--numstat", base, "HEAD", "--", file_path]
+        } else {
+            vec!["diff", "--numstat", "--root", "HEAD", "--", file_path]
+        };
+
+        if let Ok(result) = GitService::exec_git(&numstat_args, workspace_path, None).await {
+            if result.exit_code == 0 && !result.stdout.is_empty() {
+                let parts: Vec<&str> = result.stdout.split('\t').collect();
+                if parts.len() >= 2 {
+                    additions = parts[0].trim().parse().unwrap_or(0);
+                    deletions = parts[1].trim().parse().unwrap_or(0);
+                }
+            }
+        }
+
+        // Fallback: uncommitted numstat
+        if additions == 0 && deletions == 0 && *status != "deleted" {
+            if let Ok(result) =
+                GitService::exec_git(&["diff", "--numstat", "--", file_path], workspace_path, None)
+                    .await
+            {
+                if result.exit_code == 0 && !result.stdout.is_empty() {
+                    let parts: Vec<&str> = result.stdout.split('\t').collect();
+                    if parts.len() >= 2 {
+                        additions = parts[0].trim().parse().unwrap_or(0);
+                        deletions = parts[1].trim().parse().unwrap_or(0);
+                    }
+                }
+            }
+        }
+
+        // Get file content for diff rendering
+        let mut file_json = json!({
+            "path": file_path,
+            "status": status,
+            "additions": additions,
+            "deletions": deletions,
+        });
+
+        match *status {
+            "added" => {
+                file_json["oldContent"] = json!("");
+                let full_path = workspace_path.join(file_path);
+                if let Ok(content) = tokio::fs::read_to_string(&full_path).await {
+                    if content.len() <= max_content_size {
+                        if additions == 0 {
+                            additions = content.lines().count() as i64;
+                            file_json["additions"] = json!(additions);
+                        }
+                        file_json["newContent"] = json!(content);
+                    }
+                }
+            }
+            "deleted" => {
+                if let Some(base) = base_ref {
+                    let spec = format!("{base}:{file_path}");
+                    if let Ok(r) = GitService::exec_git(&["show", &spec], workspace_path, None).await {
+                        if r.exit_code == 0 && r.stdout.len() <= max_content_size {
+                            file_json["oldContent"] = json!(r.stdout);
+                        }
+                    }
+                }
+                file_json["newContent"] = json!("");
+            }
+            "modified" => {
+                if let Some(base) = base_ref {
+                    let spec = format!("{base}:{file_path}");
+                    if let Ok(r) = GitService::exec_git(&["show", &spec], workspace_path, None).await {
+                        if r.exit_code == 0 && r.stdout.len() <= max_content_size {
+                            file_json["oldContent"] = json!(r.stdout);
+                        }
+                    }
+                } else {
+                    file_json["oldContent"] = json!("");
+                }
+                let full_path = workspace_path.join(file_path);
+                if let Ok(content) = tokio::fs::read_to_string(&full_path).await {
+                    if content.len() <= max_content_size {
+                        file_json["newContent"] = json!(content);
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        files.push(file_json);
+    }
+
+    files
 }
