@@ -49,7 +49,7 @@ export const BOARD_COLUMNS: BoardColumnConfig[] = [
   {
     id: 'todo',
     title: 'To Do',
-    statuses: ['draft', 'backlog'],
+    statuses: ['backlog'],
     color: 'text-gray-600 dark:text-gray-400',
     bgColor: 'bg-gray-100 dark:bg-gray-800/50',
     borderColor: 'border-gray-300 dark:border-gray-700',
@@ -57,7 +57,7 @@ export const BOARD_COLUMNS: BoardColumnConfig[] = [
   {
     id: 'inProgress',
     title: 'In Progress',
-    statuses: ['refining', 'pending_approval', 'approved', 'coding', 'planning', 'in_progress'],
+    statuses: ['approved', 'coding', 'planning', 'in_progress'],
     color: 'text-blue-600 dark:text-blue-400',
     bgColor: 'bg-blue-50 dark:bg-blue-900/20',
     borderColor: 'border-blue-300 dark:border-blue-700',
@@ -100,12 +100,13 @@ export const BOARD_COLUMNS: BoardColumnConfig[] = [
  * Map of status to column ID for quick lookups
  */
 export const STATUS_TO_COLUMN: Record<TaskStatus, BoardColumnId> = {
-  // To Do column
+  // Spec-phase statuses (handled by Spec Studio, mapped to todo for type safety)
   draft: 'todo',
+  refining: 'todo',
+  pending_approval: 'todo',
+  // To Do column
   backlog: 'todo',
   // In Progress column
-  refining: 'inProgress',
-  pending_approval: 'inProgress',
   approved: 'inProgress',
   coding: 'inProgress',
   planning: 'inProgress',

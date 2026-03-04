@@ -4,9 +4,8 @@ import { Link, useLocation } from '@tanstack/react-router'
 import {
   ChevronLeft,
   ChevronRight,
-  LayoutDashboard,
   LayoutGrid,
-  ListTodo,
+  FileText,
   Settings,
   Plus,
   FolderGit2,
@@ -32,14 +31,14 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   {
+    title: 'Specs',
+    href: '/specs',
+    icon: FileText,
+  },
+  {
     title: 'Board',
     href: '/board',
     icon: LayoutGrid,
-  },
-  {
-    title: 'Tasks',
-    href: '/tasks',
-    icon: ListTodo,
   },
 ]
 
@@ -90,7 +89,7 @@ export function Sidebar({ className }: SidebarProps) {
         <div className="flex h-14 items-center border-b border-border px-4">
           {!isSidebarCollapsed && (
             <h2 className="text-sm font-semibold text-sidebar-foreground">
-              Agent Board
+              Spec Board
             </h2>
           )}
         </div>

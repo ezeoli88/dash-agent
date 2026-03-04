@@ -6,6 +6,7 @@ import { getAuthToken } from '@/lib/auth'
 // Lazy imports for pages to enable code splitting
 import HomePage from '@/app/page'
 import BoardPage from '@/app/board/page'
+import SpecsPage from '@/app/specs/page'
 import DiffPage from '@/app/diff/[taskId]/page'
 import ReposPage from '@/app/repos/page'
 import SettingsPage from '@/app/settings/page'
@@ -61,6 +62,13 @@ const indexRoute = createRoute({
   component: HomePage,
 })
 
+// Specs route
+const specsRoute = createRoute({
+  getParentRoute: () => mainLayoutRoute,
+  path: '/specs',
+  component: SpecsPage,
+})
+
 // Board route
 const boardRoute = createRoute({
   getParentRoute: () => mainLayoutRoute,
@@ -112,6 +120,7 @@ const routeTree = rootRoute.addChildren([
   setupRoute,
   mcpSetupRoute,
   mainLayoutRoute.addChildren([
+    specsRoute,
     boardRoute,
     diffRoute,
     settingsRoute,

@@ -2,8 +2,11 @@
 
 import { useMemo } from 'react'
 import { useTasks } from '@/features/tasks/hooks/use-tasks'
-import type { Task } from '@/features/tasks/types'
+import type { Task, TaskStatus } from '@/features/tasks/types'
 import { BOARD_COLUMNS, STATUS_TO_COLUMN, type BoardState, type BoardColumnId } from '../types'
+
+/** Statuses handled by Spec Studio, excluded from Board */
+const SPEC_PHASE_STATUSES: TaskStatus[] = ['draft', 'refining', 'pending_approval']
 
 export interface UseBoardTasksOptions {
   repositoryId?: string
@@ -42,10 +45,12 @@ export function useBoardTasks(options: UseBoardTasksOptions = {}): UseBoardTasks
 
     if (!tasks) return result
 
-    // Filter by repository if specified
-    const filteredTasks = repositoryId
-      ? tasks.filter((task) => task.repository_id === repositoryId)
-      : tasks
+    // Filter out spec-phase tasks (handled by Spec Studio) and optionally by repository
+    const filteredTasks = tasks.filter((task) => {
+      if (SPEC_PHASE_STATUSES.includes(task.status)) return false
+      if (repositoryId && task.repository_id !== repositoryId) return false
+      return true
+    })
 
     // Group tasks by column
     filteredTasks.forEach((task) => {
