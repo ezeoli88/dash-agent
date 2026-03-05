@@ -1,0 +1,46 @@
+---
+import StepCard from "./ui/StepCard.astro";
+import GradientText from "./ui/GradientText.astro";
+
+const steps = [
+  {
+    number: 1,
+    title: "Create a Task",
+    description: "Describe what you want built in plain language. Pick a repo, choose your AI agent, and hit start.",
+  },
+  {
+    number: 2,
+    title: "AI Generates Spec",
+    description: "The agent produces a technical specification. Review it, tweak if needed, then approve to kick off coding.",
+  },
+  {
+    number: 3,
+    title: "Agent Codes & Creates PR",
+    description: "The agent codes autonomously. Review the diff, leave comments, and approve the pull request when ready.",
+  },
+];
+---
+
+<section id="how-it-works" class="relative py-24 sm:py-32 bg-bg-surface">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6">
+    <!-- Header -->
+    <div class="text-center mb-16" data-animate>
+      <span class="text-xs font-semibold uppercase tracking-widest text-accent-cyan mb-3 block">How it Works</span>
+      <h2 class="text-3xl sm:text-4xl font-bold">
+        From idea to <GradientText>pull request</GradientText> in minutes
+      </h2>
+    </div>
+
+    <!-- Steps -->
+    <div class="relative grid grid-cols-1 md:grid-cols-3 gap-12 md:gap-8">
+      <!-- Dashed connectors (desktop only) -->
+      <div class="hidden md:block absolute top-6 left-[calc(16.67%+24px)] right-[calc(16.67%+24px)] h-px border-t-2 border-dashed border-border-glow"></div>
+
+      {steps.map((step, i) => (
+        <div data-animate data-animate-delay={String(i + 1)}>
+          <StepCard number={step.number} title={step.title} description={step.description} />
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

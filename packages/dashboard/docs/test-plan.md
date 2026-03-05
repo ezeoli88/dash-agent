@@ -39,8 +39,8 @@ Este documento contiene el plan completo de tests E2E para dash-agent. El backen
 ### Fase 1: Setup (Prerequisitos)
 
 ```bash
-# 1. Desde la raíz del monorepo, iniciar el backend (puerto 3000)
-cd packages/server && npm run dev
+# 1. Desde la raíz del monorepo, iniciar el backend (Rust server)
+npm run dev:server
 
 # 2. En otra terminal, iniciar el dashboard (puerto 3003)
 cd packages/dashboard && npm run dev -- -p 3003
@@ -551,7 +551,7 @@ mcp__TestSprite__testsprite_open_test_result_dashboard
 
 ## Checklist Pre-Ejecución
 
-- [ ] Backend API corriendo en puerto 3000 (`packages/server`)
+- [ ] Backend API corriendo (`packages/server-rs`)
 - [ ] Dashboard corriendo en puerto 3003 (`packages/dashboard`)
 - [ ] Variables de entorno configuradas (`packages/dashboard/.env.local`)
 - [ ] Verificar conexión: `curl http://localhost:3000/tasks` retorna JSON

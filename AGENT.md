@@ -30,7 +30,7 @@ Regla: no copiar afirmaciones de docs narrativas sin contrastarlas con código a
 
 ## 3) Estructura del monorepo
 
-- `packages/server`: API backend (Bun + Express + sql.js)
+- `packages/server-rs`: API backend (Rust + Axum + rusqlite)
 - `packages/dashboard`: frontend (Vite + React + TanStack Router/Query + Zustand)
 - `packages/shared`: tipos y schemas Zod compartidos
 - `packages/cli`: wrapper npm (`ai-agent-board`) para descargar/ejecutar binario

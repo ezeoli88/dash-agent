@@ -30,17 +30,17 @@
   ],
   "scripts": {
     "build:shared": "npm run build -w @dash-agent/shared",
-    "build:server": "npm run build -w @dash-agent/server",
     "build:dashboard": "npm run build -w @dash-agent/dashboard",
     "dev:dashboard": "npm run dev -w @dash-agent/dashboard",
-    "dev:server": "npm run dev -w @dash-agent/server",
-    "dev:server-rs": "cargo run --manifest-path packages/server-rs/Cargo.toml -- --port 8080 --no-open --no-pause-on-error --database-path packages/server/data/agent-board.db",
+    "dev:server": "cargo run --manifest-path packages/server-rs/Cargo.toml -- --port 8080 --no-open --no-pause-on-error",
     "dev": "npm run build:shared && npm run dev:server & npm run dev:dashboard",
-    "build": "npm run build:shared && npm run build:server && npm run build:dashboard",
+    "build": "npm run build:shared && npm run build:dashboard",
     "lint": "npm run lint --workspaces --if-present",
     "clean": "npm run clean -w @dash-agent/shared",
     "build:rust": "cd packages/server-rs && cargo build --release",
-    "bundle:local": "npm run build && npm run build:rust && node -e \"const{cpSync,mkdirSync}=require('fs');const d='dist/local';mkdirSync(d+'/public',{recursive:true});cpSync('packages/dashboard/dist',d+'/public',{recursive:true});console.log('Bundle ready at '+d+'/');\""
+    "bundle:local": "npm run build && npm run build:rust && node -e \"const{cpSync,mkdirSync}=require('fs');const d='dist/local';mkdirSync(d+'/public',{recursive:true});cpSync('packages/dashboard/dist',d+'/public',{recursive:true});console.log('Bundle ready at '+d+'/');\"",
+    "dev:landing": "npm run dev -w @dash-agent/landing",
+    "build:landing": "npm run build -w @dash-agent/landing"
   },
   "engines": {
     "node": ">=18.0.0"

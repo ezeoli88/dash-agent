@@ -16,22 +16,22 @@ dash-agent/
 ├── packages/
 │   ├── cli/              # npx agent-board CLI wrapper
 │   ├── dashboard/        # Vite + React SPA frontend
-│   ├── server/           # Bun + Express backend API
+│   ├── server-rs/        # Rust + Axum backend API
 │   └── shared/           # Shared types and schemas
 ├── package.json          # Root workspace
 └── CLAUDE.md
 ```
 
 ### CLI Integration Cross-Check (MANDATORY)
-When modifying CLI-specific code in `packages/server/src/agent/cli-runner.ts` or `packages/server/src/services/agent-detection.service.ts`, you MUST verify that changes for one CLI type do NOT affect others. The system supports multiple CLI agents (claude-code, codex, copilot, gemini), each with:
-- **Independent command building** in `buildCLICommand()` (separate `case` per agent)
-- **Independent output parsing** in `parseOutputLine()` (separate parser per agent)
-- **Independent model lists** in `agent-detection.service.ts`
+When modifying CLI-specific code in `packages/server-rs/src/agent/cli_runner.rs` or `packages/server-rs/src/services/agent_detection_service.rs`, you MUST verify that changes for one CLI type do NOT affect others. The system supports multiple CLI agents (claude-code, codex, copilot, gemini), each with:
+- **Independent command building** in `build_cli_command()` (separate match arm per agent)
+- **Independent output parsing** in `parse_output_line()` (separate parser per agent)
+- **Independent model lists** in `agent_detection_service.rs`
 
 After any CLI-specific change:
-1. Verify the modified `case` is self-contained (no shared variables/constants affected)
-2. Confirm other CLI cases remain untouched
-3. Check that output parser routing in `parseOutputLine()` correctly maps each agent type
+1. Verify the modified match arm is self-contained (no shared variables/constants affected)
+2. Confirm other CLI match arms remain untouched
+3. Check that output parser routing in `parse_output_line()` correctly maps each agent type
 
 ## Local Binary Testing (Rust Server)
 

@@ -1,0 +1,25 @@
+---
+interface Props {
+  accentColor?: string;
+  class?: string;
+}
+
+const { accentColor = "var(--color-accent-cyan)", class: className = "" } = Astro.props;
+---
+
+<div
+  class:list={[
+    "relative group rounded-xl border border-border-subtle bg-bg-card/80 backdrop-blur-sm p-6 transition-all duration-300 hover:border-border-glow hover:bg-bg-card",
+    className,
+  ]}
+>
+  <!-- Hover glow -->
+  <div
+    class="absolute -inset-px rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-xl pointer-events-none"
+    style={`background: radial-gradient(circle at 50% 50%, ${accentColor}15, transparent 70%)`}
+  >
+  </div>
+  <div class="relative z-10">
+    <slot />
+  </div>
+</div>

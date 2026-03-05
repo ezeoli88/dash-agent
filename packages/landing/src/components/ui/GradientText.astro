@@ -1,0 +1,12 @@
+---
+interface Props {
+  class?: string;
+  as?: string;
+}
+
+const { class: className = "", as: Tag = "span" } = Astro.props;
+---
+
+<Tag class:list={["gradient-text", className]}>
+  <slot />
+</Tag>
