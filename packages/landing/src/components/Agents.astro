@@ -1,0 +1,112 @@
+---
+import GradientText from "./ui/GradientText.astro";
+
+const agents = [
+  {
+    name: "Claude Code",
+    command: "claude",
+    type: "CLI",
+    color: "var(--color-accent-purple)",
+    icon: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>`,
+  },
+  {
+    name: "Codex",
+    command: "codex",
+    type: "CLI",
+    color: "var(--color-accent-cyan)",
+    icon: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m8 12 3 3 5-5"/></svg>`,
+  },
+  {
+    name: "Gemini",
+    command: "gemini",
+    type: "CLI",
+    color: "var(--color-accent-blue)",
+    icon: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
+  },
+  {
+    name: "GitHub Copilot",
+    command: "copilot",
+    type: "CLI",
+    color: "#6e7681",
+    icon: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><circle cx="9" cy="10" r="1" fill="currentColor"/><circle cx="15" cy="10" r="1" fill="currentColor"/></svg>`,
+  },
+  {
+    name: "MiniMax",
+    command: "API",
+    type: "API",
+    color: "#e74c5e",
+    icon: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/></svg>`,
+    models: ["M2.5", "M2.5-highspeed", "M2.1", "M2.1-highspeed", "M2"],
+  },
+  {
+    name: "OpenRouter",
+    command: "API",
+    type: "API",
+    color: "#f97316",
+    icon: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" x2="22" y1="12" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
+    models: ["100+ models"],
+  },
+];
+---
+
+<section id="agents" class="relative py-24 sm:py-32 bg-bg-surface">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6">
+    <!-- Header -->
+    <div class="text-center mb-16" data-animate>
+      <span class="text-xs font-semibold uppercase tracking-widest text-accent-cyan mb-3 block">Supported Agents</span>
+      <h2 class="text-3xl sm:text-4xl font-bold">
+        Choose your <GradientText>AI coding agent</GradientText>
+      </h2>
+      <p class="text-text-secondary mt-4 max-w-2xl mx-auto">
+        Use CLI-based agents you already have installed, or connect via API key — no CLI required.
+      </p>
+    </div>
+
+    <!-- Agent grid -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+      {agents.map((agent, i) => (
+        <div
+          data-animate
+          data-animate-delay={String(i + 1)}
+          class="relative group rounded-xl border border-border-subtle bg-bg-card/80 backdrop-blur-sm p-5 transition-all duration-300 hover:border-border-glow hover:bg-bg-card text-center"
+        >
+          <!-- Hover glow -->
+          <div
+            class="absolute -inset-px rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-xl pointer-events-none"
+            style={`background: radial-gradient(circle at 50% 50%, ${agent.color}15, transparent 70%)`}
+          ></div>
+
+          <div class="relative z-10">
+            <!-- Icon -->
+            <div
+              class="w-11 h-11 rounded-lg flex items-center justify-center mx-auto mb-3"
+              style={`background: ${agent.color}15; color: ${agent.color}`}
+            >
+              <Fragment set:html={agent.icon} />
+            </div>
+
+            <!-- Name -->
+            <h3 class="text-sm font-semibold text-text-primary mb-1">{agent.name}</h3>
+
+            <!-- Type badge -->
+            <span
+              class="inline-block text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full"
+              style={`background: ${agent.color}15; color: ${agent.color}`}
+            >
+              {agent.type}
+            </span>
+
+            <!-- Models (if any) -->
+            {agent.models && (
+              <div class="mt-2 space-y-0.5">
+                {agent.models.map((model) => (
+                  <p class="text-[11px] text-text-muted">{model}</p>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
