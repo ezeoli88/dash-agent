@@ -16,6 +16,7 @@ vi.mock('@tanstack/react-router', () => ({
   useRouter: () => ({
     navigate: mockNavigate,
   }),
+  Link: ({ children, ...props }: any) => <a {...props}>{children}</a>,
 }))
 
 vi.mock('sonner', () => ({
@@ -244,11 +245,11 @@ describe('ReposPage', () => {
     renderWithProviders(<ReposPage />)
 
     await waitFor(() => {
-      expect(screen.getByText('project-alpha')).toBeInTheDocument()
+      expect(screen.getAllByText('project-alpha').length).toBeGreaterThan(0)
     })
 
-    // Select repo
-    const repoCard = screen.getByText('project-alpha').closest('button')!
+    // Select repo — use first match (the scan result card)
+    const repoCard = screen.getAllByText('project-alpha')[0].closest('button')!
     await user.click(repoCard)
 
     // Click continue

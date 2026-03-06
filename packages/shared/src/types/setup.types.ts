@@ -48,6 +48,15 @@ export const AI_PROVIDER_INFO: Record<AIProvider, AIProviderInfo> = {
     apiKeyPlaceholder: 'sk-or-v1-...',
     docsUrl: 'https://openrouter.ai/keys',
   },
+  minimax: {
+    id: 'minimax',
+    name: 'MiniMax',
+    description: 'MiniMax AI - Modelos de lenguaje via API',
+    icon: 'minimax',
+    apiKeyPrefix: '',
+    apiKeyPlaceholder: 'eyJhbGciOi...',
+    docsUrl: 'https://www.minimaxi.com/platform',
+  },
 };
 
 // ============================================================================

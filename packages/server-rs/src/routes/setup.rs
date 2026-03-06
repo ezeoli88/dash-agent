@@ -52,6 +52,7 @@ const VALID_AGENT_TYPES: &[&str] = &[
     "gemini",
     "copilot",
     "openrouter",
+    "minimax",
 ];
 
 /// POST /setup/validate-ai-key request body.
@@ -66,6 +67,13 @@ struct ValidateAIKeyRequest {
 /// POST /setup/validate-openrouter-key request body.
 #[derive(Debug, Deserialize)]
 struct ValidateOpenRouterKeyRequest {
+    #[serde(rename = "apiKey")]
+    api_key: String,
+}
+
+/// POST /setup/validate-minimax-key request body.
+#[derive(Debug, Deserialize)]
+struct ValidateMiniMaxKeyRequest {
     #[serde(rename = "apiKey")]
     api_key: String,
 }
@@ -85,6 +93,7 @@ pub fn router() -> Router<AppState> {
         // AI key validation
         .route("/validate-ai-key", post(validate_ai_key))
         .route("/validate-openrouter-key", post(validate_openrouter_key))
+        .route("/validate-minimax-key", post(validate_minimax_key))
         .route("/openrouter-models", get(get_openrouter_models))
         // GitHub OAuth
         .route("/github/auth", get(get_github_auth))
@@ -275,6 +284,31 @@ async fn validate_openrouter_key(
             } else {
                 Ok(Json(json!({ "valid": false, "error": error_msg })))
             }
+        }
+    }
+}
+
+/// POST /api/setup/validate-minimax-key
+///
+/// Validates a MiniMax API key by making a test request.
+async fn validate_minimax_key(
+    Json(body): Json<ValidateMiniMaxKeyRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    info!("POST /setup/validate-minimax-key");
+
+    if body.api_key.is_empty() {
+        return Ok(Json(json!({ "valid": false, "error": "API key is required" })));
+    }
+
+    match crate::agent::api_client::validate_minimax_key(&body.api_key).await {
+        Ok(true) => Ok(Json(json!({ "valid": true }))),
+        Ok(false) => Ok(Json(json!({
+            "valid": false,
+            "error": "Invalid API key. Please check your key and try again.",
+        }))),
+        Err(e) => {
+            warn!(error = %e, "MiniMax key validation failed");
+            Ok(Json(json!({ "valid": false, "error": e.to_string() })))
         }
     }
 }

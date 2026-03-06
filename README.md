@@ -32,9 +32,10 @@ It auto-detects the coding CLIs you already have installed:
 | **Codex** | `codex` | Requires OpenAI API key or CLI login |
 | **Gemini** | `gemini` | Requires Google API key or CLI login |
 | **GitHub Copilot** | `copilot` | Requires GitHub Copilot subscription |
+| **MiniMax** | _(API)_ | MiniMax-M2.5, M2.5-highspeed, M2.1, M2.1-highspeed, M2 |
 | **OpenRouter** | _(API)_ | Use any model via OpenRouter API key |
 
-> No CLI installed? Use **OpenRouter** to access 100+ models through the API without any CLI setup.
+> No CLI installed? Use **MiniMax** or **OpenRouter** to access models through the API without any CLI setup.
 
 ## Quick Start
 
@@ -44,7 +45,7 @@ npx ai-agent-board
 
 That's it. The dashboard opens automatically in your browser. No configuration files, no Docker, no database setup.
 
-> **Requirements:** Node.js >= 18. At least one supported AI coding CLI installed, or an OpenRouter API key.
+> **Requirements:** Node.js >= 18. At least one supported AI coding CLI installed, or a MiniMax/OpenRouter API key.
 
 ### CLI Options
 
@@ -118,7 +119,7 @@ Full light and dark theme support. Automatically follows your system preference.
 
 `agent-board` runs a native server binary that:
 
-1. **Detects** which AI coding CLIs you have installed (Claude Code, Codex, Gemini, Copilot) or uses your OpenRouter API key
+1. **Detects** which AI coding CLIs you have installed (Claude Code, Codex, Gemini, Copilot) or uses your MiniMax/OpenRouter API key
 2. **Assigns** a coding agent to work on your task in an isolated git worktree
 3. **Streams** real-time output, chat messages, and tool activity to the browser via SSE
 4. **Isolates** code changes in git worktrees &mdash; your main branch is never at risk
@@ -159,9 +160,9 @@ All data is stored in a local SQLite database. Nothing leaves your machine excep
 │               │   Task ──▶ AI Agent     │                │
 │               └────────────┬────────────┘                │
 │                            │                             │
-│         ┌──────────┬───────┼────────┬──────────┐         │
-│         ▼          ▼       ▼        ▼          ▼         │
-│     claude      codex   gemini   copilot   OpenRouter    │
+│         ┌──────────┬───────┼────────┬──────────┬─────────┐│
+│         ▼          ▼       ▼        ▼          ▼         ▼│
+│     claude      codex   gemini   copilot   MiniMax  OpenRouter│
 └──────────────────────────────────────────────────────────┘
 ```
 

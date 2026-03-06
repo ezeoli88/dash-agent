@@ -198,6 +198,15 @@ function createSSEConnectionManager() {
         try {
           const data = JSON.parse(event.data) as ChatMessageEvent;
           onChatMessage?.(data);
+          // Also add assistant messages to the log stream
+          if (data.role === 'assistant' && data.content) {
+            onLog({
+              id: generateId(),
+              timestamp: data.timestamp || new Date().toISOString(),
+              level: 'agent',
+              message: data.content,
+            });
+          }
         } catch { /* ignore */ }
       });
 

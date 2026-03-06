@@ -60,6 +60,16 @@ function GeminiIcon({ className }: { className?: string }) {
   )
 }
 
+function MiniMaxIcon({ className }: { className?: string }) {
+  return (
+    <img
+      src="/minimax-icon.ico"
+      alt="MiniMax"
+      className={className}
+    />
+  )
+}
+
 function CopilotIcon({ className }: { className?: string }) {
   return (
     <img
@@ -113,6 +123,14 @@ export const AGENT_DISPLAY_INFO: Record<AgentType, AgentDisplayInfo> = {
     colorClasses: {
       bg: 'bg-gray-100 dark:bg-gray-900/30',
       text: 'text-gray-600 dark:text-gray-400',
+    },
+  },
+  minimax: {
+    name: 'MiniMax',
+    icon: <MiniMaxIcon className={ICON_CLASS} />,
+    colorClasses: {
+      bg: 'bg-rose-100 dark:bg-rose-900/30',
+      text: 'text-rose-600 dark:text-rose-400',
     },
   },
 }

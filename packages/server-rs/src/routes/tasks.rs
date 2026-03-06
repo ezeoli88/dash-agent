@@ -30,7 +30,8 @@ use tracing::{info, warn};
 
 use crate::agent::cli_prompts;
 use crate::agent::types::AgentType;
-use crate::agent::CLIRunnerOptions;
+use crate::agent::{APIRunnerOptions, CLIRunnerOptions};
+use crate::services::agent_service::RunnerOptions;
 use crate::error::AppError;
 use crate::models::task::{CreateTaskInput, TaskStatus, UpdateTaskInput};
 use crate::services::git_service::GitService;
@@ -2154,17 +2155,43 @@ pub async fn start_agent_for_task(
         Some(cwd_str),
     );
 
-    let options = CLIRunnerOptions {
-        task_id: task_id.to_string(),
-        agent_type,
-        prompt,
-        model: task.agent_model.clone(),
-        cwd,
-        env,
-        plan_only: false,
+    // Dispatch based on agent type: API-based vs CLI
+    let runner_options = if agent_type.is_api_based() {
+        // Fetch API key from secrets
+        let api_key = state
+            .db
+            .call(|conn| {
+                crate::services::secrets_service::get_secret(conn, "ai_api_key", Some("minimax"))
+            })
+            .await?
+            .ok_or_else(|| {
+                AppError::Validation("MiniMax API key not configured. Go to Settings → Connections to add it.".into())
+            })?;
+
+        RunnerOptions::API(APIRunnerOptions {
+            task_id: task_id.to_string(),
+            agent_type,
+            prompt,
+            model: task.agent_model.clone(),
+            cwd,
+            api_key,
+        })
+    } else {
+        RunnerOptions::CLI(CLIRunnerOptions {
+            task_id: task_id.to_string(),
+            agent_type,
+            prompt,
+            model: task.agent_model.clone(),
+            cwd,
+            env,
+            plan_only: false,
+        })
     };
 
-    state.agent_service.start_agent(task_id, options).await?;
+    state
+        .agent_service
+        .start_agent(task_id, runner_options)
+        .await?;
 
     Ok(())
 }
@@ -2193,7 +2220,6 @@ pub async fn resume_agent_for_task(
     let cwd_str = cwd.to_str().unwrap_or("");
     let spec = task.user_input.as_deref().unwrap_or(&task.description);
 
-    // Use resume prompt instead of task prompt
     let prompt = cli_prompts::build_resume_prompt(
         &task.title,
         spec,
@@ -2203,17 +2229,41 @@ pub async fn resume_agent_for_task(
         Some(cwd_str),
     );
 
-    let options = CLIRunnerOptions {
-        task_id: task_id.to_string(),
-        agent_type,
-        prompt,
-        model: task.agent_model.clone(),
-        cwd,
-        env,
-        plan_only: false,
+    let runner_options = if agent_type.is_api_based() {
+        let api_key = state
+            .db
+            .call(|conn| {
+                crate::services::secrets_service::get_secret(conn, "ai_api_key", Some("minimax"))
+            })
+            .await?
+            .ok_or_else(|| {
+                AppError::Validation("MiniMax API key not configured.".into())
+            })?;
+
+        RunnerOptions::API(APIRunnerOptions {
+            task_id: task_id.to_string(),
+            agent_type,
+            prompt,
+            model: task.agent_model.clone(),
+            cwd,
+            api_key,
+        })
+    } else {
+        RunnerOptions::CLI(CLIRunnerOptions {
+            task_id: task_id.to_string(),
+            agent_type,
+            prompt,
+            model: task.agent_model.clone(),
+            cwd,
+            env,
+            plan_only: false,
+        })
     };
 
-    state.agent_service.start_agent(task_id, options).await?;
+    state
+        .agent_service
+        .start_agent(task_id, runner_options)
+        .await?;
 
     Ok(())
 }

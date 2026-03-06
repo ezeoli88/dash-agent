@@ -6,7 +6,7 @@ use tokio::sync::RwLock;
 use tokio::time::Instant;
 use tracing::{error, info, warn};
 
-use crate::agent::{CLIAgentRunner, CLIRunnerOptions};
+use crate::agent::{APIAgentRunner, APIRunnerOptions, CLIAgentRunner, CLIRunnerOptions};
 use crate::db::Database;
 use crate::error::AppError;
 use crate::models::task::{TaskStatus, UpdateTaskInput};
@@ -55,9 +55,21 @@ struct AgentTracking {
     feedback_tx: tokio::sync::mpsc::Sender<String>,
 }
 
+/// Internal enum for the spawned task to own the runner.
+enum RunnerKind {
+    CLI(CLIAgentRunner),
+    API(APIAgentRunner),
+}
+
+/// Options for starting an agent — either CLI or API.
+pub enum RunnerOptions {
+    CLI(CLIRunnerOptions),
+    API(APIRunnerOptions),
+}
+
 /// Service for managing agent execution.
 ///
-/// Handles starting, stopping, monitoring, and sending feedback to CLI agent runners.
+/// Handles starting, stopping, monitoring, and sending feedback to agent runners.
 /// Each running agent is tracked by task ID.
 pub struct AgentService {
     active_agents: Arc<RwLock<HashMap<String, AgentTracking>>>,
@@ -86,12 +98,13 @@ impl AgentService {
 
     /// Starts an agent for the given task.
     ///
-    /// Spawns the CLI agent as a background Tokio task and returns immediately.
+    /// Spawns the agent as a background Tokio task and returns immediately.
+    /// Supports both CLI runners (claude-code, codex, etc.) and API runners (MiniMax).
     /// The result of the agent run is communicated via SSE events.
     pub async fn start_agent(
         &self,
         task_id: &str,
-        options: CLIRunnerOptions,
+        options: RunnerOptions,
     ) -> Result<(), AppError> {
         // Check if agent is already running
         {
@@ -109,24 +122,37 @@ impl AgentService {
             logs.entry(task_id.to_string()).or_default();
         }
 
-        self.log(
-            task_id,
-            "info",
-            &format!("Starting CLI agent: {}", options.agent_type),
-            None,
-        )
-        .await;
-
-        // Capture workspace path for post-completion changes extraction
-        let workspace_path = options.cwd.clone();
-
-        // Create the runner
-        let mut runner = CLIAgentRunner::new(options);
-
-        // Extract the cancel token and feedback channel from the runner
-        // so the tracking struct can reference them.
-        let cancel_token = runner.cancel_token();
-        let feedback_tx = runner.feedback_sender();
+        // Extract workspace path and create the appropriate runner
+        let (workspace_path, cancel_token, feedback_tx, runner_kind) = match options {
+            RunnerOptions::CLI(cli_opts) => {
+                self.log(
+                    task_id,
+                    "info",
+                    &format!("Starting CLI agent: {}", cli_opts.agent_type),
+                    None,
+                )
+                .await;
+                let workspace_path = cli_opts.cwd.clone();
+                let runner = CLIAgentRunner::new(cli_opts);
+                let cancel_token = runner.cancel_token();
+                let feedback_tx = runner.feedback_sender();
+                (workspace_path, cancel_token, feedback_tx, RunnerKind::CLI(runner))
+            }
+            RunnerOptions::API(api_opts) => {
+                self.log(
+                    task_id,
+                    "info",
+                    &format!("Starting API agent: {}", api_opts.agent_type),
+                    None,
+                )
+                .await;
+                let workspace_path = api_opts.cwd.clone();
+                let runner = APIAgentRunner::new(api_opts);
+                let cancel_token = runner.cancel_token();
+                let feedback_tx = runner.feedback_sender();
+                (workspace_path, cancel_token, feedback_tx, RunnerKind::API(runner))
+            }
+        };
 
         let now = Instant::now();
         let timeout_at = now + DEFAULT_TIMEOUT;
@@ -156,7 +182,10 @@ impl AgentService {
         let task_id_bg = task_id.to_string();
 
         tokio::spawn(async move {
-            let result = runner.run(&sse).await;
+            let result = match runner_kind {
+                RunnerKind::CLI(mut runner) => runner.run(&sse).await,
+                RunnerKind::API(mut runner) => runner.run(&sse).await,
+            };
 
             match &result {
                 Ok(res) if res.success => {
