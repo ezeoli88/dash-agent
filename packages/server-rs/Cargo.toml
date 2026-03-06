@@ -25,7 +25,7 @@ rand = "0.8"
 hex = "0.4"
 
 # HTTP client
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
 
 # UUID
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -50,6 +50,10 @@ regex-lite = "0.1"
 
 # URL encoding
 urlencoding = "2"
+
+# File system utilities
+globset = "0.4"
+walkdir = "2"
 
 # Misc
 chrono = { version = "0.4", features = ["serde"] }

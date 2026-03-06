@@ -1,6 +1,7 @@
 export { useSetupStatus } from './use-setup-status'
 export { useValidateKey } from './use-validate-key'
 export { useValidateOpenRouter } from './use-validate-openrouter'
+export { useValidateMiniMax } from './use-validate-minimax'
 
 // New secrets API hooks
 export { useSecretsStatus, useInvalidateSecretsStatus, useIsSetupComplete, SECRETS_STATUS_KEY } from './use-secrets-status'

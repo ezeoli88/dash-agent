@@ -81,6 +81,14 @@ const AGENT_INFO: Record<
       text: 'text-indigo-600 dark:text-indigo-400',
     },
   },
+  minimax: {
+    name: 'MiniMax',
+    icon: '\u{1F916}',
+    colorClasses: {
+      bg: 'bg-rose-100 dark:bg-rose-900/30',
+      text: 'text-rose-600 dark:text-rose-400',
+    },
+  },
 }
 
 // ---------------------------------------------------------------------------

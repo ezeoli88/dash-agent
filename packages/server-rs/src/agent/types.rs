@@ -19,7 +19,7 @@ pub struct AgentRunResult {
     pub changes_data: Option<String>,
 }
 
-/// Supported CLI agent types.
+/// Supported agent types (CLI and API-based).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum AgentType {
@@ -27,6 +27,7 @@ pub enum AgentType {
     Codex,
     Copilot,
     Gemini,
+    MiniMax,
 }
 
 impl AgentType {
@@ -37,7 +38,13 @@ impl AgentType {
             Self::Codex => "codex",
             Self::Copilot => "copilot",
             Self::Gemini => "gemini",
+            Self::MiniMax => "minimax",
         }
+    }
+
+    /// Returns true if this agent type uses an HTTP API instead of a CLI process.
+    pub fn is_api_based(&self) -> bool {
+        matches!(self, Self::MiniMax)
     }
 }
 
@@ -56,6 +63,7 @@ impl std::str::FromStr for AgentType {
             "codex" => Ok(Self::Codex),
             "copilot" => Ok(Self::Copilot),
             "gemini" => Ok(Self::Gemini),
+            "minimax" => Ok(Self::MiniMax),
             other => Err(format!("unknown agent type: '{other}'")),
         }
     }
@@ -95,6 +103,23 @@ pub struct CLIRunnerOptions {
     pub env: HashMap<String, String>,
     /// Whether this is a plan-only run (read-only tools).
     pub plan_only: bool,
+}
+
+/// Options for constructing and running an API-based agent (e.g., MiniMax).
+#[derive(Debug, Clone)]
+pub struct APIRunnerOptions {
+    /// The task ID this agent run is associated with.
+    pub task_id: String,
+    /// The type of API agent to run.
+    pub agent_type: AgentType,
+    /// The prompt text to send to the agent.
+    pub prompt: String,
+    /// Optional model override (e.g., "MiniMax-M1").
+    pub model: Option<String>,
+    /// Working directory for tool execution.
+    pub cwd: PathBuf,
+    /// API key for the provider.
+    pub api_key: String,
 }
 
 /// Auth/subscription error rule for detecting known failure patterns in stderr.

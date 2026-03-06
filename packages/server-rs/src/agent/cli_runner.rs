@@ -219,6 +219,9 @@ pub fn build_cli_command(
                 close_stdin_after_prompt: false,
             }
         }
+
+        // MiniMax is API-based — it uses APIAgentRunner, not CLI commands.
+        AgentType::MiniMax => unreachable!("MiniMax is API-based, not CLI"),
     }
 }
 

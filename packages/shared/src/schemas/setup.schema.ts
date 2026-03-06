@@ -7,13 +7,13 @@ import { z } from 'zod';
 /**
  * Supported AI providers
  */
-export const AIProviderSchema = z.enum(['claude', 'openai', 'openrouter']);
+export const AIProviderSchema = z.enum(['claude', 'openai', 'openrouter', 'minimax']);
 export type AIProvider = z.infer<typeof AIProviderSchema>;
 
 /**
  * AI providers list for UI iteration
  */
-export const AI_PROVIDERS = ['claude', 'openai', 'openrouter'] as const;
+export const AI_PROVIDERS = ['claude', 'openai', 'openrouter', 'minimax'] as const;
 
 // ============================================================================
 // OpenRouter Schemas

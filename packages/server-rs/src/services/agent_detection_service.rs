@@ -389,9 +389,12 @@ pub async fn detect_installed_agents(db: Option<&crate::db::Database>) -> Vec<De
     let futures: Vec<_> = configs.iter().map(|c| detect_single_agent(c)).collect();
     let mut agents = futures::future::join_all(futures).await;
 
-    // Detect OpenRouter (API-based, always "installed")
+    // Detect API-based agents (always "installed")
     let openrouter_agent = detect_openrouter(db).await;
     agents.push(openrouter_agent);
+
+    let minimax_agent = detect_minimax(db).await;
+    agents.push(minimax_agent);
 
     // Update cache
     {
@@ -576,6 +579,69 @@ async fn fetch_openrouter_agent_models(api_key: &str) -> Vec<AgentModel> {
             }
         })
         .collect()
+}
+
+// ============================================================================
+// MiniMax Detection
+// ============================================================================
+
+/// Detects MiniMax as an API-based agent.
+///
+/// MiniMax is always "installed" (it's API-based, not a CLI tool).
+/// Authentication is determined by whether a stored API key exists.
+async fn detect_minimax(db: Option<&crate::db::Database>) -> DetectedAgent {
+    let mut authenticated = false;
+
+    if let Some(db) = db {
+        match db
+            .call(|conn| {
+                crate::services::secrets_service::has_secret(conn, "ai_api_key", Some("minimax"))
+            })
+            .await
+        {
+            Ok(has_key) => {
+                authenticated = has_key;
+            }
+            Err(e) => {
+                warn!(error = %e, "Failed to check MiniMax credentials");
+            }
+        }
+    }
+
+    DetectedAgent {
+        id: "minimax".to_string(),
+        name: "MiniMax".to_string(),
+        installed: true, // Always true — API based
+        version: None,
+        authenticated,
+        models: vec![
+            AgentModel {
+                id: "MiniMax-M2.5".into(),
+                name: "MiniMax M2.5".into(),
+                description: Some("Peak performance, ultimate value (~60 tps)".into()),
+            },
+            AgentModel {
+                id: "MiniMax-M2.5-highspeed".into(),
+                name: "MiniMax M2.5 Highspeed".into(),
+                description: Some("Same performance, faster and more agile (~100 tps)".into()),
+            },
+            AgentModel {
+                id: "MiniMax-M2.1".into(),
+                name: "MiniMax M2.1".into(),
+                description: Some("Powerful multi-language programming (~60 tps)".into()),
+            },
+            AgentModel {
+                id: "MiniMax-M2.1-highspeed".into(),
+                name: "MiniMax M2.1 Highspeed".into(),
+                description: Some("Faster and more agile (~100 tps)".into()),
+            },
+            AgentModel {
+                id: "MiniMax-M2".into(),
+                name: "MiniMax M2".into(),
+                description: Some("Agentic capabilities, advanced reasoning".into()),
+            },
+        ],
+    }
 }
 
 /// Fallback: reads the model from the OpenRouter secret metadata.

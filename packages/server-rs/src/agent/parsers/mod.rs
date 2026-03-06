@@ -21,5 +21,6 @@ pub async fn parse_output_line(
         AgentType::Codex => codex::parse(line, emitter, task_id).await,
         AgentType::Copilot => copilot::parse(line, emitter, task_id).await,
         AgentType::Gemini => gemini::parse(line, emitter, task_id).await,
+        AgentType::MiniMax => {} // API-based agent — output parsing is handled by the API runner
     }
 }
